@@ -33,6 +33,7 @@ CALLERS = {
         "{{ gatus_sync_script_path }}",
         "{{ version_check_script_path }}",
         "/etc/systemd/system/gatus-sync.timer",
+        "/etc/systemd/system/catena-version-check.timer",
     ]],
     "reconcile/roles/host_maintenance/tasks/main.yml": [
         ["/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"],

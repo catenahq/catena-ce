@@ -268,7 +268,7 @@
     # changes on every reschedule; a marker keyed on that would reset itself and
     # re-seed catena's values over the admin's edits, which is the exact failure
     # this marker exists to stop. The stack namespace is the same stable
-    # identifier gate_routes and gatus-sync group on.
+    # identifier the app intent keys every app on.
     - name: "WordPress plugins: resolve this site's stack name"
       ansible.builtin.command:
         argv:

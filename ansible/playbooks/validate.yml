@@ -398,12 +398,12 @@
     #   - The platform's gated apps (gatus, catena-admin at dash.<zone>,
     #     healthchecks, portainer, beszel) are always probed.
     #   - `validate_extra_gated_hosts` adds ad-hoc gated hostnames.
-    #   - Client apps deployed from the catalog get their Traefik routes +
-    #     oauth2-proxy gating from dashboard-sync (vps.route.host +
-    #     vps.auth.* labels). Their auth contract is checked on the host by
+    #   - Client apps get their Traefik routes + oauth2-proxy gating from
+    #     dashboard-sync (the route service's vps.route.host + vps.auth.*
+    #     labels). Their auth contract is checked on the host by
     #     verify_gated_intent.py (reconcile/roles/infrastructure
-    #     verify_gated_services.yml), from the same labels dashboard-sync
-    #     reads.
+    #     verify_gated_services.yml), from the same app intent dashboard-sync
+    #     builds.
     #
     # Native-OIDC hosts (vps.auth.mode=public + vps.auth.oidc=true) are not
     # in this set: those apps run their own OAuth dance against Keycloak

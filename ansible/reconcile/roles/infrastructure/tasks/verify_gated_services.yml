@@ -131,7 +131,7 @@
 # --- dynamic client-app auth-gate probe (intent-driven) ----------------------
 # The static list above only covers the fixed infra hostnames. Client-app
 # gating is verified by verify_gated_intent.py ON THE HOST: it derives the
-# expected route set from the SAME Portainer stack labels the route writer
+# expected route set from the SAME app intent the route writer
 # (dashboard-sync / gate_routes) consumes, so an app whose *-auto-gate.yml
 # is missing or renamed still gets asserted (a probe that enumerates route
 # files goes green on exactly that case). Per routed app it asserts
@@ -141,7 +141,7 @@
 # inside the script, so wall-clock is ~one timeout, not 10s per host.
 - name: "Verify gated client apps: intent-driven verifier"
   # Sources the dashboard-sync env file (PORTAINER_API_*, TRAEFIK_DYNAMIC_
-  # DIR, INFRA_COMPOSE_NAMES, AUTH_HOSTNAME) the writer itself runs with.
+  # DIR, AUTH_HOSTNAME, CLOUDFLARE_ZONE*) the writer itself runs with.
   ansible.builtin.shell: >-
     set -a &&
     . {{ dashboard_sync_env_path }} &&

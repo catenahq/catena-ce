@@ -56,8 +56,3 @@ def test_the_gate_is_probed():
     assert "beszel_hostname" in build_set, (
         "validate does not ask the hub for its /oauth2/start redirect")
 
-
-def test_dashboard_sync_leaves_the_hub_to_the_converge():
-    env = (INFRA / "templates" / "dashboard-sync.env.j2").read_text()
-    [line] = [ln for ln in env.splitlines() if ln.startswith("INFRA_COMPOSE_NAMES=")]
-    assert "{{ beszel_hub_compose_name }}" in line

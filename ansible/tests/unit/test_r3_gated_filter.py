@@ -1,7 +1,7 @@
 """Lock down the gated-host probe set in playbooks/validate.yml.
 
-Client-app gating is label-based via dashboard-sync (route_synth /
-labels_schema) and verified by verify_gated_services.yml, so validate
+Client-app gating is label-based via dashboard-sync (app_intent /
+gate_routes) and verified by verify_gated_services.yml, so validate
 builds its gated-host probe set statically. This test guards the one
 invariant of that build-set step.
 

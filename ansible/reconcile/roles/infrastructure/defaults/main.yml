@@ -238,24 +238,25 @@ heartbeat_check_slug: catena-heartbeat
 # payload script) runs on every edition: a self-hosted Community deployment
 # sees its own version + CVE-visibility without a license. It auto-detects every running container + swarm
 # service and derives each upstream from the image ref (no registry to
-# maintain), running as the ExecStartPre producer of gatus-sync so the
-# report is fresh before gatus-sync reads it. When the Business managed-
-# update engine is ALSO licensed it writes its updater-state files, which
-# version-check merges into the report's summary card (absent on CE).
+# maintain), on its own timer (catena-version-check.timer); gatus-sync reads
+# the latest report. When the Business managed-update engine is ALSO licensed
+# it writes its updater-state files, which version-check merges into the
+# report's summary card (absent on CE).
 version_check_script_path: /usr/local/bin/catena-version-check
 version_check_overrides_file: /etc/catena/version-check-overrides.json
 version_check_output_file: /var/lib/catena/version-check.json
 
 # --- dashboard-sync ------------------------------------------------------
-# The reconciler that reads every Portainer stack's vps.* labels and decides
-# what that app's Traefik route and oauth2-proxy should be.
+# The reconciler that reads every client app's deployed vps.* labels, writes
+# the app intent, and decides what that app's Traefik route and oauth2-proxy
+# should be.
 #
 # The script and its modules ship in the catena-admin PAYLOAD -- what a label
 # MEANS is a product decision, so it travels with the image rather than waiting
 # for a converge on every host. reconcile/roles/payload installs them earlier in
 # the converge, so the paths below exist by the time anything here schedules
 # them. What this role owns is per-host: the env file's secrets, and enabling
-# the timer.
+# the timer and the app events watcher.
 #
 # In the catena-* namespace like every other payload command
 # (catena-admin payload/lanes/lanes_manifest_test.go enforces it), which also
@@ -268,22 +269,24 @@ dashboard_sync_script_path: "/usr/local/bin/catena-dashboard-sync"
 # The verifier below is one of them, invoked directly by validate.
 dashboard_sync_lib_dir: "/usr/local/lib/catena"
 # What "the reconciler is here" has to mean. catena-dashboard-sync imports these
-# four by bare name at module scope, so the script on its own is a file, not a
-# runnable reconciler -- and the two halves reach a host by different routes:
+# modules by bare name at module scope, so the script on its own is a file, not
+# a runnable reconciler -- and the two halves reach a host by different routes:
 # /usr/local/bin rides the restic snapshot, the modules arrive with the payload.
 #
-# The DIRECTORY is deliberately not the check. bootstrap/roles/common creates it at role
-# position 1 for its own public-ports modules, so it exists on hosts the payload
+# The DIRECTORY is deliberately not the check. bootstrap/roles/common creates it, in the install's
+# first role, for its own public-ports modules, so it exists on hosts the payload
 # has never touched and stat-ing it answers yes for the wrong owner's files.
 dashboard_sync_required_paths:
   - "{{ dashboard_sync_script_path }}"
+  - "{{ dashboard_sync_lib_dir }}/app_intent.py"
   - "{{ dashboard_sync_lib_dir }}/clients_provisioner.py"
   - "{{ dashboard_sync_lib_dir }}/gate_routes.py"
   - "{{ dashboard_sync_lib_dir }}/keycloak_client.py"
   - "{{ dashboard_sync_lib_dir }}/portainer_api.py"
 dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
 # The cadence is in the payload's timer file (catena-admin
-# payload/lanes/systemd/), beside the service it starts.
+# payload/lanes/systemd/), beside the service it starts, and beside
+# catena-app-events.service, which starts a pass when a stack changes.
 
 # --- Shared ClamAV (clamd) --------------------------------------------
 # Topology and image: templates/clamav.compose.yml.j2. Renovate manages the

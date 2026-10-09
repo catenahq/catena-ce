@@ -5,8 +5,8 @@
 # (payload/lanes/catena-dashboard-sync.py plus payload/lib/), which
 # reconcile/roles/payload extracts earlier in the converge.
 #
-# Why the image owns them: what this reconciler does is read every Portainer
-# stack's `vps.*` labels and decide what the route and the oauth2-proxy for
+# Why the image owns them: what this reconciler does is read every client app's
+# deployed `vps.*` labels and decide what the route and the oauth2-proxy for
 # that app should be. That is the MEANING of a label, and its correct value
 # changes when the product changes, not when the host changes -- so it belongs
 # to the image, and changing how app access is resolved ships as an image
@@ -17,8 +17,8 @@
 #   - the env file, which carries the Portainer API key, the marketplace token,
 #     the oauth2-proxy client secret, the domains this host serves and their
 #     cookie secrets;
-#   - enabling and starting the timer, which is the converge installing
-#     capability.
+#   - enabling and starting the timer and the app events watcher, which is the
+#     converge installing capability.
 #
 # That is the same split reconcile/roles/payload's README states: the converge installs
 # capability, the image owns content.
@@ -109,6 +109,15 @@
 - name: "dashboard-sync: enable + start timer"
   ansible.builtin.systemd_service:
     name: "{{ dashboard_sync_unit }}.timer"
+    enabled: true
+    state: started
+  when: _dashboard_sync_present | default(false)
+
+# Starts a pass seconds after a stack is deployed, updated or removed; the
+# hourly timer above is its backstop.
+- name: "dashboard-sync: enable + start the app events watcher"
+  ansible.builtin.systemd_service:
+    name: catena-app-events.service
     enabled: true
     state: started
   when: _dashboard_sync_present | default(false)

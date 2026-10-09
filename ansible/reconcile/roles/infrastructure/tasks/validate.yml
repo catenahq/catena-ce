@@ -108,28 +108,29 @@
   loop_control:
     label: "{{ item.item.path }}"
 
-# Both sync timers ship in the payload, so both are asserted only when the
+# The sync units ship in the payload, so they are asserted only when the
 # payload is expected here: the converge does not wire a timer whose .service
 # is absent, because systemd refuses to start one.
-- name: "validate/infrastructure: which sync timers should be armed"
+- name: "validate/infrastructure: which sync units should be armed"
   ansible.builtin.set_fact:
-    _infra_sync_timers: >-
-      {{ ['catena-dashboard-sync.timer', 'gatus-sync.timer']
+    _infra_sync_units: >-
+      {{ ['catena-dashboard-sync.timer', 'catena-app-events.service',
+          'gatus-sync.timer', 'catena-version-check.timer']
          if (_infra_payload_expected | bool) else [] }}
 
-- name: "validate/infrastructure: sync timers are active + enabled"
+- name: "validate/infrastructure: sync units are active + enabled"
   # service_facts enumerates .service units reliably but can miss .timer
   # units depending on ansible version. Use systemctl command probes so
   # timer state is deterministic across versions.
   ansible.builtin.command: "systemctl {{ item.1 }} {{ item.0 }}"  # noqa: command-instead-of-module
   register: _infra_timer_checks
-  loop: "{{ _infra_sync_timers | product(['is-active', 'is-enabled']) | list }}"
+  loop: "{{ _infra_sync_units | product(['is-active', 'is-enabled']) | list }}"
   loop_control:
     label: "{{ item.0 }} {{ item.1 }}"
   failed_when: false
   changed_when: false
 
-- name: "validate/infrastructure: all sync timers armed"
+- name: "validate/infrastructure: all sync units armed"
   ansible.builtin.assert:
     that:
       - (item.stdout | trim) in ['active', 'enabled']

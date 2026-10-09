@@ -46,6 +46,7 @@ _RECONCILER_PATHS = "{{ dashboard_sync_required_paths }}"
 # module directory, and a binary-only gate then reads present while the unit
 # dies inside systemd on ModuleNotFoundError with an empty journal.
 _REQUIRED_MODULES = (
+    "app_intent.py",
     "clients_provisioner.py",
     "gate_routes.py",
     "keycloak_client.py",
@@ -116,7 +117,7 @@ def test_the_decision_comes_from_the_shared_predicate():
 
 
 def test_the_gate_names_the_modules_not_the_directory():
-    """bootstrap/roles/common creates the lib dir at role position 1 for its own
+    """bootstrap/roles/common creates the lib dir in the install's first role, for its own
     public-ports modules, so it exists on hosts the payload has never touched.
     Stat-ing the directory answers yes for another owner's files, so a
     half-restored host would pass the gate."""
@@ -300,9 +301,10 @@ def test_the_role_owned_fixtures_are_still_asserted_unconditionally():
 def test_the_dashboard_sync_timer_probe_follows_the_same_gate():
     """The converge does not wire a timer whose .service is absent, so probing
     it on a deferred host asserts a timer nothing set out to arm."""
-    expr = str(_find_v("which sync timers should be armed")
-               ["ansible.builtin.set_fact"]["_infra_sync_timers"])
+    expr = str(_find_v("which sync units should be armed")
+               ["ansible.builtin.set_fact"]["_infra_sync_units"])
     assert "catena-dashboard-sync.timer" in expr
+    assert "catena-app-events.service" in expr
     assert _V_EXPECTED in expr
 
 
@@ -310,8 +312,8 @@ def test_the_gatus_timer_is_never_dropped_by_the_gate():
     """gatus-sync is this role's own. If the deferral dropped both timers, a
     host with no payload would have no timer coverage at all -- which reads as
     a pass."""
-    expr = str(_find_v("which sync timers should be armed")
-               ["ansible.builtin.set_fact"]["_infra_sync_timers"])
+    expr = str(_find_v("which sync units should be armed")
+               ["ansible.builtin.set_fact"]["_infra_sync_units"])
     tail = expr.split("else [])", 1)[-1]
     assert "gatus-sync.timer" in tail, (
         "gatus-sync.timer must sit OUTSIDE the conditional half of the "
