@@ -3,6 +3,27 @@
 # No public domain attached -- Traefik reaches each instance by its
 # catena-network alias, and the instance owns the public hostname's route.
 
+# One credentials file per instance (templates/oauth2-proxy.cfg.j2), keyed by
+# slug for the compose to mount, each named after its content.
+- name: "oauth2-proxy: name each instance's credentials file after its content"
+  ansible.builtin.set_fact:
+    _oauth2_proxy_secrets: >-
+      {{ _oauth2_proxy_secrets | default({}) | combine({_app.slug: (
+           [{'base': 'oauth2-proxy-' ~ _app.slug,
+             'target': oauth2_proxy_config_target,
+             'value': lookup('template', 'oauth2-proxy.cfg.j2')}]
+           | swarm_secret_entries | first)}) }}
+  loop: "{{ oauth2_proxy_apps }}"
+  loop_control:
+    loop_var: _app
+    label: "{{ _app.slug }}"
+  no_log: true
+
+- name: "oauth2-proxy: create the missing swarm secrets"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+  vars:
+    swarm_secrets: "{{ _oauth2_proxy_secrets.values() | list }}"
+
 - name: "oauth2-proxy: deploy per-app instance stack"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/swarm_stack.yml
   vars:

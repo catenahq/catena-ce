@@ -4,8 +4,9 @@
 # and the container itself proxies to its backend after auth, emitting
 # a clean 302 to Keycloak when the user is unauthenticated.
 #
-# Secrets via env vars (oauth2-proxy reads OAUTH2_PROXY_* env vars
-# natively).
+# Each instance reads its credentials from its own swarm secret, a config file
+# passed with --config (templates/oauth2-proxy.cfg.j2), so the service spec
+# carries none of them.
 services:
 {% for _app in oauth2_proxy_apps %}
   # NOTE: service name is `oauth2-proxy-<slug>`, NOT just <slug>.
@@ -17,13 +18,8 @@ services:
   # making the proxy proxy to itself instead of to the backend.
   oauth2-proxy-{{ _app.slug }}:
     image: "{{ oauth2_proxy_image }}"
-    environment:
-      OAUTH2_PROXY_CLIENT_SECRET: "{{ oauth2_proxy_client_secret }}"
-      OAUTH2_PROXY_COOKIE_SECRET: "{{ oauth2_proxy_cookie_secret }}"
-{% if _app.basic_auth_password_var is defined %}
-      OAUTH2_PROXY_BASIC_AUTH_PASSWORD: "{{ lookup('vars', _app.basic_auth_password_var) }}"
-{% endif %}
     command:
+      - "--config=/run/secrets/{{ oauth2_proxy_config_target }}"
       - "--http-address=0.0.0.0:{{ oauth2_proxy_internal_port }}"
       - "--reverse-proxy=true"
       - "--provider=keycloak-oidc"
@@ -38,8 +34,11 @@ services:
       - "--redeem-url={{ oauth2_proxy_redeem_url }}"
       - "--oidc-jwks-url={{ oauth2_proxy_jwks_url }}"
       - "--client-id={{ oauth2_proxy_client_id }}"
-      - "--cookie-name={{ oauth2_proxy_cookie_name }}"
-      - "--cookie-domain=.{{ cloudflare_zone }}"
+      # A cookie of its own, signed with its own secret (the config file),
+      # and no --cookie-domain: the browser sends it to this host alone, so
+      # no client app and no other admin tool ever sees it, and a cookie
+      # minted anywhere else fails this instance's signature check.
+      - "--cookie-name={{ oauth2_proxy_cookie_name }}_{{ _app.slug }}"
       - "--cookie-secure=true"
       - "--cookie-samesite=lax"
       - "--whitelist-domain=.{{ cloudflare_zone }}"
@@ -65,9 +64,9 @@ services:
       - "--pass-user-headers=true"
       - "--pass-access-token=false"
 {% if _app.basic_auth_password_var is defined %}
-      # Authorization: Basic <user>:<OAUTH2_PROXY_BASIC_AUTH_PASSWORD> on every
-      # request forwarded, replacing any the browser sent: how the upstream
-      # tells this gate from another caller on catena-network.
+      # Authorization: Basic <user>:<basic_auth_password from the config file>
+      # on every request forwarded, replacing any the browser sent: how the
+      # upstream tells this gate from another caller on catena-network.
       - "--pass-basic-auth=true"
 {% endif %}
       - "--silence-ping-logging=true"
@@ -79,6 +78,9 @@ services:
 {% for _net in _app.networks | default([]) %}
       {{ _net }}: {}
 {% endfor %}
+    secrets:
+      - source: {{ _oauth2_proxy_secrets[_app.slug].name }}
+        target: {{ oauth2_proxy_config_target }}
     deploy:
       restart_policy:
         condition: any
@@ -97,5 +99,14 @@ networks:
     external: true
 {% for _net in oauth2_proxy_apps | map(attribute='networks', default=[]) | flatten | unique %}
   {{ _net }}:
+    external: true
+{% endfor %}
+
+# Created by playbooks/tasks/swarm_secrets.yml before this deploys, each named
+# after its content, so a rotated credential is a new secret and redeploys the
+# instance that reads it.
+secrets:
+{% for _app in oauth2_proxy_apps %}
+  {{ _oauth2_proxy_secrets[_app.slug].name }}:
     external: true
 {% endfor %}

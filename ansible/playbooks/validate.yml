@@ -405,10 +405,10 @@
     #     verify_gated_services.yml), from the same app intent dashboard-sync
     #     builds.
     #
-    # Native-OIDC hosts (vps.auth.mode=public + vps.auth.oidc=true) are not
-    # in this set: those apps run their own OAuth dance against Keycloak
-    # with no oauth2-proxy in the chain, so /oauth2/start does not exist at
-    # their hosts and a probe there 200s against the app's own UI.
+    # Public apps that sign in by themselves (vps.auth.mode=public, with a
+    # sign-in entry from vps.auth.oidc) are not in this set: no oauth2-proxy
+    # stands in front of them, so /oauth2/start does not exist at their hosts
+    # and a probe there 200s against the app's own UI.
     - name: "Build gated-host probe set"
       ansible.builtin.set_fact:
         # Keycloak's own host (auth.<zone>) is the IdP, not an

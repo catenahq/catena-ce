@@ -106,8 +106,13 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `catena_admin_gate_secret`
 - `catena_marketplace_token`
 - `keycloak_db_password`
-- `oauth2_proxy_cookie_secret`
+- `oauth2_proxy_cookie_secret`, the client apps' gates
 - `oauth2_proxy_cookie_secret_<zone>`, one per domain in `CLOUDFLARE_ZONES`
+- `catena_admin_gate_cookie_secret`, the panel's gate
+- `healthchecks_gate_cookie_secret`, Healthchecks' gate
+- `gatus_gate_cookie_secret`, Gatus' gate
+- `beszel_gate_cookie_secret`, the Beszel hub's gate
+- `portainer_gate_cookie_secret`, Portainer's gate
 - `oauth2_proxy_client_secret`
 - `dashboard_sync_client_secret`
 - `catena_admin_panel_client_secret`

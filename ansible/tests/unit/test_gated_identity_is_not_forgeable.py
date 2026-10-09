@@ -10,13 +10,14 @@ account for any realm user who drives its sign-in, so it is on another such
 network, with the alert shim it calls.
 
 The compose templates are rendered the way the converge renders them and read
-back as YAML.
+back as YAML, and a gate's credentials file as the TOML oauth2-proxy reads.
 
 Run: uv run pytest tests/unit/test_gated_identity_is_not_forgeable.py
 """
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 import jinja2
@@ -64,15 +65,14 @@ def _gated_apps() -> list[dict]:
 
 
 def _gates() -> dict:
-    variables = {"catena_admin_gate_secret": GATE_SECRET}
+    apps = _gated_apps()
     rendered = _env().from_string(
         (ROLES / "oauth2_proxy" / "templates" / "oauth2-proxy.compose.yml.j2").read_text()
     ).render(
         ansible_managed="",
-        oauth2_proxy_apps=_gated_apps(),
+        oauth2_proxy_apps=apps,
         oauth2_proxy_image="quay.io/oauth2-proxy/oauth2-proxy:test",
-        oauth2_proxy_client_secret="cs",
-        oauth2_proxy_cookie_secret="ck",
+        oauth2_proxy_config_target="oauth2-proxy.cfg",
         oauth2_proxy_internal_port=4180,
         oauth2_proxy_oidc_issuer="https://auth.acme.test/realms/vps",
         oauth2_proxy_login_url="https://auth.acme.test/login",
@@ -81,9 +81,24 @@ def _gates() -> dict:
         oauth2_proxy_client_id="oauth2-proxy",
         oauth2_proxy_cookie_name="_oauth2_proxy",
         cloudflare_zone="acme.test",
-        lookup=lambda kind, name: variables[name],
+        _oauth2_proxy_secrets={a["slug"]: {"name": f"oauth2-proxy-{a['slug']}-0"}
+                               for a in apps},
     )
     return yaml.safe_load(rendered)
+
+
+def _credentials(app: dict) -> dict:
+    """The gate's credentials file, as oauth2-proxy's --config reads it."""
+    variables = {"catena_admin_gate_secret": GATE_SECRET,
+                 app["cookie_secret_var"]: "ck"}
+    rendered = _env().from_string(
+        (ROLES / "oauth2_proxy" / "templates" / "oauth2-proxy.cfg.j2").read_text()
+    ).render(
+        _app=app,
+        oauth2_proxy_client_secret="cs",
+        lookup=lambda kind, name: variables[name],
+    )
+    return tomllib.loads(rendered)
 
 
 def _compose(name: str, **extra) -> dict:
@@ -110,14 +125,14 @@ def _compose(name: str, **extra) -> dict:
 
 def test_only_the_panels_gate_sends_the_gate_secret():
     services = _gates()["services"]
-    panel_gate = services["oauth2-proxy-catena-admin"]
-    assert panel_gate["environment"]["OAUTH2_PROXY_BASIC_AUTH_PASSWORD"] == GATE_SECRET
-    assert "--pass-basic-auth=true" in panel_gate["command"]
-    for name, svc in services.items():
-        if name == "oauth2-proxy-catena-admin":
-            continue
-        assert "OAUTH2_PROXY_BASIC_AUTH_PASSWORD" not in svc["environment"], (
-            f"{name} sends the panel's gate secret to its own upstream")
+    assert "--pass-basic-auth=true" in services["oauth2-proxy-catena-admin"]["command"]
+    for app in _gated_apps():
+        password = _credentials(app).get("basic_auth_password")
+        if app["slug"] == "catena-admin":
+            assert password == GATE_SECRET
+        else:
+            assert password is None, (
+                f"{app['slug']}'s gate sends the panel's gate secret to its own upstream")
 
 
 def test_the_gated_apps_list_names_the_secret_not_its_value():
@@ -126,6 +141,8 @@ def test_the_gated_apps_list_names_the_secret_not_its_value():
     text = (ROLES / "oauth2_proxy" / "defaults" / "main.yml").read_text()
     assert 'basic_auth_password_var: "catena_admin_gate_secret"' in text
     assert "{{ catena_admin_gate_secret" not in text
+    for app in _gated_apps():
+        assert "{{ " + app["cookie_secret_var"] not in text
 
 
 def test_healthchecks_is_on_its_own_network_only():

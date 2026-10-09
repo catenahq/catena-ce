@@ -1,12 +1,14 @@
 ---
 # Orchestrator for reconcile/roles/oauth2_proxy. Order:
 # 0. Defer entirely when the host has no domain yet.
-# 1. Preflight: secrets, including the password a gate sends its upstream.
+# 1. Preflight: secrets, including each instance's cookie secret and the
+#    password a gate sends its upstream.
 # 2. Render the Keycloak `oauth2-proxy` client into the keycloak realm
 #    config dir + re-run keycloak-config-cli (merge mode -- safe).
 # 3. Render the shared Traefik middleware definitions.
 # 4. Render the per-app Traefik route files (one per gated app).
-# 5. Deploy the per-app instances as one swarm stack.
+# 5. Deploy the per-app instances as one swarm stack, each reading its
+#    credentials from a swarm secret.
 # 6. Validate.
 #
 # This role MUST run AFTER reconcile/roles/keycloak (the realm + admin user must
@@ -15,8 +17,8 @@
 # in place when those apps' routes get registered with Traefik).
 
 # EVERY output of this role is named after the domain: the Host() each route
-# matches, the issuer and login URL it redirects to, the cookie domain it sets
-# and the callback list it registers with Keycloak. With no domain those render
+# matches, the issuer and login URL it redirects to, the redirect domain it
+# allows and the callback list it registers with Keycloak. With no domain those render
 # as bare trailing dots -- gatus., auth. -- which resolve nowhere, so the role
 # would publish a gate in front of nothing and then probe it.
 #
@@ -86,6 +88,22 @@
     label: "{{ _app.slug }}"
   when: not (catena_public_surface_deferred | default(false) | bool)
 
+# Each instance signs its session cookie with a secret of its own, under the
+# same length rule as oauth2_proxy_cookie_secret above.
+- name: "oauth2-proxy: preflight each instance's cookie secret"
+  ansible.builtin.assert:
+    that:
+      - (lookup('vars', _app.cookie_secret_var, default='') | regex_replace('=+$', '') | length) in [22, 32, 43]
+    fail_msg: >-
+      {{ _app.cookie_secret_var }} is missing from the on-box store or is not
+      URL-safe base64 of 16, 24 or 32 bytes. The converge mints it there; to
+      regenerate it, delete it from /etc/catena/config.json and re-converge.
+  loop: "{{ oauth2_proxy_apps }}"
+  loop_control:
+    loop_var: _app
+    label: "{{ _app.slug }}"
+  when: not (catena_public_surface_deferred | default(false) | bool)
+
 # Realm-config render + middleware render + compose deploy + validate
 # all assume Keycloak is up (so keycloak-config-cli can reach it). Gated on
 # the Portainer API key like reconcile/roles/keycloak: portainer_api_key is
@@ -138,40 +156,6 @@
       vars:
         _app_hostname: "{{ hostvars[inventory_hostname][_app.host_var] | default(lookup('vars', _app.host_var, default='')) }}"
       when: _app_hostname | length > 0
-
-    # Native-OIDC apps: force-https + backend only, no chain. Different
-    # filename suffix (-public-oidc.yml) so the cleanup loop in
-    # dashboard-sync's gate-route writer (which only handles
-    # `-auto-gate.yml`) leaves these alone; they're operator-managed via
-    # this role, not client-managed.
-    - name: "oauth2-proxy: render per-app Traefik route files (public OIDC)"
-      ansible.builtin.template:
-        src: app-public-oidc.yml.j2
-        dest: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-public-oidc.yml"
-        owner: root
-        group: root
-        mode: "0644"
-      loop: "{{ oauth2_proxy_public_oidc_apps | default([]) }}"
-      loop_control:
-        loop_var: _app
-        label: "{{ _app.slug }} (public-oidc)"
-      vars:
-        _app_hostname: "{{ hostvars[inventory_hostname][_app.host_var] | default(lookup('vars', _app.host_var, default='')) }}"
-      when: _app_hostname | length > 0
-
-    # Cleanup: remove the `-oauth2-proxy.yml` route file for any app
-    # now on the public-oidc list. Without this, an admin-chain route
-    # left over from a previous converge stays active alongside the
-    # public-oidc route -- two routers claiming the same Host(),
-    # Traefik picks one undefined-ly.
-    - name: "oauth2-proxy: remove stale chain-route files for migrated public-oidc apps"
-      ansible.builtin.file:
-        path: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
-        state: absent
-      loop: "{{ oauth2_proxy_public_oidc_apps | default([]) }}"
-      loop_control:
-        loop_var: _app
-        label: "{{ _app.slug }} (cleanup)"
 
     # Deployed without waiting on the public OIDC discovery URL. oauth2-proxy
     # boots with --skip-oidc-discovery + intra-cluster

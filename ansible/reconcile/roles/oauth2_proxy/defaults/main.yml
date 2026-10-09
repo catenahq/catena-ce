@@ -5,10 +5,12 @@
 #   - listens on catena-network alias `oauth2-proxy-<slug>`
 #   - proxies to its own backend via `--upstream=http://<alias>:<port>`
 #   - enforces its own `--allowed-group=` ACL
-#   - shares the same Keycloak client + cookie name + cookie secret so
-#     a single SSO session covers every gated host (cookie-domain is
-#     `.<zone>`); per-app ACL still enforced at each container's group
-#     filter on top of the shared session.
+#   - shares the one Keycloak client, and keeps a session cookie of its own:
+#     named after its slug, signed with its own secret, with no cookie domain,
+#     so the browser sends it to this host alone and no other gate or app on
+#     the domain ever receives or accepts it. Signing in to one admin tool
+#     signs in to that tool only; the next one sends the browser through
+#     Keycloak once, silently while the Keycloak session lasts.
 #
 # Why per-upstream instead of forward-auth? Traefik's `errors`
 # middleware preserves the original 401 status while replacing only
@@ -30,10 +32,17 @@ oauth2_proxy_compose_name: "oauth2-proxy"
 oauth2_proxy_internal_port: 4180 # default oauth2-proxy listen port
 
 # --- Cookie name ---
-# Single shared cookie across every per-app instance so SSO carries
-# from gatus.<zone> to dash.<zone> to apps.<zone>. Per-app
-# `allowed_groups` filtering enforces ACL on top of the shared session.
+# The session cookie the client apps' gates share, set for the whole domain
+# (reconcile/roles/infrastructure templates/dashboard-sync.env.j2), so one
+# sign-in covers every client app. Each instance below names its own cookie
+# <this>_<slug>.
 oauth2_proxy_cookie_name: "_oauth2_proxy"
+
+# Where each instance's credentials file is mounted, under /run/secrets/: a
+# swarm secret holding its client secret, cookie secret and the password it
+# sends its upstream (templates/oauth2-proxy.cfg.j2), read with --config, so
+# `docker service inspect` shows none of them.
+oauth2_proxy_config_target: "oauth2-proxy.cfg"
 
 # --- Keycloak client wiring ---
 # The static client lives in reconcile/roles/keycloak/templates/realm-oauth2-proxy.yaml.j2
@@ -88,8 +97,10 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 
 # --- Gated apps (one oauth2-proxy container per entry) ---
 # Each entry maps to:
-#   - a per-app oauth2-proxy compose service named `<slug>` with
-#     network alias `oauth2-proxy-<slug>` on catena-network
+#   - a per-app oauth2-proxy compose service named `oauth2-proxy-<slug>`,
+#     also its network alias on catena-network
+#   - a session cookie `<oauth2_proxy_cookie_name>_<slug>` for its host
+#     alone, and a swarm secret holding its credentials file
 #   - a Traefik file-based route at
 #     {{ traefik_dynamic_dir }}/<slug>-oauth2-proxy.yml that
 #     routes Host(<host>) -> http://oauth2-proxy-<slug>:4180
@@ -108,12 +119,16 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 #   upstream_port   backend container's listen port.
 #   allowed_groups  list of Keycloak groups that may pass; oauth2-proxy
 #                   `--allowed-group` is repeated once per entry.
+#   cookie_secret_var  the NAME of the store secret this instance signs its
+#                   session cookie with, one per instance
+#                   (helpers/onbox_config.py INTERNAL_SECRETS).
 #   basic_auth_password_var  optional; the NAME of the variable holding a
 #                   password this instance sends with every request it
 #                   forwards, as the password of an Authorization: Basic
 #                   header, for an upstream that checks a request came through
-#                   its gate. A name rather than the value, so no loop over
-#                   this list carries the secret into task output.
+#                   its gate. A name rather than a value, here and in
+#                   cookie_secret_var, so no loop over this list carries a
+#                   secret into task output.
 #   networks        optional; overlay networks the instance joins besides
 #                   catena-network, for an upstream that is on no other.
 #
@@ -135,6 +150,7 @@ oauth2_proxy_apps:
     # proxy pointed there gets `connection refused` and emits 502.
     upstream_port: 8080
     allowed_groups: ["staff", "admin"]
+    cookie_secret_var: "gatus_gate_cookie_secret"
   # Healthchecks takes X-Forwarded-Email as the signed-in user from whoever
   # sends it (REMOTE_USER_HEADER in
   # reconcile/roles/infrastructure/templates/healthchecks.compose.yml.j2), so
@@ -145,6 +161,7 @@ oauth2_proxy_apps:
     upstream_alias: "healthchecks"
     upstream_port: 8000
     allowed_groups: ["staff", "admin"]
+    cookie_secret_var: "healthchecks_gate_cookie_secret"
     networks: ["{{ healthchecks_network }}"]
   # catena-admin -- the per-VPS operator panel at dash.<zone>. Staff
   # may reach it; the admin's in-app role check (require_admin)
@@ -164,6 +181,7 @@ oauth2_proxy_apps:
     upstream_alias: "catena-admin"
     upstream_port: 8000
     allowed_groups: ["staff", "admin"]
+    cookie_secret_var: "catena_admin_gate_cookie_secret"
     basic_auth_password_var: "catena_admin_gate_secret"
   # Portainer is the per-VPS container control plane -- admin-only. It is
   # ALSO reachable over an SSH forward (host-mode :9000, confined to the host
@@ -179,6 +197,7 @@ oauth2_proxy_apps:
     upstream_alias: "catena-portainer"
     upstream_port: 9000
     allowed_groups: ["admin"]
+    cookie_secret_var: "portainer_gate_cookie_secret"
   # Beszel's hub, admin-only. The hub's own login sits behind this gate, and
   # its Keycloak sign-in creates a hub account for any realm user who reaches
   # it (USER_CREATION in reconcile/roles/infrastructure/templates/
@@ -191,10 +210,5 @@ oauth2_proxy_apps:
     upstream_alias: "beszel-hub"
     upstream_port: 8090
     allowed_groups: ["admin"]
+    cookie_secret_var: "beszel_gate_cookie_secret"
     networks: ["{{ beszel_network }}"]
-
-# Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true), routed by
-# templates/app-public-oidc.yml.j2. These apps register their own Keycloak
-# confidential clients (see reconcile/roles/keycloak/templates/realm-<app>.yaml.j2).
-# Empty; a native-OIDC app opts in by adding an entry.
-oauth2_proxy_public_oidc_apps: []

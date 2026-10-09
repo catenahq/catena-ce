@@ -286,7 +286,16 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "catena_marketplace_token": mint_url_safe,
     # SSO service credentials.
     "keycloak_db_password": mint_strong_password,
+    # Signs the session cookie the client apps' gates share.
     "oauth2_proxy_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    # One per admin tool's gate, each signing a cookie for that tool's host
+    # alone (reconcile/roles/oauth2_proxy oauth2_proxy_apps cookie_secret_var),
+    # so a session cookie a client app or another tool sees opens none of them.
+    "catena_admin_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    "healthchecks_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    "gatus_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    "beszel_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    "portainer_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "oauth2_proxy_client_secret": mint_strong_password,
     "dashboard_sync_client_secret": mint_strong_password,
     # The admin panel's own realm service account: users, groups and
