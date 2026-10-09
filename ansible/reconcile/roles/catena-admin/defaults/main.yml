@@ -36,11 +36,10 @@ catena_admin_deploy_from_converge: >-
 # this service runs, and this role's defaults are not in scope that early. See
 # the block there, including why the name is load-bearing for oauth2_proxy.
 
-# Swarm secrets for the three values that must not travel in argv: the key
-# that signs native-login session cookies, the Healthchecks read key, and
-# the Portainer API key. Each real name gets the value's hash appended
-# (filter_plugins/catena_admin_service.py secret_name) because swarm secrets
-# are immutable -- a fixed name would make every rotation a silent no-op.
+# Swarm secrets for the values that must not travel in argv. Each real name
+# gets the value's hash appended (filter_plugins/catena_admin_service.py
+# secret_name) because swarm secrets are immutable -- a fixed name would make
+# every rotation a silent no-op.
 #
 # The target name doubles as the env var: <KEY>_FILE points at
 # /run/secrets/<target>, which catena-admin's secretenv.go reads.
@@ -48,6 +47,12 @@ catena_admin_secret_specs:
   - base: catena_admin_session_key
     target: CATENA_ADMIN_SESSION_KEY
     value: "{{ catena_admin_session_key }}"
+  # What the panel's sign-in gate sends with every request it forwards
+  # (reconcile/roles/oauth2_proxy). The panel takes a signed-in identity only
+  # from a request carrying it; without it every request is served as nobody.
+  - base: catena_admin_gate_secret
+    target: CATENA_ADMIN_GATE_SECRET
+    value: "{{ catena_admin_gate_secret | default('') }}"
   - base: catena_admin_healthchecks_key
     target: HEALTHCHECKS_API_KEY_READONLY
     value: "{{ healthchecks_api_key_readonly | default('') }}"
@@ -62,7 +67,7 @@ catena_admin_secret_specs:
     value: "{{ catena_admin_panel_client_secret | default('') }}"
   # The path segment in the App Templates URL Portainer fetches. A secret
   # because the catalog it guards carries every client app's credentials, and
-  # a secret rather than an --env for the same reason as the four above: an
+  # a secret rather than an --env for the same reason as the others: an
   # --env value is in the host's process table for the length of the create.
   - base: catena_admin_marketplace_token
     target: CATENA_MARKETPLACE_TOKEN

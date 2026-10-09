@@ -24,9 +24,13 @@ though the SSO session is shared.
   the on-box store, passed via the env block so they never reach the
   command line.
 - `oauth2_proxy_apps` -- list of {slug, host_var, upstream_alias,
-  upstream_port, allowed_groups} per gated infra app. Client apps are not
-  listed here: dashboard-sync provisions an instance per app from its
-  `vps.auth.*` labels.
+  upstream_port, allowed_groups} per gated infra app, plus two optional
+  fields: `basic_auth_password_var`, naming the store secret the instance
+  sends its upstream as a Basic password (the panel's
+  `catena_admin_gate_secret`, without which the panel serves every request
+  as nobody), and `networks`, the overlays it joins besides `catena-network`
+  (Healthchecks' private network). Client apps are not listed here:
+  dashboard-sync provisions an instance per app from its `vps.auth.*` labels.
 
 ## Idempotency
 

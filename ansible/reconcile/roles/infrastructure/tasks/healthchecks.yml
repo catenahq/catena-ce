@@ -1,6 +1,7 @@
 ---
-# Deploy self-hosted Healthchecks as a Portainer-managed compose app ->
-# healthchecks.<zone>. Purpose-built cron/dead-man monitoring -- the OSS
+# Deploy self-hosted Healthchecks as a swarm stack, served at
+# healthchecks.<zone> through its sign-in gate. Purpose-built cron/dead-man
+# monitoring -- the OSS
 # project behind healthchecks.io. One container, SQLite, no metrics,
 # ntfy-capable.
 #
@@ -66,9 +67,9 @@
   vars:
     svc_name: "{{ healthchecks_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'healthchecks.compose.yml.j2') }}"
-    svc_domain_host: "{{ healthchecks_hostname }}"
-    svc_domain_service: "app"
-    svc_domain_port: "{{ healthchecks_internal_port }}"
+    # No route of its own: Healthchecks is on healthchecks_network, which
+    # Traefik is not, so its only public path is its gate's route.
+    svc_domain_host: ""
     # Readiness verified by the aggregate post-role probe in main.yml.
     # The in-container Django ORM probe below gates the seed shell, and
     # is independent of Traefik and the auth proxy.

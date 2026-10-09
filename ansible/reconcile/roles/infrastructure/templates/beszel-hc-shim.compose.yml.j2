@@ -28,9 +28,13 @@ services:
       catena-network:
         aliases:
           - {{ beszel_hc_shim_network_alias }}
+      # Where HC_URL answers: Healthchecks is on no other network.
+      {{ healthchecks_network }}: {}
     labels:
       - traefik.enable=false
 
 networks:
   catena-network:
+    external: true
+  {{ healthchecks_network }}:
     external: true

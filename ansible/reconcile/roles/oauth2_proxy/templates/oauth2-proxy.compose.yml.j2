@@ -4,8 +4,8 @@
 # and the container itself proxies to its backend after auth, emitting
 # a clean 302 to Keycloak when the user is unauthenticated.
 #
-# Cookie + client secrets via env vars (oauth2-proxy reads
-# OAUTH2_PROXY_* env vars natively).
+# Secrets via env vars (oauth2-proxy reads OAUTH2_PROXY_* env vars
+# natively).
 services:
 {% for _app in oauth2_proxy_apps %}
   # NOTE: service name is `oauth2-proxy-<slug>`, NOT just <slug>.
@@ -20,6 +20,9 @@ services:
     environment:
       OAUTH2_PROXY_CLIENT_SECRET: "{{ oauth2_proxy_client_secret }}"
       OAUTH2_PROXY_COOKIE_SECRET: "{{ oauth2_proxy_cookie_secret }}"
+{% if _app.basic_auth_password_var is defined %}
+      OAUTH2_PROXY_BASIC_AUTH_PASSWORD: "{{ lookup('vars', _app.basic_auth_password_var) }}"
+{% endif %}
     command:
       - "--http-address=0.0.0.0:{{ oauth2_proxy_internal_port }}"
       - "--reverse-proxy=true"
@@ -61,12 +64,21 @@ services:
       - "--set-xauthrequest=true"
       - "--pass-user-headers=true"
       - "--pass-access-token=false"
+{% if _app.basic_auth_password_var is defined %}
+      # Authorization: Basic <user>:<OAUTH2_PROXY_BASIC_AUTH_PASSWORD> on every
+      # request forwarded, replacing any the browser sent: how the upstream
+      # tells this gate from another caller on catena-network.
+      - "--pass-basic-auth=true"
+{% endif %}
       - "--silence-ping-logging=true"
       - "--skip-provider-button=true"
     networks:
       catena-network:
         aliases:
           - "oauth2-proxy-{{ _app.slug }}"
+{% for _net in _app.networks | default([]) %}
+      {{ _net }}: {}
+{% endfor %}
     deploy:
       restart_policy:
         condition: any
@@ -83,3 +95,7 @@ services:
 networks:
   catena-network:
     external: true
+{% for _net in oauth2_proxy_apps | map(attribute='networks', default=[]) | flatten | unique %}
+  {{ _net }}:
+    external: true
+{% endfor %}

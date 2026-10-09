@@ -31,7 +31,7 @@ def _spec(**over):
     base = {
         "name": "catena-admin",
         "image": "ghcr.io/catenahq/catena-admin:latest",
-        "network": "catena-network",
+        "networks": ["catena-network", "catena-healthchecks"],
         "ui_port": "9010",
         "direct_port": "8001",
         "group": "1000",
@@ -104,6 +104,21 @@ def test_a_missing_required_field_is_refused():
         _plugin().catena_admin_service_argv(_spec(image=""))
 
 
+def test_the_service_joins_every_network_it_names():
+    # catena-network carries its gate and everything it calls but
+    # Healthchecks, which is on its own network and nowhere else.
+    argv = _plugin().catena_admin_service_argv(_spec())
+    assert "--network=catena-network" in argv
+    assert "--network=catena-healthchecks" in argv
+
+
+@pytest.mark.parametrize("networks", [[], "catena-network"])
+def test_networks_must_be_a_non_empty_list(networks):
+    # A string would be walked character by character into --network=c ...
+    with pytest.raises(ValueError):
+        _plugin().catena_admin_service_argv(_spec(networks=networks))
+
+
 # ─── secrets ─────────────────────────────────────────────────────────────
 
 
@@ -155,11 +170,14 @@ def test_the_secret_value_never_reaches_the_argv():
 # ─── drift ───────────────────────────────────────────────────────────────
 
 
-def _live(env=None, secrets=None):
-    return [{"Spec": {"TaskTemplate": {"ContainerSpec": {
-        "Env": env or [],
-        "Secrets": secrets or [],
-    }}}}]
+def _live(env=None, secrets=None, networks=None):
+    return [{"Spec": {"TaskTemplate": {
+        "ContainerSpec": {
+            "Env": env or [],
+            "Secrets": secrets or [],
+        },
+        "Networks": [{"Target": n} for n in (networks or [])],
+    }}}]
 
 
 def test_a_converged_service_reports_no_env_drift():
@@ -199,6 +217,36 @@ def test_an_unchanged_secret_reports_no_drift():
         _live(secrets=[{"SecretName": "k-abc12345", "File": {"Name": "K"}}]),
         [{"name": "k-abc12345", "target": "K"}],
     ) == []
+
+
+_NETWORK_IDS = {"catena-network": "id-catena", "catena-healthchecks": "id-hc"}
+
+
+def test_attached_networks_report_no_drift():
+    # The live spec names networks by id, the converge by name.
+    assert _plugin().catena_admin_network_drift(
+        _live(networks=["id-hc", "id-catena"]), _NETWORK_IDS) == []
+
+
+def test_a_panel_created_before_its_healthchecks_network_joins_it():
+    assert _plugin().catena_admin_network_drift(
+        _live(networks=["id-catena"]), _NETWORK_IDS,
+    ) == ["--network-add", "catena-healthchecks"]
+
+
+def test_a_network_the_spec_no_longer_names_is_detached():
+    assert _plugin().catena_admin_network_drift(
+        _live(networks=["id-catena", "id-hc", "id-old"]), _NETWORK_IDS,
+    ) == ["--network-rm", "id-old"]
+
+
+def test_a_network_with_no_id_is_refused_rather_than_detached():
+    # Read as absent, it would detach the live network of that name: for
+    # catena-network, the panel's gate.
+    with pytest.raises(ValueError):
+        _plugin().catena_admin_network_drift(
+            _live(networks=["id-catena"]),
+            {"catena-network": "", "catena-healthchecks": "id-hc"})
 
 
 # ─── the host facts the panel's own links are built from ──────────────────
@@ -268,6 +316,34 @@ def test_the_reconcile_checks_that_it_settled():
         next(n for n in names if "reconcile the service spec" in n)), (
         "the re-inspect runs before the update it is supposed to check"
     )
+
+
+def test_the_converge_joins_the_healthchecks_network():
+    """Healthchecks is on its own network and nowhere else, so a panel left
+    off it reads no checks."""
+    spec = next(
+        t["ansible.builtin.set_fact"]["_ca_spec"]
+        for t in _deploy_tasks()
+        if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {})
+    )
+    assert "{{ healthchecks_network }}" in spec["networks"]
+
+
+def test_networks_are_reconciled_and_settled_like_env_and_secrets():
+    # Once in the drift the update applies, once in the check that it settled.
+    assert DEPLOY.read_text().count(
+        "catena_admin_network_drift(_ca_network_ids)") == 2
+
+
+def test_the_gate_secret_reaches_the_panel_as_a_swarm_secret():
+    """Without it the panel serves every request through its gate as nobody,
+    which is the safe failure, and a dead dash.<zone>."""
+    import yaml
+
+    defaults = yaml.safe_load(
+        (DEPLOY.parents[1] / "defaults" / "main.yml").read_text())
+    specs = {s["target"]: s for s in defaults["catena_admin_secret_specs"]}
+    assert "catena_admin_gate_secret" in specs["CATENA_ADMIN_GATE_SECRET"]["value"]
 
 
 def test_the_settle_check_is_not_a_retry():

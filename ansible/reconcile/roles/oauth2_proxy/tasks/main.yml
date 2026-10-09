@@ -1,12 +1,12 @@
 ---
 # Orchestrator for reconcile/roles/oauth2_proxy. Order:
 # 0. Defer entirely when the host has no domain yet.
-# 1. Preflight: secrets + Keycloak realm exists.
+# 1. Preflight: secrets, including the password a gate sends its upstream.
 # 2. Render the Keycloak `oauth2-proxy` client into the keycloak realm
 #    config dir + re-run keycloak-config-cli (merge mode -- safe).
 # 3. Render the shared Traefik middleware definitions.
 # 4. Render the per-app Traefik route files (one per gated app).
-# 5. Deploy the two-instance compose via the Portainer API.
+# 5. Deploy the per-app instances as one swarm stack.
 # 6. Validate.
 #
 # This role MUST run AFTER reconcile/roles/keycloak (the realm + admin user must
@@ -67,6 +67,23 @@
       oauth2_proxy_cookie_secret from /etc/catena/config.json and
       re-converge (minting is fill-only, so it will not touch a value that
       is still there).
+  when: not (catena_public_surface_deferred | default(false) | bool)
+
+# A gate that sends its upstream no password leaves every request it forwards
+# served as nobody there: the panel accepts an identity only beside its gate
+# secret.
+- name: "oauth2-proxy: preflight the password each gate sends its upstream"
+  ansible.builtin.assert:
+    that:
+      - lookup('vars', _app.basic_auth_password_var, default='') | length > 20
+    fail_msg: >-
+      {{ _app.basic_auth_password_var }} is missing from the on-box store.
+      The converge mints it there, so a gap here means the store at
+      /etc/catena/config.json was not loaded.
+  loop: "{{ oauth2_proxy_apps | selectattr('basic_auth_password_var', 'defined') | list }}"
+  loop_control:
+    loop_var: _app
+    label: "{{ _app.slug }}"
   when: not (catena_public_surface_deferred | default(false) | bool)
 
 # Realm-config render + middleware render + compose deploy + validate

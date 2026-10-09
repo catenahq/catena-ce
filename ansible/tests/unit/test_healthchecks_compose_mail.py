@@ -42,6 +42,7 @@ def _environment(provider: str) -> dict:
         ansible_managed="",
         healthchecks_image="healthchecks/healthchecks:test",
         catena_public_surface_deferred=False,
+        healthchecks_network="catena-healthchecks",
         healthchecks_network_alias="healthchecks",
         healthchecks_internal_port=8000,
         healthchecks_host_localhost_port=18000,

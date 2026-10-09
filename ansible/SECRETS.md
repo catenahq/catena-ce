@@ -103,6 +103,7 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `catena_postgres_password`
 - `turn_static_auth_secret`
 - `catena_admin_session_key`
+- `catena_admin_gate_secret`
 - `catena_marketplace_token`
 - `keycloak_db_password`
 - `oauth2_proxy_cookie_secret`

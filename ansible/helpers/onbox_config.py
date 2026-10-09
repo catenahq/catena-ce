@@ -271,6 +271,11 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # Signs the catena-admin native-login session cookie (the host-published
     # tailnet listener). Minted once, stable across converges, rides the backup.
     "catena_admin_session_key": mint_strong_password,
+    # The password the panel's sign-in gate sends with every request it
+    # forwards, and the only proof the panel accepts that a request came
+    # through the gate: its listener is reachable from every container on
+    # catena-network, which can set any identity header it likes.
+    "catena_admin_gate_secret": mint_strong_password,
     # The path segment in the catalog URL Portainer fetches its App Templates
     # from. That catalog carries this host's real client-app credentials, and
     # the route is unauthenticated because Portainer's SERVER reads it and

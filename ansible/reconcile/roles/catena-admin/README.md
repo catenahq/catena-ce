@@ -68,10 +68,16 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   it cannot depend on Portainer to start. The
   credentials arrive as swarm secrets, not `--env`: `docker service
   create` has no `--env-file`, so an `--env` value sits in the host
-  process table where any local user can read it. No Traefik route is
-  written here (oauth2-proxy owns the gated `dash.<zone>` route). The
-  test bench renders its argv from the same filter plugin when it recreates
-  a panel a scenario removed.
+  process table where any local user can read it. One of them,
+  `catena_admin_gate_secret`, is what the panel's sign-in gate sends with
+  every request it forwards: the panel's listener is on `catena-network`,
+  where any client app container can set identity headers, and it takes an
+  identity only from a request carrying that secret. The service also joins
+  Healthchecks' private overlay (`healthchecks_network`) to read its checks,
+  and the spec's networks are reconciled like its env and secrets. No
+  Traefik route is written here (oauth2-proxy owns the gated `dash.<zone>`
+  route). The test bench renders its argv from the same filter plugin when it
+  recreates a panel a scenario removed.
 
 ## What this role does NOT do
 

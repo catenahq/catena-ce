@@ -74,7 +74,11 @@
     _ca_spec:
       name: "{{ catena_admin_service_name }}"
       image: "{{ catena_admin_image }}"
-      network: "{{ catena_network_name | default('catena-network') }}"
+      # catena-network for its gate, Portainer, Keycloak, Gatus and Beszel;
+      # healthchecks_network for Healthchecks, which is on no other.
+      networks:
+        - "{{ catena_network_name | default('catena-network') }}"
+        - "{{ healthchecks_network }}"
       ui_port: "{{ catena_admin_ui_port }}"
       direct_port: "{{ catena_admin_direct_port }}"
       group: "{{ catena_admin_supplementary_gid }}"
@@ -243,9 +247,9 @@
     - _ca_converged.stdout_lines | default([]) | select('search', '^Running') | list | length == 0
 
 # ─── reconcile (rolling) ─────────────────────────────────────────────────
-# Three diffs against one live spec: the hardening subset, the environment,
-# and the mounted secrets. Concatenated into a SINGLE `docker service
-# update` so the task is recreated once, not three times.
+# Four diffs against one live spec: the hardening subset, the environment,
+# the mounted secrets and the attached networks. Concatenated into a SINGLE
+# `docker service update` so the task is recreated once, not four times.
 - name: "Catena-admin: inspect the live service spec"
   ansible.builtin.command:
     argv: [docker, service, inspect, "{{ catena_admin_service_name }}"]
@@ -256,12 +260,34 @@
     - catena_admin_deploy_from_converge | bool
     - _ca_service.rc | default(1) == 0
 
+# The live spec names each network by id. A network that does not exist fails
+# here, rather than reading as one to detach.
+- name: "Catena-admin: the id of each network the service joins"
+  ansible.builtin.command:
+    argv: [docker, network, inspect, --format, "{{ '{{' }}.Id{{ '}}' }}", "{{ item }}"]
+  loop: "{{ _ca_spec.networks }}"
+  register: _ca_network_lookup
+  changed_when: false
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_service.rc | default(1) == 0
+
+- name: "Catena-admin: map each network to its id"
+  ansible.builtin.set_fact:
+    _ca_network_ids: >-
+      {{ dict(_ca_network_lookup.results | map(attribute='item')
+              | zip(_ca_network_lookup.results | map(attribute='stdout') | map('trim'))) }}
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_service.rc | default(1) == 0
+
 - name: "Catena-admin: compute spec drift"
   ansible.builtin.set_fact:
     _ca_drift: >-
       {{ ((_ca_inspect.stdout | from_json) | swarm_service_drift(catena_admin_desired))
          + ((_ca_inspect.stdout | from_json) | catena_admin_env_drift(_ca_spec | catena_admin_full_env))
-         + ((_ca_inspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets)) }}
+         + ((_ca_inspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets))
+         + ((_ca_inspect.stdout | from_json) | catena_admin_network_drift(_ca_network_ids)) }}
   no_log: true
   when:
     - catena_admin_deploy_from_converge | bool
@@ -379,7 +405,8 @@
     _ca_settled: >-
       {{ ((_ca_reinspect.stdout | from_json) | swarm_service_drift(catena_admin_desired))
          + ((_ca_reinspect.stdout | from_json) | catena_admin_env_drift(_ca_spec | catena_admin_full_env))
-         + ((_ca_reinspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets)) }}
+         + ((_ca_reinspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets))
+         + ((_ca_reinspect.stdout | from_json) | catena_admin_network_drift(_ca_network_ids)) }}
   when:
     - catena_admin_deploy_from_converge | bool
     - _ca_reconcile is changed

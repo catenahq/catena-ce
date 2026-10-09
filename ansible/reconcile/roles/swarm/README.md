@@ -2,7 +2,8 @@
 
 Configures the single-node swarm `bootstrap/roles/docker` creates, on every
 converge, from either path: the task-history bound, the `catena.role` label
-stateful services constrain to, and the `catena-network-nudge` self-heal.
+stateful services constrain to, Healthchecks' private overlay, and the
+`catena-network-nudge` self-heal.
 
 ## Inputs
 
@@ -17,6 +18,11 @@ stateful services constrain to, and the `catena-network-nudge` self-heal.
   differs.
 - `docker node update --label-add catena.role=<label>`, only when the label
   differs. The label lives in the swarm raft, which no snapshot carries.
+- `docker network create --driver overlay <healthchecks_network>`, when it is
+  absent. Healthchecks takes the signed-in user from a header anyone who
+  reaches it can set, so it is on this network instead of `catena-network`,
+  with only the services that call it: its sign-in gate, the panel, Gatus and
+  the Beszel alert shim. Not attachable, so no standalone container joins it.
 - Installs `/usr/local/bin/catena-network-nudge`, its unit, and the
   `docker.service` drop-in that fires it on every daemon start, so a container
   stranded by the overlay race is started once `catena-network` is back.
@@ -24,4 +30,6 @@ stateful services constrain to, and the `catena-network-nudge` self-heal.
 ## Related
 
 - Upstream: `bootstrap/roles/docker` (the swarm itself).
-- Downstream: `traefik`, `postgres`, `portainer` (constrained to the label).
+- Downstream: `traefik`, `postgres`, `portainer` (constrained to the label);
+  `oauth2_proxy`, `infrastructure`, `catena-admin` (join the Healthchecks
+  overlay).

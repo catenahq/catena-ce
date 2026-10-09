@@ -7,11 +7,12 @@ Portainer that will not start would take down the only tool that could
 repair it. The converge creates the service directly instead, the same way
 reconcile/roles/traefik, reconcile/roles/postgres and reconcile/roles/portainer do.
 
-Three filters over one spec dict:
+Four filters over one spec dict:
 
-    catena_admin_service_argv(spec)         -> `docker service create` argv
-    catena_admin_env_drift(inspect, env)    -> --env-add / --env-rm flags
-    catena_admin_secret_drift(inspect, ss)  -> --secret-add / --secret-rm flags
+    catena_admin_service_argv(spec)          -> `docker service create` argv
+    catena_admin_env_drift(inspect, env)     -> --env-add / --env-rm flags
+    catena_admin_secret_drift(inspect, ss)   -> --secret-add / --secret-rm flags
+    catena_admin_network_drift(inspect, ids) -> --network-add / --network-rm flags
 
 WHY A SHARED RENDERER. Two consumers deploy this container and must agree
 on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml), and
@@ -166,7 +167,7 @@ def catena_admin_service_argv(spec):
         name        service name (also its DNS name on catena-network --
                     oauth2_proxy upstreams to it by that name)
         image       image ref
-        network     overlay network to attach
+        networks    overlay networks to attach
         ui_port     host port published for the native-login listener
         direct_port the listener's port inside the container
         group       supplementary gid the container joins
@@ -179,10 +180,12 @@ def catena_admin_service_argv(spec):
     """
     if not isinstance(spec, dict):
         raise ValueError("catena_admin_service_argv: spec must be a dict")
-    for key in ("name", "image", "network", "ui_port", "direct_port"):
-        if not str(spec.get(key) or "").strip():
+    for key in ("name", "image", "networks", "ui_port", "direct_port"):
+        if not spec.get(key) or not str(spec.get(key)).strip():
             raise ValueError(
                 f"catena_admin_service_argv: spec.{key} is required")
+    if not isinstance(spec["networks"], (list, tuple)):
+        raise ValueError("catena_admin_service_argv: spec.networks is a list")
 
     argv = [
         "docker", "service", "create",
@@ -193,7 +196,7 @@ def catena_admin_service_argv(spec):
         # wait belongs in the play, where a failure can name the task error.
         "--detach",
         f"--name={spec['name']}",
-        f"--network={spec['network']}",
+        *(f"--network={n}" for n in spec["networks"]),
         # A panel that stays down after one bad exit is a panel nobody can
         # use to find out why it exited.
         "--restart-condition=any",
@@ -235,15 +238,18 @@ def catena_admin_service_argv(spec):
     return argv
 
 
-def _container_spec(inspect):
+def _task_template(inspect):
     """`docker service inspect` returns a one-element list; accept either
     that or an already-unwrapped dict so a caller can pipe from_json in."""
     if isinstance(inspect, list):
         inspect = inspect[0] if inspect else {}
     if not isinstance(inspect, dict):
         return {}
-    return (inspect.get("Spec", {}) or {}).get(
-        "TaskTemplate", {}).get("ContainerSpec", {}) or {}
+    return (inspect.get("Spec", {}) or {}).get("TaskTemplate", {}) or {}
+
+
+def _container_spec(inspect):
+    return _task_template(inspect).get("ContainerSpec", {}) or {}
 
 
 def catena_admin_env_drift(inspect, env):
@@ -303,6 +309,37 @@ def catena_admin_secret_drift(inspect, secrets):
     return args
 
 
+def catena_admin_network_drift(inspect, network_ids):
+    """`docker service update` flags that make the attached networks match.
+
+    `network_ids` maps each network the service joins to its id, as `docker
+    network inspect` reports it: the live spec names a network by id, while
+    the converge declares it by name. A blank id raises rather than reading
+    as absent, because absent means --network-rm, and removing catena-network
+    takes the panel off its gate.
+    """
+    if not isinstance(network_ids, dict):
+        raise ValueError("catena_admin_network_drift: network_ids must be a dict")
+    want = {}
+    for name, net_id in network_ids.items():
+        if not str(net_id or "").strip():
+            raise ValueError(
+                f"catena_admin_network_drift: no id for network {name}")
+        want[str(net_id).strip()] = str(name)
+    live = {
+        str(entry.get("Target") or "")
+        for entry in _task_template(inspect).get("Networks") or []
+        if isinstance(entry, dict)
+    }
+
+    args = []
+    for target in sorted(live - set(want)):
+        args += ["--network-rm", target]
+    for net_id in sorted(set(want) - live):
+        args += ["--network-add", want[net_id]]
+    return args
+
+
 class FilterModule:
     def filters(self):
         return {
@@ -311,4 +348,5 @@ class FilterModule:
             "catena_admin_service_argv": catena_admin_service_argv,
             "catena_admin_env_drift": catena_admin_env_drift,
             "catena_admin_secret_drift": catena_admin_secret_drift,
+            "catena_admin_network_drift": catena_admin_network_drift,
         }

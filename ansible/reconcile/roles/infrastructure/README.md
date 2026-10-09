@@ -34,6 +34,12 @@ Portainer in the path, so a Portainer that will not start leaves them running:
 Gatus, Healthchecks and Beszel's hub sit behind their own oauth2-proxy,
 rendered by `reconcile/roles/oauth2_proxy` before this role runs.
 
+Healthchecks takes the signed-in user from the `X-Forwarded-Email` header its
+gate sets, from whoever sends it, so it is on `healthchecks_network` and not
+on `catena-network`, where every client app is. Its gate, the panel, Gatus
+(its alerts) and the Beszel shim join that network to reach it; its only
+public route is its gate's.
+
 ## Catalog app wiring
 
 Gated on the Portainer API key (`reconcile/roles/portainer` mints it):

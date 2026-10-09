@@ -93,23 +93,19 @@ services:
       # ─── SSO passthrough via oauth2-proxy reverse-proxy ────────────
       # The per-app oauth2-proxy container in front of healthchecks
       # injects X-Forwarded-Email on every authenticated request
-      # (--pass-user-headers=true in oauth2_proxy.compose.yml.j2).
-      # Django WSGI-env-ifies headers as HTTP_X_FORWARDED_EMAIL.
-      # REMOTE_USER_HEADER tells Healthchecks to trust it as identity:
-      # if a User with that email exists, log them in automatically;
-      # otherwise deny. Our SUPERUSER_EMAIL already equals
-      # ADMIN_EMAIL, so the operator skips the Healthchecks login
-      # page entirely.
+      # (--pass-user-headers=true in reconcile/roles/oauth2_proxy
+      # templates/oauth2-proxy.compose.yml.j2), replacing any copy the
+      # browser sent. Django WSGI-env-ifies headers as
+      # HTTP_X_FORWARDED_EMAIL. REMOTE_USER_HEADER makes Healthchecks take
+      # it as the signed-in user, on every request, from whoever sends it:
+      # it logs in the account with that email and creates one when none
+      # exists. SUPERUSER_EMAIL equals ADMIN_EMAIL, so the admin lands in
+      # the seeded account and skips the Healthchecks login page.
       #
-      # This is only safe because oauth2-proxy STRIPS any
-      # client-supplied X-Forwarded-* header on the request before
-      # injecting its own values -- the header cannot be spoofed in
-      # an authenticated path. The unauthenticated /ping/* paths
-      # never reach a session check (oauth2-proxy let them through
-      # via --skip-auth-route, NOT yet wired -- TODO if /ping/*
-      # auto-provision needs anonymous access; today the cron client
-      # uses /ping/<ping_key>/<slug> which doesn't need session
-      # context anyway).
+      # Healthchecks cannot tell the gate from any other caller, so the
+      # network decides who may call it: it is on healthchecks_network
+      # alone, which its gate and the services that read or ping it join
+      # and no client app does (playbooks/group_vars/all/main.yml).
       REMOTE_USER_HEADER: "HTTP_X_FORWARDED_EMAIL"
     volumes:
       - healthchecks-data:/data
@@ -130,7 +126,7 @@ services:
         protocol: tcp
         mode: host
     networks:
-      catena-network:
+      {{ healthchecks_network }}:
         aliases:
           - {{ healthchecks_network_alias }}
     labels:
@@ -144,5 +140,6 @@ volumes:
   healthchecks-data:
 
 networks:
-  catena-network:
+  # Created by reconcile/roles/swarm before this deploys.
+  {{ healthchecks_network }}:
     external: true

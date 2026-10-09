@@ -155,6 +155,13 @@ infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudfla
 
 healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('healthchecks', true) }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
+# The overlay Healthchecks is on, instead of catena-network. Healthchecks takes
+# X-Forwarded-Email as the signed-in user from whoever sends it, so only the
+# services that call it join: its sign-in gate (reconcile/roles/oauth2_proxy),
+# the panel (reconcile/roles/catena-admin), Gatus and the Beszel alert shim
+# (reconcile/roles/infrastructure). reconcile/roles/swarm creates it before the
+# first of them deploys.
+healthchecks_network: "catena-healthchecks"
 
 beszel_subdomain: "{{ cfg_beszel_subdomain | default('beszel', true) }}"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"

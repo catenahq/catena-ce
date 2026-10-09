@@ -67,7 +67,7 @@ def test_the_export_dir_is_still_mounted():
     argv = _plugin().catena_admin_service_argv({
         "name": "catena-admin",
         "image": "ghcr.io/catenahq/catena-admin:latest",
-        "network": "catena-network",
+        "networks": ["catena-network"],
         "ui_port": "9010",
         "direct_port": "8001",
     })

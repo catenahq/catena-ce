@@ -47,7 +47,7 @@ def _argv() -> list[str]:
     return _plugin().catena_admin_service_argv({
         "name": "catena-admin",
         "image": "ghcr.io/catenahq/catena-admin:latest",
-        "network": "catena-network",
+        "networks": ["catena-network"],
         "ui_port": "9010",
         "direct_port": "8001",
         "env": {"CATENA_ADMIN_STATE_DIR": STATE_DIR},
