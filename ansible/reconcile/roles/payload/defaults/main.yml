@@ -48,12 +48,8 @@ catena_payload_image: >-
 # host's own converge names the panel service's image as swarm records it,
 # digest included.
 #
-# WHAT THIS PROVES, precisely: that the image the engines come from is, byte
-# for byte, the image the running tree came from. Whoever named that digest is
-# trusted: the registry, when an install is given only a tag, so a compromised
-# registry passes it. Provenance is `cosign verify` against the keyless
-# signature catena-admin's publish workflow records, which needs cosign on the
-# host.
+# What the check proves, and what it leaves to provenance: README.md, "Which
+# digest this asserts".
 #
 # Empty is NOT "verified", it is "unchecked", and the role says so out loud on
 # every converge: an image named by tag alone carries no digest. A silent skip

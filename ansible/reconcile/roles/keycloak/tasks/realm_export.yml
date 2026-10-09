@@ -67,8 +67,7 @@
   when: (_kc_export_server_ct.stdout | default('') | length) > 0
 
 - name: "Keycloak realm export: kcadm.sh login as master-realm admin"
-  # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py). The
-  # password reaches kcadm as KC_CLI_PASSWORD, read from stdin, never an argv.
+  # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py).
   ansible.builtin.shell: |
     set -o pipefail
     IFS= read -r KC_CLI_PASSWORD

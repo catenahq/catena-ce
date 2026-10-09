@@ -99,7 +99,8 @@
     - "{{ portainer_network }}"
   register: _swarm_private_net_create
   changed_when: _swarm_private_net_create.rc == 0
-  # rc!=0 with "already exists" in stderr is the idempotent no-op path.
+  # "already exists" is the no-op path, as for catena-network in
+  # reconcile/roles/traefik.
   failed_when:
     - _swarm_private_net_create.rc != 0
     - "'already exists' not in (_swarm_private_net_create.stderr | default(''))"

@@ -1,4 +1,5 @@
-"""Who may sign in through an application's own sign-in button.
+"""An application's own sign-in button turns away an account outside the tiers
+its flow admits.
 
 realm-vps.yaml.j2 declares two browser flows, catena-signin-admin and
 catena-signin-staff, which dashboard-sync binds an application's own sign-in

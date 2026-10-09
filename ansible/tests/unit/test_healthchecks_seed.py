@@ -2,9 +2,6 @@
 email change, creates no check, leaves every channel it does not own alone,
 and sets a fresh profile's theme once (scripts/healthchecks-seed.py says why).
 
-The real seed script runs against the stand-in Django models of
-healthchecks_seed_standins.py.
-
 Run: uv run pytest tests/unit/test_healthchecks_seed.py
 """
 from __future__ import annotations

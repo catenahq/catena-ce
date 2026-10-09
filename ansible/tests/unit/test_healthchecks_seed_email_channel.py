@@ -3,9 +3,6 @@ is on: verified, notifying on down and on up, attached to every check when it
 is created and never again, updated in place, and removed when mail is turned
 off. A channel the client added is never touched.
 
-The real seed script runs against the stand-in Django models of
-healthchecks_seed_standins.py.
-
 Run: uv run pytest tests/unit/test_healthchecks_seed_email_channel.py
 """
 from __future__ import annotations

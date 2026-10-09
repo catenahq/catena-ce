@@ -27,12 +27,12 @@ jobs:
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      # The tree's tests read the tree and run its helpers with no
-      # ansible-core, so they run in a lightweight ephemeral env instead of
-      # syncing the project (which would pull ansible-core for nothing here).
+      # In ansible/'s own project, on the ansible-core the host runs: some of
+      # the tree's tests render its templates through ansible-core's
+      # templating, others with the Jinja2 it brings.
       - name: Ansible tree unit tests
         working-directory: ansible
-        run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
+        run: uv run python -m pytest tests/unit -q
       - name: Installer tests
         run: uv run pytest -q
 
@@ -59,11 +59,11 @@ jobs:
         run: uv build --wheel
 
   syntax:
-    # Every playbook parses, roles and all. The unit job above deliberately
-    # runs without ansible-core, so nothing until now READ the tree Ansible
-    # actually executes: a bad task keyword, a malformed block, a module name
-    # ansible-core does not provide -- all of it reached a converge before
-    # anything noticed, and a converge is a client's server.
+    # Every playbook parses, roles and all. The unit tests read task files as
+    # data and render single templates; this loads the tree the way a converge
+    # does, so a bad task keyword, a malformed block or a module name
+    # ansible-core does not provide fails here rather than on a client's
+    # server.
     #
     # --syntax-check loads the whole play including every role it includes, so
     # this covers roles/ without naming them. With no collection installed, a
