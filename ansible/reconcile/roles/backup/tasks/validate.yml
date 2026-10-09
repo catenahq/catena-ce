@@ -153,11 +153,33 @@
     - _bk_payload_expected | bool
     - _bk_configured | bool
 
+# The converge queues the first backup to start once it releases
+# /run/catena.lock (install.yml), and that run creates the repository. Until
+# then restic answers 10 (no repository there) and the unit is activating,
+# waiting on the lock.
+- name: "validate/backup: is the first backup waiting on the converge's lock"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - "{{ backup_systemd_unit_name }}.service"
+  register: _bk_unit_state
+  failed_when: false
+  changed_when: false
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool
+    - _bk_restic_cat.rc == 10
+
 - name: "validate/backup: restic cat config exited 0"
   ansible.builtin.assert:
     that:
-      - _bk_restic_cat.rc == 0
+      - _bk_restic_cat.rc == 0 or _bk_first_backup_pending | bool
     fail_msg: "restic cat config failed (rc={{ _bk_restic_cat.rc }}, stderr={{ _bk_restic_cat.stderr }})"
+  vars:
+    _bk_first_backup_pending: >-
+      {{ _bk_restic_cat.rc == 10
+         and (_bk_unit_state.stdout | default('')) == 'activating' }}
   when:
     - _bk_payload_expected | bool
     - _bk_configured | bool

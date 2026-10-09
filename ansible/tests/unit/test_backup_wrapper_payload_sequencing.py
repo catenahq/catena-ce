@@ -197,6 +197,27 @@ def test_validate_skips_the_restic_probe_until_backup_is_configured():
         assert "_bk_configured" in str(_find(name, VALIDATE)["when"])
 
 
+def test_validate_accepts_no_repository_only_while_the_first_backup_waits():
+    """The converge queues the first backup behind its own lock, and that run
+    creates the repository, so the validate inside the converge finds none:
+    restic's 10 with the unit activating passes, anything else fails."""
+    import jinja2
+
+    task = _find("restic cat config exited 0", VALIDATE)
+    assert "_bk_first_backup_pending | bool" in str(task["ansible.builtin.assert"]["that"])
+    expr = jinja2.Environment().from_string(task["vars"]["_bk_first_backup_pending"])
+
+    def pending(rc: int, unit: dict) -> str:
+        return expr.render(_bk_restic_cat={"rc": rc}, _bk_unit_state=unit).strip()
+
+    assert pending(10, {"stdout": "activating"}) == "True"
+    assert pending(10, {"stdout": "inactive"}) == "False"
+    assert pending(1, {"stdout": "activating"}) == "False"
+    assert pending(10, {"skipped": True}) == "False"
+    probe = _find("first backup waiting on the converge's lock", VALIDATE)
+    assert "_bk_restic_cat.rc == 10" in str(probe["when"])
+
+
 def test_the_role_writes_no_unit_and_no_host_script():
     """The backup lane's units and scripts ship in the payload. A unit written
     here as well would have two owners, and the converge's copy would overwrite
