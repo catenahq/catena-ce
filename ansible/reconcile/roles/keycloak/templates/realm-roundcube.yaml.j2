@@ -49,8 +49,8 @@ clients:
     attributes:
       access.token.lifespan: "3600"
       # Roundcube's OAuth client does not send a PKCE challenge for a
-      # confidential client; clear any inherited attribute. Same posture
-      # as realm-nextcloud / realm-element.
+      # confidential client; an explicit empty string clears any inherited
+      # attribute (config-cli merges, does not replace).
       pkce.code.challenge.method: ""
       post.logout.redirect.uris: "https://webmail.{{ cloudflare_zone }}/*"
 

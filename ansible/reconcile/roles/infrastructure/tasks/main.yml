@@ -131,31 +131,16 @@
           tags: [always]
       tags: [always]
 
-    # Nextcloud native OIDC. Registers the `nextcloud` Keycloak client, so
-    # the discovery URL works the moment a client deploys Nextcloud, and
-    # installs the wiring script behind the panel's "Wire Nextcloud OIDC"
-    # action, which runs the occ provider registration inside the running
-    # container. nextcloud_oidc.yml has the idempotency notes.
-    - name: Nextcloud native OIDC (Keycloak realm client + wiring script)
+    # Nextcloud native OIDC. Installs the wiring script behind the panel's
+    # "Wire Nextcloud OIDC" action, which runs the occ provider
+    # registration inside the running container. nextcloud_oidc.yml has
+    # the idempotency notes.
+    - name: Nextcloud native OIDC (wiring script)
       ansible.builtin.include_tasks:
         file: nextcloud_oidc.yml
         apply:
           tags: [nextcloud_oidc]
       tags: [nextcloud_oidc]
-
-    # Element / Matrix OIDC. Synapse reads the OIDC config straight
-    # from its homeserver.yaml, which the element template's entrypoint
-    # renders from env vars at container start. This
-    # converge step registers the matching `element` client in Keycloak
-    # so the discovery URL works the moment a client deploys Element.
-    # The template lists OIDC_CLIENT_SECRET in env_managed_keys, so the
-    # host's reconciler re-injects it whenever it drifts.
-    - name: Element / Matrix OIDC (Keycloak realm client)
-      ansible.builtin.include_tasks:
-        file: element_oidc.yml
-        apply:
-          tags: [element_oidc]
-      tags: [element_oidc]
 
     # Mailserver TLS cert (mail.<zone>). Opt-in template: issues a
     # Let's Encrypt cert via DNS-01 and injects it into the dms container

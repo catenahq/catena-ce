@@ -1,50 +1,24 @@
 ---
 # Nextcloud native OIDC against Keycloak.
 #
-# Two parts, split by lifecycle:
+# Nextcloud's Keycloak client is its own sign-in entry, which catena-admin's
+# settings sync (dashboard-sync) makes from the template's vps.auth.oidc
+# labels; the same pass writes the entry's OIDC_CLIENT_ID,
+# OIDC_CLIENT_SECRET and OIDC_ISSUER_URL into the stack env, which the
+# template maps onto NEXTCLOUD_OIDC_*. Registering that provider inside
+# Nextcloud is the `occ user_oidc:provider` call of the catena-admin action
+# "Wire Nextcloud OIDC", run on demand against the running container. This
+# file installs the host script behind that action,
+# /usr/local/bin/catena-wire-nextcloud-oidc (scripts/wire-nextcloud-oidc.sh).
 #
-#   1. CONVERGE (this file). Render realm-nextcloud.yaml + re-run
-#      keycloak-config-cli on change so the Keycloak side has a
-#      `nextcloud` client registered the moment a client deploys
-#      Nextcloud. Mirrors the oauth2_proxy pattern.
+# Why an action: a catalog deploy is not followed by a converge. A converge
+# runs at install, on an update, from the panel, or on the scheduled
+# converge lane a licensed host can turn on, so wiring an app's OIDC the
+# first time it is deployed cannot wait for one.
 #
-#   2. POST-DEPLOY (catena-admin action "Wire Nextcloud OIDC"). The
-#      actual `occ user_oidc:provider` call inside the running Nextcloud
-#      container, run on demand after the deploy. Backed by
-#      /usr/local/bin/catena-wire-nextcloud-oidc (installed below from
-#      scripts/wire-nextcloud-oidc.sh).
-#
-# Why split: a catalog deploy is not followed by a converge. A converge runs
-# at install, from the panel, or on the scheduled converge lane a licensed
-# host can turn on, so wiring an app's OIDC the first time it is deployed
-# cannot wait for one. The catena-admin action is the on-demand path; the
-# converge keeps the Keycloak-side state, which it can set up before the app
-# exists.
-#
-# Idempotency: the realm import is unconditional + idempotent. The
-# host script is upsert-safe (user_oidc:provider create-or-update by
-# identifier). Re-running either is cheap and converges to the same
-# state.
+# Idempotency: the copy is idempotent, and the host script is upsert-safe
+# (user_oidc:provider create-or-update by identifier).
 
-# ── Step 1: render realm client + reimport (converge-time) ───────
-- name: "Nextcloud OIDC: render Keycloak client into realm config dir"
-  ansible.builtin.template:
-    src: "{{ playbook_dir }}/../reconcile/roles/keycloak/templates/realm-nextcloud.yaml.j2"
-    dest: "{{ keycloak_realm_host_dir }}/nextcloud.yaml"
-    owner: root
-    group: root
-    mode: "0644"
-  register: _nextcloud_realm_render
-
-- name: "Nextcloud OIDC: re-import realm config with the new client"
-  ansible.builtin.include_tasks:
-    file: ../../keycloak/tasks/realm_bootstrap.yml
-    apply:
-      tags: [nextcloud_realm]
-  when: _nextcloud_realm_render is changed
-  tags: [nextcloud_realm]
-
-# ── Step 2: install the post-deploy wiring script ────────────────
 # Backs the "Wire Nextcloud OIDC" catena-admin action defined in the
 # catalog at reconcile/roles/catena-admin/templates/actions.yml.j2. That catalog
 # is rendered into the host dispatch table + allow-list by

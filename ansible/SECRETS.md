@@ -117,8 +117,6 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `dashboard_sync_client_secret`
 - `catena_admin_panel_client_secret`
 - `catena_identity_probe_client_secret`
-- `nextcloud_oidc_client_secret`
-- `element_oidc_client_secret`
 - `mailserver_oidc_client_secret`
 - `mailserver_introspect_client_secret`
 - `healthchecks_secret_key`

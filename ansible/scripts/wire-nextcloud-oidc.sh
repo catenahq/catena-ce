@@ -12,19 +12,21 @@
 # change picks up the new values. No `--upsert` flag is passed -- that
 # flag does not exist in user_oidc 8.x.
 #
-# Why a button (not a converge task): per project policy, converge
-# runs only at initial install or full VPS repair. App-deploy
-# lifecycle hooks belong in the catena-admin action layer. The Keycloak realm
-# client `nextcloud` is still registered by converge (eagerly, before
-# any Nextcloud deploy) -- that part is appropriate.
+# Why a button (not a converge task): a catalog deploy is not followed by
+# a converge. A converge runs at install, on an update, from the panel, or
+# on the scheduled converge lane, so wiring Nextcloud's OIDC the first time
+# it is deployed cannot wait for one. Nextcloud's Keycloak client is its own
+# sign-in entry: catena-admin's settings sync makes it from the template's
+# vps.auth.oidc labels and writes its values into the stack env.
 
 set -euo pipefail
 
 ct=$(/usr/local/bin/catena-container --required catena-nextcloud app)
 echo "Found Nextcloud container: $ct"
 
-# OIDC env was minted at deploy time from the catalog's
-# env_managed_keys. Read it from inside the container so no secret has
+# The OIDC env is the sign-in entry's values, which the settings sync
+# writes into the stack env and the template maps onto NEXTCLOUD_OIDC_*.
+# Read it from inside the container so no secret has
 # to travel through the host's argv or files. printenv exits 1 when
 # the var is unset; `|| true` lets the validation block below report
 # the missing var with a clear message instead of failing here.
@@ -45,10 +47,11 @@ if [ "${#missing[@]}" -gt 0 ]; then
     echo "error: missing required env on $ct:" >&2
     for m in "${missing[@]}"; do echo "  - $m" >&2; done
     echo >&2
-    echo "These come from the catalog env_managed_keys." >&2
-    echo "Open Portainer -> App Templates -> nextcloud-s3 -> Edit -> Environment" >&2
-    echo "and confirm OIDC_CLIENT_ID / OIDC_CLIENT_SECRET / OIDC_ISSUER_URL" >&2
-    echo "are set, then redeploy the service." >&2
+    echo "These are the values of Nextcloud's own sign-in entry, which the" >&2
+    echo "settings sync writes into the stack environment within a few" >&2
+    echo "minutes of the first deploy, restarting Nextcloud once. Wait until" >&2
+    echo "OIDC_CLIENT_ID / OIDC_CLIENT_SECRET / OIDC_ISSUER_URL show in the" >&2
+    echo "stack's Environment in Portainer, then run this action again." >&2
     exit 2
 fi
 
@@ -67,8 +70,9 @@ docker exec --user 33 "$ct" \
     php /var/www/html/occ app:enable user_oidc >/dev/null
 
 # Idempotent provider upsert. The base command upserts; no --upsert
-# flag exists in user_oidc 8.x. Mappings match the Keycloak realm-
-# nextcloud client (preferred_username -> uid, groups -> groups, etc.).
+# flag exists in user_oidc 8.x. Mappings read the claims the realm's
+# default client scopes put in the sign-in entry's tokens
+# (preferred_username -> uid, groups -> groups, etc.).
 docker exec --user 33 "$ct" \
     php /var/www/html/occ user_oidc:provider keycloak \
         --no-interaction \
