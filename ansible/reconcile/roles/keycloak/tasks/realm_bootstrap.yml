@@ -14,7 +14,7 @@
 # stronger than "container exists in docker ps".
 #
 # Two imports. The SEED (realm-vps.yaml.j2 with realm_seed true: the realm
-# admin's password and the realm's tunable settings) is rendered into
+# admin's account and the realm's tunable settings) is rendered into
 # keycloak_realm_seed_dir, imported once while a bootstrap marker is missing,
 # and deleted. The PERSISTENT realm dir (realm_seed false, plus the client
 # files) is imported on every converge, and what it renders depends on the
@@ -43,14 +43,15 @@
 # The bootstrap markers. Either one missing renders and imports the seed, then
 # writes both.
 #
-# The admin password: KC_BOOTSTRAP_ADMIN_* creates the admin's account in the
+# The realm admin: KC_BOOTSTRAP_ADMIN_* creates the admin's account in the
 # MASTER realm and nowhere else, and this realm's copy of that account has no
 # password unless one is imported. Seeding it from the same on-box
 # admin_password keeps one identity from becoming two accounts, one of them
-# passwordless. Seeded once: asserting it on every converge would reset the
-# password to the store's value each time, undoing a change made in the
-# Account Console. Removing the marker re-seeds it from the store, which is
-# the recovery path for an admin who has lost it.
+# passwordless. The account is seeded once, password and all: asserting it on
+# every converge would undo each edit made to it, a password changed in the
+# Account Console or the account disabled in the admin console. Removing the
+# marker re-seeds it from the store, which is the recovery path for an admin
+# who has lost it.
 #
 # The tunable settings (login flow, brute-force numbers, defaultGroups,
 # locales) are preferences about how this client runs their own tenant, so an
@@ -181,14 +182,15 @@
 
 # --- An admin email change moves the admin, and adds none ---
 #
-# realm-vps.yaml.j2 keys the realm admin on its username, admin_email.
+# The realm seed keys the realm admin on its username, admin_email.
 # keycloak-config-cli finds a user by username (then by email, first and last
 # name together), creates one it does not find, and deletes none
-# (UserImportService, keycloak-config-cli v6.5.1): imported under a new email,
-# the file would add a second, passwordless admin. Every import also signs in
-# to the master realm as admin_email. So before either import, the admin's
-# two accounts take the new email, by id, which keeps their passwords and
-# second factors (Keycloak keys both on the user id):
+# (UserImportService, keycloak-config-cli v6.5.1): re-seeded under a new email,
+# the seed would add a second admin. Every import and kcadm session also signs
+# in to the master realm as admin_email, and the step that refills an empty
+# /admin finds this realm's account by it. So before either import, the
+# admin's two accounts take the new email, by id, which keeps their passwords
+# and second factors (Keycloak keys both on the user id):
 #   - the master realm's, whose username the admin API changes only while the
 #     realm allows username edits, so that is allowed for the one update;
 #   - this realm's, whose username follows its email
@@ -574,6 +576,70 @@
     label: "/{{ item.group }}: {{ item.role }}"
   register: _keycloak_tier_role
   changed_when: "'created:' in _keycloak_tier_role.stdout or 'granted:' in _keycloak_tier_role.stdout"
+
+# The realm's default client scopes, which Keycloak copies onto a client it
+# creates without scope lists (the applications' own sign-in entries are):
+# groups for the group claim every gate and application reads, basic for the
+# sub and auth_time claims, acr for the authentication level, and Keycloak's
+# own profile, email, roles and web-origins. keycloak-config-cli makes a
+# declared list exact, so the realm file declares none and this task only adds:
+# a scope an admin adds to the list stays, and one of these taken off it comes
+# back.
+- name: "Keycloak realm: the default client scopes hold the ones applications need"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    held=$(kc get default-default-client-scopes -r "$realm" --fields name --format csv --noquotes)
+    scopes=$(kc get client-scopes -r "$realm" --fields id,name --format csv --noquotes)
+    for name in {{ _keycloak_needed_scopes | map('quote') | join(' ') }}; do
+      if grep -qxF "$name" <<<"$held"; then
+        continue
+      fi
+      id=
+      while IFS=, read -r sid sname; do
+        if [ "$sname" = "$name" ]; then id=$sid; fi
+      done <<<"$scopes"
+      if [ -z "$id" ]; then
+        echo "client scope $name is missing from realm $realm" >&2
+        exit 1
+      fi
+      kc update "default-default-client-scopes/$id" -r "$realm"
+      echo "added: $name"
+    done
+  args:
+    executable: /bin/bash
+  vars:
+    _keycloak_needed_scopes: [groups, profile, email, roles, web-origins, basic, acr]
+  register: _keycloak_default_scopes
+  changed_when: "'added:' in _keycloak_default_scopes.stdout"
+
+# The realm admin is a seed (realm-vps.yaml.j2), so an edit made to it stays.
+# The one thing put back: when /admin has no member left, nobody reaches the
+# panel or the admin tools, so the admin account rejoins it. A deleted account
+# comes back only through a re-seed (the bootstrap markers above).
+- name: "Keycloak realm: an empty /admin gets the realm admin back"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    admin={{ admin_email | quote }}
+    group=$(kc get group-by-path/admin -r "$realm" --fields id --format csv --noquotes)
+    members=$(kc get "groups/$group/members" -r "$realm" -l 1 --fields id --format csv --noquotes)
+    if [ -n "$members" ]; then
+      exit 0
+    fi
+    user=$(kc get users -r "$realm" -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
+    if [ -z "$user" ]; then
+      echo "/admin is empty and realm $realm has no account $admin" >&2
+      exit 0
+    fi
+    kc update "users/$user/groups/$group" -r "$realm"
+    echo "joined: $admin"
+  args:
+    executable: /bin/bash
+  register: _keycloak_admin_rejoin
+  changed_when: "'joined:' in _keycloak_admin_rejoin.stdout"
 
 # The ids of the two sign-in flows realm-vps.yaml.j2 declares, for
 # dashboard-sync (reconcile/roles/infrastructure/templates/dashboard-sync.env.j2):

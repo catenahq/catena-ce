@@ -99,12 +99,13 @@ keycloak_admin_email_record: "/var/lib/catena/keycloak-realm-admin-email"
 # realm) is the upgrade path when a client wants sub-tenants.
 keycloak_realm: "vps"
 
-# Display name surfaced on the login page: the client's own domain, which is
-# what a person signing in recognises.
+# Display name surfaced on the login page and as the sender name of the realm's
+# mail: the client's own domain, which is what a person signing in recognises.
 #
-# Derived from cloudflare_zone, which is a host fact the store already owns, so
-# it follows the zone when that moves. A client who wants their trading name on
-# the login page instead sets it where the zone is set.
+# Derived from cloudflare_zone, which is a host fact the store already owns. The
+# login page takes it once, in the realm seed, and keeps a trading name given
+# to it in Keycloak's realm settings; the sender name follows the zone with the
+# rest of the realm's mail settings.
 keycloak_realm_display_name: "{{ cloudflare_zone }}"
 
 # Nightly realm-export OnCalendar. Default 03:30 host-local --

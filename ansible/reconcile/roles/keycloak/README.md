@@ -18,22 +18,25 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
    - Before any import, an `admin_email` that differs from the one the last
      import ran under (`/var/lib/catena/keycloak-realm-admin-email`) moves
      the admin's master-realm and realm accounts to the new address by id,
-     keeping their passwords and second factors: the import, which finds the
-     admin by username, then updates that one account. Every sign-in the
-     role makes reads the admin password on stdin, never an argv.
+     keeping their passwords and second factors: every import and kcadm
+     session signs in to the master realm as `admin_email`, and the realm
+     seed keys the realm account on it. Every sign-in the role makes reads
+     the admin password on stdin, never an argv.
    - `realm-vps.yaml.j2` plus the service-account clients render into
      `/etc/catena/keycloak/realms` (parent dir 0700) and import on every
      converge: the four-tier groups (`admin`, `staff`, `client`,
-     `visitor`), the default client scopes, the
+     `visitor`), the `groups` client scope, the
      two sign-in flows applications are bound to by tier, the security
      posture, MFA enforcement and the realm's mail settings, all from the
      on-box store.
-   - After the import it creates the tier roles the two flows check
-     (`catena-tier-admin`, `catena-tier-staff`) and grants each to its group
-     (`/admin`, `/staff`) with kcadm, adding only. It then reads the two
-     sign-in flows' ids (`keycloak_signin_flows`), which dashboard-sync's env
-     file carries, and fails the converge when either is missing.
-   - The realm admin's password and the realm's tunable settings are a
+   - After the import, with kcadm and adding only, it creates the tier roles
+     the two flows check (`catena-tier-admin`, `catena-tier-staff`) and grants
+     each to its group (`/admin`, `/staff`), adds the scopes applications need
+     to the realm's default client scopes, and puts the realm admin back in
+     `/admin` when `/admin` has no member. It then reads the two sign-in
+     flows' ids (`keycloak_signin_flows`), which dashboard-sync's env file
+     carries, and fails the converge when either is missing.
+   - The realm admin's account and the realm's tunable settings are a
      seed: rendered into `/etc/catena/keycloak/seed`, imported once while
      a bootstrap marker under `/var/lib/catena` is missing, then deleted.
    - Other roles render their own OIDC client next to the realm file
@@ -65,17 +68,18 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
   there:
   - the two sign-in flows and their step settings, which decide who may sign
     in to an application limited to staff or administrators;
-  - the `groups` client scope's mapper and the realm's default client scopes:
-    the claims every application receives;
-  - the settings each client file declares for its own client;
+  - the `groups` client scope's mapper: the group claim every gate compares;
+  - the settings each client file declares for its own client, its return
+    addresses among them, and each service account's client roles, which
+    hold it to least privilege;
   - the MFA required action, the mail settings and the security posture,
     which the panel's Settings own;
-  - each service account's client roles, which hold it to least privilege;
-  - the realm admin's account: enabled, email verified, and its roles on
-    application clients, which keycloak-config-cli has no setting to merge.
+  - the realm switched on, since it signs in to every application and the
+    panel.
 - Everything else survives a converge: hand-made roles, groups, departments,
   clients, flows and their settings, roles mapped to `/admin` or `/staff` or
-  added to a tier role, and the realm admin's other groups and realm roles.
+  added to a tier role, scopes added to the realm's default client scopes,
+  the login page's display name, and the realm admin's account.
 
 ## Related
 

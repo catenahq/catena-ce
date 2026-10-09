@@ -140,10 +140,11 @@
       - "IMPORT_MANAGED_ORGANIZATION=NO_DELETE"
       - -e
       - "IMPORT_MANAGED_WORKFLOW=NO_DELETE"
-      # A declared user (the realm admin, the service accounts) keeps the
-      # groups and realm roles given to it by hand: the import adds the ones
-      # its file names and removes none. Its client roles stay exact, which is
-      # what holds each service account to its realm-management roles.
+      # A declared user (a service account, or the realm admin when the seed
+      # is imported again) keeps the groups and realm roles given to it by
+      # hand: the import adds the ones its file names and removes none. Its
+      # client roles stay exact, which is what holds each service account to
+      # its realm-management roles.
       - -e
       - "IMPORT_USERS_MERGE_GROUPS=true"
       - -e

@@ -2,10 +2,11 @@
 
 Anything realm-vps.yaml.j2 declares unconditionally, keycloak-config-cli merges
 back on every converge. Declare the login-flow knobs, the eight brute-force
-numbers, defaultGroups and the locale attributes that way and an admin who turns
-"Verify email" off, widens the lockout window for a shared terminal, adds a
-second default group or switches the realm to French finds it undone by the next
-converge, with nothing saying so.
+numbers, defaultGroups, the locale attributes, the login page's name or the
+realm admin's account that way and an admin who turns "Verify email" off,
+widens the lockout window for a shared terminal, adds a second default group,
+switches the realm to French, gives the login page a trading name or disables
+the admin account finds it undone by the next converge, with nothing saying so.
 
 The split is what this pins:
 
@@ -61,14 +62,17 @@ SEEDED_ONCE = (
     "internationalizationEnabled",
     "supportedLocales",
     "defaultLocale",
+    "displayName",
+    "displayNameHtml",
+    "users",
 )
 
 # The structure the product depends on. NO_DELETE keeps any group, scope or flow
 # an admin adds beside these, and dropping one would leave a realm without the
-# tier model the access matrix reads. The tier roles are the converge's kcadm
-# step (realm_bootstrap.yml), which only adds.
-STRUCTURE = ("groups", "clientScopes", "defaultDefaultClientScopes",
-             "authenticationFlows", "authenticatorConfig")
+# tier model the access matrix reads. The tier roles and the realm's default
+# client scopes are the converge's kcadm steps (realm_bootstrap.yml), which
+# only add.
+STRUCTURE = ("groups", "clientScopes", "authenticationFlows", "authenticatorConfig")
 
 _GUARD_OPEN = re.compile(r"\{%\s*if\s+realm_seed\s*\|\s*bool\s*%\}")
 _GUARD_CLOSE = re.compile(r"\{%\s*endif\s*%\}")

@@ -4,7 +4,7 @@ realm files hold their passwords where only root reads them.
 realm_bootstrap.yml renders realm-vps.yaml.j2 twice. The persistent file is
 imported on every converge and renders from the store alone, so the next
 converge renders the same bytes and reports nothing to change. The seed (the
-realm admin's password and the realm's tunable settings) is rendered into its
+realm admin's account and the realm's tunable settings) is rendered into its
 own dir, imported once, deleted, and only then are the bootstrap markers
 written. Every import runs with keycloak-config-cli's cache off. Settings > Mail owns the realm's mail settings:
 they render into the persistent file on every converge, and an empty map when
@@ -38,7 +38,8 @@ SEEDED_ONCE = (
     "resetPasswordAllowed", "rememberMe", "verifyEmail", "loginWithEmailAllowed",
     "permanentLockout", "maxFailureWaitSeconds", "minimumQuickLoginWaitSeconds",
     "waitIncrementSeconds", "quickLoginCheckMilliSeconds", "maxDeltaTimeSeconds",
-    "failureFactor", "defaultGroups", "attributes",
+    "failureFactor", "defaultGroups", "attributes", "users", "displayName",
+    "displayNameHtml",
 )
 
 
@@ -102,7 +103,6 @@ def test_the_persistent_render_depends_on_no_marker():
 def test_the_persistent_file_carries_no_seed():
     rendered = _render(realm_seed=False)
     doc = yaml.safe_load(rendered)
-    assert all("credentials" not in user for user in doc["users"])
     assert ADMIN_PASSWORD not in rendered
     for key in SEEDED_ONCE:
         assert key not in doc, f"{key} is asserted on every converge"

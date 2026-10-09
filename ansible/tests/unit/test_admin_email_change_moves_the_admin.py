@@ -2,9 +2,10 @@
 and adds none: one realm admin, the same account, holding the new email and
 keeping its password and second factor (CV2).
 
-realm-vps.yaml.j2 keys the realm admin on admin_email, and keycloak-config-cli
-creates a user it does not find by username and deletes none, so the converge
-moves the accounts by id before the import: the master realm's, whose username
+Every import and kcadm session signs in to the master realm as admin_email, and
+the realm seed keys the realm admin on it (keycloak-config-cli creates a user it
+does not find by username and deletes none), so the converge moves the accounts
+by id before the import: the master realm's, whose username
 Keycloak changes only while the realm allows username edits, and this realm's,
 whose username follows its email. The task's script runs here against a stand-in
 `docker` that answers the kcadm calls the way Keycloak 26.6.7's admin API does
@@ -194,5 +195,5 @@ def test_it_runs_before_both_imports_and_only_on_a_change():
 
 
 def test_the_realm_file_keys_the_admin_on_admin_email():
-    """The premise: the import matches the admin by this username."""
+    """The premise: the seed import matches the admin by this username."""
     assert '- username: "{{ admin_email }}"' in REALM.read_text()

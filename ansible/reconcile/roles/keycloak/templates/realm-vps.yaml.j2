@@ -1,18 +1,20 @@
 # {{ ansible_managed }}
 # Realm definition for the per-VPS SSO tenant. keycloak-config-cli
 # import-update-merge semantics: re-running this against an existing
-# realm reconciles delta only (groups/users/clients/protocolMappers
-# merged by identifier). Safe to re-apply on every converge.
+# realm reconciles delta only (groups, scopes and flows merged by
+# identifier). Safe to re-apply on every converge.
 #
 # Rendered twice by realm_bootstrap.yml: with realm_seed false into the
 # persistent realm dir, imported on every converge, and with realm_seed
 # true into a seed file imported once and then deleted. The OIDC clients
 # live in their own realm-*.yaml.j2 files beside this one.
 
+# enabled is asserted on every converge: the realm signs in to every
+# application and to the panel, and when Keycloak's database has lost the
+# realm while the bootstrap markers remain, the persistent import is the one
+# that creates it again, which without this flag would be switched off.
 realm: {{ keycloak_realm }}
 enabled: true
-displayName: "{{ keycloak_realm_display_name }}"
-displayNameHtml: "<b>{{ keycloak_realm_display_name }}</b>"
 
 # ─── Asserted on EVERY converge: security posture, not preference ────────
 #
@@ -64,6 +66,10 @@ requiredActions:
 # declare, so the persistent file never asserts them and an edit made in the
 # Keycloak admin UI ("Verify email" off, a wider lockout window, French as the
 # default locale) survives every converge.
+
+# The name on the login page: the client's domain until they give it another.
+displayName: "{{ keycloak_realm_display_name }}"
+displayNameHtml: "<b>{{ keycloak_realm_display_name }}</b>"
 
 # Login flow. resetPasswordAllowed=true: standard "forgot password" flow
 # available on the login page.
@@ -133,7 +139,8 @@ defaultGroups:
 {% endif %}
 
 # Realm-wide group claim mapper. Every client created in this realm gets it
-# through the default list below, so no client declares a mapper of its own.
+# through the realm's default client scopes, which realm_bootstrap.yml keeps
+# holding it, so no client declares a mapper of its own.
 clientScopes:
   - name: groups
     description: "Group memberships (top-level path) for OIDC clients."
@@ -153,54 +160,36 @@ clientScopes:
           access.token.claim: "true"
           userinfo.token.claim: "true"
 
-# The scopes Keycloak binds to a client created without scope lists (the
-# applications' own sign-in entries are). keycloak-config-cli makes the realm's
-# list exactly this one, adding and removing, so it keeps Keycloak's own
-# defaults beside groups: basic carries the sub and auth_time claims, acr the
-# authentication level. Keycloak copies the list onto a client when it creates
-# it; a client that exists keeps the scopes it has.
-defaultDefaultClientScopes:
-  - groups
-  - profile
-  - email
-  - roles
-  - web-origins
-  - basic
-  - acr
-
-# Bootstrap admin user. `admin` is appended to every gated app's
-# allow-list by the auth engine (superuser), so a single `/admin`
-# membership reaches every app from day one -- no need to also list
-# staff/client. The import puts back /admin and the default roles and keeps
-# every other group and realm role given to this account by hand
-# (IMPORT_USERS_MERGE_* in ../tasks/_config_cli_import.yml).
+{% if realm_seed | bool %}
+# Seed only: the realm's administrator, created with the realm and then the
+# account of whoever holds it, so an edit made to it in Keycloak (disabled,
+# renamed, a role on an application) survives every converge. `admin` is
+# appended to every gated app's allow-list by the auth engine (superuser), so
+# a single `/admin` membership reaches every app from day one -- no need to
+# also list staff/client. realm_bootstrap.yml puts this account back in /admin
+# only when /admin has no member left.
 #
 # KC_BOOTSTRAP_ADMIN_* on the server container creates the admin's
 # account in the MASTER realm and NOWHERE ELSE. Keycloak users are
 # per-realm, so this entry is a SECOND account that shares the email.
 # Without a password of its own, the same email and password open the
 # master realm and are refused here, with nothing on the login page to
-# say why.
-#
-# Its password comes from the same on-box admin_password, so there is one
-# password to know, and only in the seed: asserting it on every converge
-# would reset the password back to the store's value each time and
-# silently undo a change made in the Account Console.
+# say why. Its password comes from the same on-box admin_password, so there
+# is one password to know.
 users:
   - username: "{{ admin_email }}"
     email: "{{ admin_email }}"
     enabled: true
     emailVerified: true
-{% if realm_seed | bool %}
     credentials:
       - type: password
         value: "{{ admin_password }}"
         temporary: false
-{% endif %}
     groups:
       - /admin
     realmRoles:
       - default-roles-{{ keycloak_realm }}
+{% endif %}
 
 # Realm-level SMTP config, from the outgoing mail chosen in the panel's
 # Settings > Mail (resolved in ../defaults/main.yml). Drives password

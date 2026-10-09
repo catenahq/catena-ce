@@ -147,22 +147,6 @@ def test_every_sub_flow_is_declared_once():
     assert sorted(referenced) == sorted(a for a in aliases if a not in ADMITTED)
 
 
-def test_the_realm_file_leaves_the_tier_roles_to_the_converge():
-    """keycloak-config-cli makes a declared role's composites and a declared
-    group's role mappings exact, so the file declares neither; the converge
-    creates the tier roles and grants them (test_realm_tier_roles.py)."""
-    realm = _realm()
-    assert "roles" not in realm
-    assert all("realmRoles" not in g and "clientRoles" not in g for g in realm["groups"])
-
-
-def test_new_clients_get_keycloaks_basic_and_acr_scopes():
-    """A client created with no scope lists gets the realm's defaults, and the
-    import makes the realm's list exactly the file's."""
-    scopes = _realm()["defaultDefaultClientScopes"]
-    assert {"basic", "acr", "groups", "profile", "email", "roles", "web-origins"} == set(scopes)
-
-
 def test_the_converge_reads_both_flow_ids_and_fails_without_them():
     tasks = [t for t in yaml.safe_load(BOOTSTRAP.read_text()) if isinstance(t, dict)]
     names = [str(t.get("name", "")) for t in tasks]

@@ -14,8 +14,9 @@ again from the new release.
 
 Without import.users.merge-groups and merge-roles the import removes every
 group and realm role a declared user holds beyond its file's list
-(UserImportService handleGroups and handleRealmRoles), so the realm admin would
-lose each department or role given to it by hand on every converge.
+(UserImportService handleGroups and handleRealmRoles), so a service account
+would lose each group or role given to it by hand on every converge, and the
+realm admin each one it holds when a removed marker re-seeds it.
 
 Run: uv run pytest tests/unit/test_config_cli_import_keeps_everything.py
 """
