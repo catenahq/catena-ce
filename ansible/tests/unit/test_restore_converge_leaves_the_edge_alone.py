@@ -23,7 +23,9 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 EDGE = "edge"
-_PUBLIC_PROBE = re.compile(r"url:\s*[\"']?https://")
+# The uri module's `url:` key, not a key that merely ends in url (a seed's
+# oidc_auth_url names an address, it requests none).
+_PUBLIC_PROBE = re.compile(r"\burl:\s*[\"']?https://")
 
 
 def _reconcile_roles() -> dict[str, set[str]]:

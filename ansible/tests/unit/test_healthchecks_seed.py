@@ -11,28 +11,28 @@ from __future__ import annotations
 
 import json
 
-from healthchecks_seed_standins import BASE_ENV, SEED, install_fake_django, run_seed
+from healthchecks_seed_standins import BASE_CONFIG, SEED, install_fake_django, run_seed
 
-ADMIN = BASE_ENV["CATENA_ADMIN_EMAIL"]
+ADMIN = BASE_CONFIG["admin_email"]
 
 
 def test_an_admin_email_change_renames_the_one_superuser(monkeypatch):
     """Found by its new email the superuser would be a second one, whose
     project can never take the pinned ping key (unique in Healthchecks)."""
     managers = install_fake_django(monkeypatch)
-    run_seed(monkeypatch, CATENA_MAIL_ENABLED="true")
+    run_seed(mail_enabled="true")
     [operator] = managers["user"].rows
     [project] = managers["project"].rows
     [channel] = managers["channel"].rows
     check = managers["check"].create(project=project, slug="gatus-auth")
     check.channel_set.add(channel)
 
-    run_seed(monkeypatch, CATENA_MAIL_ENABLED="true", CATENA_ADMIN_EMAIL="new@example.com")
+    run_seed(mail_enabled="true", admin_email="new@example.com")
     assert managers["user"].rows == [operator]
     assert operator.username == operator.email == "new@example.com"
     assert operator.is_superuser and operator.is_staff
     assert managers["project"].rows == [project]
-    assert project.ping_key == BASE_ENV["CATENA_HC_PING_KEY"]
+    assert project.ping_key == BASE_CONFIG["ping_key"]
     assert managers["channel"].rows == [channel]
     assert json.loads(channel.value)["value"] == "new@example.com"
     assert channel in check.channel_set.added
@@ -43,7 +43,7 @@ def test_the_seed_creates_no_check(monkeypatch):
     which keeps them on the lanes' schedule; a check the seed made would be a
     second owner holding another one."""
     managers = install_fake_django(monkeypatch)
-    run_seed(monkeypatch, CATENA_MAIL_ENABLED="true")
+    run_seed(mail_enabled="true")
     assert managers["check"].rows == []
 
 
@@ -58,7 +58,7 @@ def test_a_channel_the_seed_does_not_own_is_left_alone(monkeypatch):
     ntfy = managers["channel"].create(project=project, kind="ntfy",
                                       value='{"topic": "s3cret"}', name="ntfy (vps-1)")
     for mail in ("true", "false", "true"):
-        run_seed(monkeypatch, CATENA_MAIL_ENABLED=mail)
+        run_seed(mail_enabled=mail)
     assert mine in managers["channel"].rows and mine.value == "me@example.com"
     assert ntfy in managers["channel"].rows and ntfy.value == '{"topic": "s3cret"}'
 
@@ -89,7 +89,7 @@ def test_the_theme_write_touches_only_the_theme():
 
 def test_a_fresh_profile_follows_the_browser_preference(monkeypatch):
     managers = install_fake_django(monkeypatch)
-    run_seed(monkeypatch)
+    run_seed()
     [profile] = managers["profile"].rows
     assert profile.theme == "system"
 
@@ -99,5 +99,5 @@ def test_a_client_who_chose_light_keeps_it(monkeypatch):
     operator = managers["user"].create(username=ADMIN, email=ADMIN)
     chosen = managers["profile"].create(user=operator)
     chosen.theme = ""
-    run_seed(monkeypatch)
+    run_seed()
     assert chosen.theme == "", "a deliberate Light choice was overwritten"

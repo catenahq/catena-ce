@@ -67,26 +67,27 @@
   when: (_kc_export_server_ct.stdout | default('') | length) > 0
 
 - name: "Keycloak realm export: kcadm.sh login as master-realm admin"
-  # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py). Still
-  # no_log -- the password is in the command either way, and `| quote` keeps
-  # it a single shell word.
+  # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py). The
+  # password reaches kcadm as KC_CLI_PASSWORD, read from stdin, never an argv.
   ansible.builtin.shell: |
     set -o pipefail
+    IFS= read -r KC_CLI_PASSWORD
+    export KC_CLI_PASSWORD
     ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
     [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
-    docker exec "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
+    docker exec -e KC_CLI_PASSWORD "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
       --server {{ ("http://localhost:" ~ keycloak_internal_port) | quote }} \
       --realm master \
-      --user {{ admin_email | quote }} \
-      --password {{ admin_password | quote }}
+      --user {{ admin_email | quote }}
   args:
     executable: /bin/bash
+    stdin: "{{ admin_password }}"
   register: _kc_export_login
   changed_when: false
-  # no_log: true is correct for the kcadm invocation itself (the
-  # argv carries the password). The failure path surfaces rc + stderr, so a
-  # credential rejected after a rotation is told apart from a network or
-  # container error without keeping the secret in the log.
+  # no_log: true keeps the task's stdin out of the log. The failure path
+  # surfaces rc + stderr, so a credential rejected after a rotation is told
+  # apart from a network or container error without keeping the secret in the
+  # log.
   no_log: true
   failed_when: false
   # Keycloak intermittently returns [unknown_error] on the master-realm

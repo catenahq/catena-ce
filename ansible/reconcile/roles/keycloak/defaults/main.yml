@@ -34,6 +34,12 @@ keycloak_image: >-
 keycloak_compose_name: "keycloak"
 keycloak_internal_port: 8080 # KC's HTTP port inside the container
 
+# The swarm secret holding Keycloak's credentials file
+# (templates/keycloak.conf.j2): the name its content's hash is appended to,
+# and the file it is mounted as under /run/secrets/.
+keycloak_config_secret_base: "keycloak-conf"
+keycloak_config_target: "keycloak.conf"
+
 # Keycloak 26 split health/metrics off onto a separate "management"
 # port (default 9000). Probes against http://localhost:8080/health/*
 # return 404 even when KC_HEALTH_ENABLED=true. Used by validate.yml's
@@ -82,6 +88,11 @@ keycloak_config_cli_image: >-
 keycloak_config_dir: "/etc/catena/keycloak"
 keycloak_realm_host_dir: "{{ keycloak_config_dir }}/realms"
 keycloak_realm_seed_dir: "{{ keycloak_config_dir }}/seed"
+
+# The admin email the last realm import ran under, beside the bootstrap
+# markers: an admin email change moves the admin's accounts from it
+# (tasks/realm_bootstrap.yml).
+keycloak_admin_email_record: "/var/lib/catena/keycloak-realm-admin-email"
 
 # Realm name owning all per-VPS clients + groups + users. Single-realm
 # per VPS today; Phase Two Organizations (multi-tenancy inside one

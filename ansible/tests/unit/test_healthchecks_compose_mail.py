@@ -139,5 +139,7 @@ def test_the_converge_creates_the_secrets_before_the_deploy():
 def test_the_seed_learns_whether_mail_is_on():
     """The seed keeps the admin email channel only while there is a mailer to
     send it, so the task hands it the same switch the compose renders from."""
-    tasks = (INFRA / "tasks" / "healthchecks.yml").read_text()
-    assert "CATENA_MAIL_ENABLED={{ infrastructure_smtp.enabled | bool | lower }}" in tasks
+    tasks = yaml.safe_load((INFRA / "tasks" / "healthchecks.yml").read_text())
+    config = next(t["ansible.builtin.set_fact"]["_healthchecks_seed_config"] for t in tasks
+                  if "_healthchecks_seed_config" in (t.get("ansible.builtin.set_fact") or {}))
+    assert config["mail_enabled"] == "{{ infrastructure_smtp.enabled | bool | lower }}"

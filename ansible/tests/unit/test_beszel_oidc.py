@@ -9,6 +9,7 @@ Run: uv run pytest tests/unit/test_beszel_oidc.py
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import re
 from pathlib import Path
@@ -262,14 +263,6 @@ def test_both_passes_report_all_five_outcomes():
             f"{fragment}: changed_when is {task['changed_when']!r}")
 
 
-def test_no_credential_is_rendered_into_the_seed_command():
-    tasks = [t for t in yaml.safe_load(BESZEL_TASKS.read_text()) if isinstance(t, dict)]
-    for fragment in ("seed the universal token", "default alert rules"):
-        task = next(t for t in tasks if fragment in str(t.get("name", "")))
-        assert task["ansible.builtin.command"] == "python3 /root/catena-beszel-seed.py"
-        assert task["environment"] == "{{ _beszel_seed_env }}"
-
-
 # ─── outgoing mail ─────────────────────────────────────────────────────────
 
 _MAIL = {"host": "smtp.resend.com", "port": "587", "user": "resend",
@@ -327,17 +320,27 @@ def test_mail_turned_off_turns_the_hubs_off(monkeypatch):
 # ─── an admin email change ──────────────────────────────────────────────────
 
 class _Hub:
-    """A hub that created its superuser and users record from the first
-    admin email, and answers every other step as already seeded."""
+    """A hub whose superuser and users record hold `email` (None: a hub on an
+    empty volume, with the placeholder superuser and no user), and that
+    answers every other step as already seeded."""
 
     def __init__(self, email):
-        self.superuser = email
+        self.superuser = email or "_@b.b"
         self.user = email
+        self.claims = []
 
     def req(self, method, url, *, token=None, body=None):
         import urllib.error
         import urllib.parse
 
+        if url.endswith("/api/beszel/first-run"):
+            return {"firstRun": self.user is None}
+        if url.endswith("/api/beszel/create-user"):
+            self.claims.append(body)
+            if self.user is not None or self.superuser != "_@b.b":
+                raise urllib.error.HTTPError(url, 403, "Forbidden", None, None)
+            self.superuser = self.user = body["email"]
+            return {"msg": "User created"}
         if url.endswith("/_superusers/auth-with-password"):
             if body["identity"] != self.superuser or body["password"] != "pw":
                 raise urllib.error.HTTPError(url, 400, "Failed to authenticate.", None, None)
@@ -371,16 +374,15 @@ _OIDC = {"client_id": "beszel", "client_secret": "s", "auth_url": "a",
 
 
 def _run_main(monkeypatch, tmp_path, hub, email):
-    env = {
-        "BESZEL_HUB_URL": "http://h", "BESZEL_SEED_STATE": str(tmp_path / "state.json"),
-        "BESZEL_ADMIN_EMAIL": email, "BESZEL_ADMIN_PASSWORD": "pw",
-        "BESZEL_UNIVERSAL_TOKEN": "tok", "BESZEL_OIDC_CLIENT_ID": "beszel",
-        "BESZEL_OIDC_CLIENT_SECRET": "s", "BESZEL_OIDC_AUTH_URL": "a",
-        "BESZEL_OIDC_TOKEN_URL": "t", "BESZEL_OIDC_USERINFO_URL": "u",
-        "BESZEL_OIDC_DISPLAY_NAME": "Catena", "BESZEL_ALERT_WEBHOOK": "hook",
+    cfg = {
+        "hub_url": "http://h", "state_file": str(tmp_path / "state.json"),
+        "admin_email": email, "admin_password": "pw",
+        "universal_token": "tok", "oidc_client_id": "beszel",
+        "oidc_client_secret": "s", "oidc_auth_url": "a",
+        "oidc_token_url": "t", "oidc_userinfo_url": "u",
+        "oidc_display_name": "Catena", "alert_webhook": "hook",
     }
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(cfg)))
     monkeypatch.setattr(seed, "_req", hub.req)
     return seed.main()
 
@@ -401,6 +403,30 @@ def test_an_admin_email_change_moves_the_hubs_records(monkeypatch, tmp_path, cap
 def test_an_unknown_admin_email_fails_loudly(monkeypatch, tmp_path):
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, tmp_path, _Hub("someone@example.test"), "new@example.test")
+
+
+def test_a_hub_with_no_user_is_claimed_as_the_admin(monkeypatch, tmp_path):
+    """The hub's spec carries no password: on an empty volume the seed makes
+    the admin its first user and superuser, then seeds it as usual."""
+    hub = _Hub(None)
+    assert _run_main(monkeypatch, tmp_path, hub, "admin@example.test") == 0
+    assert hub.claims == [{"email": "admin@example.test", "password": "pw"}]
+    assert hub.superuser == hub.user == "admin@example.test"
+
+
+def test_a_hub_that_has_a_user_is_not_claimed_again(monkeypatch, tmp_path):
+    hub = _Hub("admin@example.test")
+    assert _run_main(monkeypatch, tmp_path, hub, "admin@example.test") == 0
+    assert hub.claims == []
+
+
+def test_the_hub_spec_carries_no_credential():
+    """USER_EMAIL / USER_PASSWORD are what the hub's first boot would read; the
+    seed's claim replaces them, so neither is ever rendered."""
+    body = HUB_COMPOSE.read_text()
+    env_lines = [ln for ln in body.splitlines() if not ln.lstrip().startswith("#")]
+    assert not [ln for ln in env_lines if re.search(r"USER_(EMAIL|PASSWORD)\s*:", ln)]
+    assert "admin_password" not in "\n".join(env_lines)
 
 
 def test_an_operator_added_webhook_is_not_dropped():

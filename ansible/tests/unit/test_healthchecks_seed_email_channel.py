@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import json
 
-from healthchecks_seed_standins import BASE_ENV, install_fake_django, run_seed
+from healthchecks_seed_standins import BASE_CONFIG, install_fake_django, run_seed
 
-ADMIN = BASE_ENV["CATENA_ADMIN_EMAIL"]
+ADMIN = BASE_CONFIG["admin_email"]
 
 
 def _seed(monkeypatch, *, mail: bool) -> None:
-    run_seed(monkeypatch, CATENA_MAIL_ENABLED="true" if mail else "false")
+    run_seed(mail_enabled="true" if mail else "false")
 
 
 def _email_channels(managers) -> list:

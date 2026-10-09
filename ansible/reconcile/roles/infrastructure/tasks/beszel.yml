@@ -4,13 +4,14 @@
 #
 # Deterministic, one-pass, no manual UI step (mechanism verified against
 # henrygd/beszel @ main):
-#   1. Deploy the hub. First boot creates a PocketBase superuser + a
-#      regular users record from USER_EMAIL/USER_PASSWORD, and generates
+#   1. Deploy the hub, with no credential in its spec. First boot generates
 #      + persists its SSH key at /beszel_data/id_ed25519.
 #   2. Read that private key back out of the running container and derive
 #      the public key (ssh-keygen -y) -- the agent needs it as KEY.
-#   3. Seed a permanent universal token into the hub's universal_tokens
-#      collection (superuser-authenticated, idempotent). With it, the
+#   3. The seed claims a hub that has no user yet as the admin (its first-user
+#      endpoint, over the loopback publish), then seeds a permanent universal
+#      token into the hub's universal_tokens collection
+#      (superuser-authenticated, idempotent). With it, the
 #      agent auto-registers its system on first WebSocket connect
 #      (createNewSystemForUniversalToken) -- no "add system" UI click.
 #   4. Deploy the agent (network_mode: host) with KEY + TOKEN + HUB_URL.
@@ -150,9 +151,9 @@
 
 # Seed the permanent universal token. Plain stdlib script (no Jinja
 # markers) dropped to /root and run on the host against the hub's
-# loopback publish; per-host values arrive via env, mirroring the
-# healthchecks-seed.py contract. Idempotent: find-or-update the single
-# universal_tokens row (unique on user).
+# loopback publish; per-host values arrive on stdin, never in an argv or
+# environment, which `ps` shows every local user. Idempotent:
+# find-or-update the single universal_tokens row (unique on user).
 - name: "Beszel: drop universal-token seed script to /root"
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/beszel-seed.py"
@@ -193,32 +194,34 @@
     _beszel_alert_webhook: >-
       generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
 
-# What both seed passes run with (scripts/beszel-seed.py documents each name).
-- name: "Beszel: the seed's environment"
+# What both seed passes read on stdin (scripts/beszel-seed.py documents each
+# key).
+- name: "Beszel: the seed's config"
   ansible.builtin.set_fact:
-    _beszel_seed_env:
-      BESZEL_HUB_URL: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"
-      BESZEL_SEED_STATE: "{{ beszel_seed_state_file }}"
-      BESZEL_ADMIN_EMAIL: "{{ admin_email }}"
-      BESZEL_ADMIN_PASSWORD: "{{ admin_password }}"
-      BESZEL_UNIVERSAL_TOKEN: "{{ beszel_universal_token }}"
-      BESZEL_OIDC_CLIENT_ID: beszel
-      BESZEL_OIDC_CLIENT_SECRET: "{{ beszel_oidc_client_secret }}"
-      BESZEL_OIDC_AUTH_URL: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/auth"
-      BESZEL_OIDC_TOKEN_URL: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/token"
-      BESZEL_OIDC_USERINFO_URL: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/userinfo"
-      BESZEL_OIDC_DISPLAY_NAME: "{{ beszel_oidc_display_name }}"
-      BESZEL_ALERT_WEBHOOK: "{{ _beszel_alert_webhook }}"
-      BESZEL_SMTP_HOST: "{{ infrastructure_smtp.host }}"
-      BESZEL_SMTP_PORT: "{{ infrastructure_smtp.port | string }}"
-      BESZEL_SMTP_USER: "{{ infrastructure_smtp.user }}"
-      BESZEL_SMTP_SENDER: "{{ infrastructure_smtp.sender }}"
-      BESZEL_SMTP_PASSWORD: "{{ smtp_password | default('') }}"
+    _beszel_seed_config:
+      hub_url: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"
+      state_file: "{{ beszel_seed_state_file }}"
+      admin_email: "{{ admin_email }}"
+      admin_password: "{{ admin_password }}"
+      universal_token: "{{ beszel_universal_token }}"
+      oidc_client_id: beszel
+      oidc_client_secret: "{{ beszel_oidc_client_secret }}"
+      oidc_auth_url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/auth"
+      oidc_token_url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/token"
+      oidc_userinfo_url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/userinfo"
+      oidc_display_name: "{{ beszel_oidc_display_name }}"
+      alert_webhook: "{{ _beszel_alert_webhook }}"
+      smtp_host: "{{ infrastructure_smtp.host }}"
+      smtp_port: "{{ infrastructure_smtp.port | string }}"
+      smtp_user: "{{ infrastructure_smtp.user }}"
+      smtp_sender: "{{ infrastructure_smtp.sender }}"
+      smtp_password: "{{ smtp_password | default('') }}"
   no_log: true
 
 - name: "Beszel: seed the universal token + OIDC login (superuser-authenticated)"
-  ansible.builtin.command: python3 /root/catena-beszel-seed.py
-  environment: "{{ _beszel_seed_env }}"
+  ansible.builtin.command:
+    argv: [python3, /root/catena-beszel-seed.py]
+    stdin: "{{ _beszel_seed_config | to_json }}"
   register: _beszel_seed
   # The script prints one line carrying all FIVE outcomes. Steady state is
   # "ok-exists" from every one, or "no-mail" from the mail step on a host with
@@ -262,8 +265,9 @@
 # registration rather than assuming it, so a fresh host finishes with a
 # complete alert path in ONE converge instead of needing a second.
 - name: "Beszel: seed the default alert rules once the agent has registered"
-  ansible.builtin.command: python3 /root/catena-beszel-seed.py
-  environment: "{{ _beszel_seed_env }}"
+  ansible.builtin.command:
+    argv: [python3, /root/catena-beszel-seed.py]
+    stdin: "{{ _beszel_seed_config | to_json }}"
   register: _beszel_alert_seed
   changed_when: >-
     (_beszel_alert_seed.stdout.count('ok-exists') + _beszel_alert_seed.stdout.count('no-mail')) < 5

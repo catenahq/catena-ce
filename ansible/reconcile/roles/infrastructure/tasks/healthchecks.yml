@@ -87,6 +87,11 @@
     svc_readiness_skip_reason: >-
       Verified by the aggregate post-role probe in main.yml.
 
+- name: "Healthchecks: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: "{{ healthchecks_swarm_secrets | map(attribute='base') | list }}"
+
 # ─── Bootstrap channels via Django shell ─────────────────────────────
 # scripts/healthchecks-seed.py seeds Catena's channel -- the admin email while
 # outgoing mail is on. Re-running reconciles and leaves every other channel
@@ -181,9 +186,9 @@
   when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 # The Django seed lives at scripts/healthchecks-seed.py -- plain
-# Python, no Jinja markers. Per-host values arrive via `docker exec -e
-# KEY=VALUE` flags constructed from Ansible vars; the script reads them
-# from os.environ and KeyErrors loudly on any wiring break.
+# Python, no Jinja markers. Per-host values reach it on stdin, as one JSON
+# line ahead of the script, never in an argv or environment, which `ps`
+# shows every local user; the script KeyErrors loudly on any wiring break.
 #
 # The script is copied to disk and piped into `docker exec` rather than
 # embedded inline in the shell module's `|` scalar: inlining the Python
@@ -211,27 +216,35 @@
 # (worker crash, DB lock on prior stale session, volume mount issue)
 # -- fail fast rather than dragging it out.
 #
-# Env vars below land as `-e KEY=VALUE` on docker exec. They mirror the
-# top-level reads in healthchecks-seed.py; missing one surfaces as a
-# KeyError, missing the optional CATENA_HC_API_KEY_READWRITE silently
-# leaves the existing project.api_key in place (migration path).
+# The keys mirror the top-level reads in healthchecks-seed.py; missing one
+# surfaces as a KeyError, a blank api_key_readwrite leaves the existing
+# project.api_key in place (migration path).
+- name: "Healthchecks: the seed's values"
+  ansible.builtin.set_fact:
+    _healthchecks_seed_config:
+      admin_email: "{{ admin_email }}"
+      superuser_password: "{{ healthchecks_superuser_password }}"
+      inventory_hostname: "{{ inventory_hostname }}"
+      api_key_readonly: "{{ healthchecks_api_key_readonly }}"
+      api_key_readwrite: "{{ healthchecks_api_key_readwrite | default('') }}"
+      ping_key: "{{ healthchecks_ping_key }}"
+      mail_enabled: "{{ infrastructure_smtp.enabled | bool | lower }}"
+  no_log: true
+
+# `cat -` puts the values (this task's stdin) ahead of the script; the
+# `shell -c` line reads them into seed_config and runs the rest.
 - name: "Healthchecks: run the Django seed script"
   # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py).
   ansible.builtin.shell: |
     set -o pipefail
     ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | swarm_container_regex("app") }}' | head -n1)
     [ -n "$ct" ] || { echo "no running healthchecks container right now" >&2; exit 1; }
-    docker exec -i \
-      -e CATENA_ADMIN_EMAIL={{ admin_email | quote }} \
-      -e CATENA_HC_SUPERUSER_PASSWORD={{ healthchecks_superuser_password | quote }} \
-      -e CATENA_INVENTORY_HOSTNAME={{ inventory_hostname | quote }} \
-      -e CATENA_HC_API_KEY_READONLY={{ healthchecks_api_key_readonly | quote }} \
-      -e CATENA_HC_API_KEY_READWRITE={{ (healthchecks_api_key_readwrite | default('')) | quote }} \
-      -e CATENA_HC_PING_KEY={{ healthchecks_ping_key | quote }} \
-      -e CATENA_MAIL_ENABLED={{ infrastructure_smtp.enabled | bool | lower }} \
-      "$ct" python manage.py shell < /root/catena-healthchecks-seed.py
+    cat - /root/catena-healthchecks-seed.py \
+      | docker exec -i "$ct" python manage.py shell \
+          -c 'import json, sys; seed_config = json.loads(sys.stdin.readline()); exec(sys.stdin.read())'
   args:
     executable: /bin/bash
+    stdin: "{{ _healthchecks_seed_config | to_json }}"
   register: _healthchecks_seed
   changed_when: false
   retries: 12

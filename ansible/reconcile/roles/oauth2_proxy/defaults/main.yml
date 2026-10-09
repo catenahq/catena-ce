@@ -187,8 +187,9 @@ oauth2_proxy_apps:
   # ALSO reachable over an SSH forward (host-mode :9000, confined to the host
   # by reconcile/roles/portainer); this entry adds the public, oauth2-gated
   # path over the Cloudflare tunnel so a client admin can self-serve deploys
-  # from portainer.<zone>. upstream_alias is the swarm
-  # service name on catena-network;
+  # from portainer.<zone>. Its login takes the shared admin password, so
+  # Portainer is on portainer_network only: this instance joins it, no client
+  # app does. upstream_alias is the swarm service name there;
   # 9000 is the container's internal port (target), not the published host
   # port. An empty allowed_groups would mean "any authenticated user", so
   # admin-only MUST be an explicit ["admin"].
@@ -198,6 +199,7 @@ oauth2_proxy_apps:
     upstream_port: 9000
     allowed_groups: ["admin"]
     cookie_secret_var: "portainer_gate_cookie_secret"
+    networks: ["{{ portainer_network }}"]
   # Beszel's hub, admin-only. The hub's own login sits behind this gate, and
   # its Keycloak sign-in creates a hub account for any realm user who reaches
   # it (USER_CREATION in reconcile/roles/infrastructure/templates/

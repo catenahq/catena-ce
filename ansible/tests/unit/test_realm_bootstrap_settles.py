@@ -102,7 +102,7 @@ def test_the_persistent_render_depends_on_no_marker():
 def test_the_persistent_file_carries_no_seed():
     rendered = _render(realm_seed=False)
     doc = yaml.safe_load(rendered)
-    assert "credentials:" not in rendered
+    assert all("credentials" not in user for user in doc["users"])
     assert ADMIN_PASSWORD not in rendered
     for key in SEEDED_ONCE:
         assert key not in doc, f"{key} is asserted on every converge"

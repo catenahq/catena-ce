@@ -5,8 +5,9 @@
 # client apps are deployed and driven through; routing stays with
 # catena-traefik.
 #
-# Deployed as a swarm service on catena-network with the docker socket, so it
-# manages the local Docker/Swarm endpoint. The UI/API port is published
+# Deployed as a swarm service with the docker socket, so it manages the local
+# Docker/Swarm endpoint, on its own overlay (portainer_network,
+# playbooks/group_vars/all/main.yml), never catena-network. The UI/API port is published
 # host-mode and confined to this host's loopback by the public-ports registry
 # (tasks/main.yml): the host's own API calls reach it on 127.0.0.1, and an
 # administrator opens the UI through the `panel` account's SSH forward. Once a
@@ -50,8 +51,8 @@ portainer_local_endpoint_name: catena-local
 
 # The App Templates catalog Portainer fetches. Cluster-internal by
 # construction: it carries this host's real client-app credentials, so it is
-# reachable on catena-network and nowhere else -- never through Traefik, never
-# from a browser. Portainer's SERVER does the fetch (its docs: host the file
+# reachable on the overlays the panel joins (portainer_network among them) and
+# nowhere else -- never through Traefik, never from a browser. Portainer's SERVER does the fetch (its docs: host the file
 # "somewhere accessible by the Portainer Server instance"), so an internal
 # address is the right one and there is no session to carry.
 #

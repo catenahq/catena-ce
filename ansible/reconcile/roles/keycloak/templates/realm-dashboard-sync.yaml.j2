@@ -1,28 +1,30 @@
 # {{ ansible_managed }}
-# Service-account client used by the host-side dashboard-sync cron to
-# register per-app /oauth2/callback redirect URIs on the shared
-# `oauth2-proxy` client as client apps are deployed via Portainer.
+# Service-account client of the host-side settings sync, dashboard-sync
+# (catena-admin payload/lanes/catena-dashboard-sync.py), for its two jobs on
+# the realm's clients:
+#   - the per-app /oauth2/callback redirect URIs on the shared `oauth2-proxy`
+#     client, merged in (UNION, never removed). A converge re-import of
+#     realm-oauth2-proxy.yaml.j2 resets that list to the infra hosts; the next
+#     pass re-adds the client-app URIs (catena-admin
+#     payload/lib/keycloak_client.py);
+#   - each application's own sign-in entry, `app-<stack>`, which it creates,
+#     keeps in step with the app's labels and deletes with the app. It changes
+#     or deletes only the clients it marked (catena.managed-by=dashboard-sync)
+#     and binds each entry to one of the sign-in flows realm-vps.yaml.j2
+#     declares (catena-admin payload/lib/oidc_clients.py).
 #
 # Scope: a confidential client with serviceAccountsEnabled and a SINGLE
-# realm-management role -- `manage-clients`. That is the least privilege
-# that lets dashboard-sync GET + PUT the oauth2-proxy client's
-# redirectUris. It canNOT manage users, groups, or other realm config,
-# so a leaked host token cannot escalate beyond client edits.
-#
-# dashboard-sync authenticates with the client-credentials grant
-# (client_id + client_secret -> token), then merges (UNIONs, never
-# removes) the discovered client-app callback URIs into the oauth2-proxy
-# client. A converge re-import of realm-oauth2-proxy.yaml.j2 resets that
-# list to the infra hosts only; the next dashboard-sync run (<= 5 min)
-# re-adds the client-app URIs (catena-admin
-# payload/lanes/catena-dashboard-sync.py).
+# realm-management role -- `manage-clients`, the least privilege for both
+# jobs. It canNOT manage users, groups, flows or other realm config, so a
+# leaked host token cannot escalate beyond client edits. It authenticates
+# with the client-credentials grant (client_id + client_secret -> token).
 
 realm: {{ keycloak_realm }}
 
 clients:
   - clientId: "dashboard-sync"
     name: "catena dashboard-sync"
-    description: "Host cron: registers per-app oauth2-proxy redirect URIs (manage-clients only)."
+    description: "Host settings sync: per-app oauth2-proxy redirect URIs and the applications' own sign-in entries (manage-clients only)."
     enabled: true
     publicClient: false
     standardFlowEnabled: false

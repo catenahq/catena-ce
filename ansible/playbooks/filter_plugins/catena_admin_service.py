@@ -41,7 +41,9 @@ forever. So a rotated credential must arrive under a NEW name or it never
 reaches the container, which is why secret_name() hashes the VALUE into the
 name. A fixed name would make rotation a silent no-op. secret_entries, the
 swarm_secret_entries filter, names every swarm secret the converge creates
-(playbooks/tasks/swarm_secrets.yml), Healthchecks' too.
+(playbooks/tasks/swarm_secrets.yml), Healthchecks' too, and secrets_unmounted,
+the swarm_secrets_unmounted filter, picks the ones a rotation left behind
+(playbooks/tasks/swarm_secrets_prune.yml).
 
 End-to-end coverage:
     catena-ce ansible/tests/unit/test_catena_admin_service.py
@@ -52,6 +54,7 @@ End-to-end coverage:
 from __future__ import annotations
 
 import hashlib
+import re
 
 
 # Bind mounts, in the order the compose declared them. `readonly` is the
@@ -138,6 +141,25 @@ def secret_entries(specs):
             "value": value,
         })
     return out
+
+
+def secrets_unmounted(names, services, bases):
+    """The secrets of `names` that secret_name made for one of `bases` and
+    that no service of `services` (`docker service inspect` output) mounts:
+    what a rotation left behind, for playbooks/tasks/swarm_secrets_prune.yml.
+    A name is matched whole, base and 8-hex suffix, so a secret of another
+    base sharing a prefix is not touched."""
+    if not bases:
+        return []
+    pattern = re.compile(
+        "^(?:" + "|".join(re.escape(str(b)) for b in bases) + ")-[0-9a-f]{8}$")
+    mounted = {
+        str(entry.get("SecretName") or "")
+        for service in services or []
+        for entry in _container_spec(service).get("Secrets") or []
+        if isinstance(entry, dict)
+    }
+    return sorted(n for n in names if pattern.match(str(n)) and n not in mounted)
 
 
 def catena_admin_full_env(spec):
@@ -346,6 +368,7 @@ class FilterModule:
     def filters(self):
         return {
             "swarm_secret_entries": secret_entries,
+            "swarm_secrets_unmounted": secrets_unmounted,
             "catena_admin_full_env": catena_admin_full_env,
             "catena_admin_service_argv": catena_admin_service_argv,
             "catena_admin_env_drift": catena_admin_env_drift,

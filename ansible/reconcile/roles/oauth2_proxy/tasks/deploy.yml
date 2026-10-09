@@ -34,3 +34,9 @@
     svc_readiness_skip_reason: >-
       oauth2-proxy is not publicly routed; readiness is verified by
       tasks/validate.yml's docker-exec /ping probe.
+
+- name: "oauth2-proxy: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: >-
+      {{ oauth2_proxy_apps | map(attribute='slug') | map('regex_replace', '^', 'oauth2-proxy-') | list }}

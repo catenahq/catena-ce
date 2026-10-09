@@ -5,9 +5,11 @@ alone."""
 # Managed by Ansible (reconcile/roles/infrastructure). Do not edit by hand.
 #
 # Runs inside the Healthchecks container via `docker exec -i ... python
-# manage.py shell <`. Per-host values arrive as `docker exec -e KEY=VALUE`
-# flags rendered in reconcile/roles/infrastructure/tasks/healthchecks.yml; a
-# missing one raises KeyError, so a wiring break fails loud.
+# manage.py shell -c`, which reads one JSON line of per-host values from stdin
+# into `seed_config` and runs this script, read from the rest of stdin
+# (reconcile/roles/infrastructure/tasks/healthchecks.yml). No value is in a
+# process's argv or environment. A missing one raises KeyError, so a wiring
+# break fails loud.
 #
 # Seeds:
 #   0. The operator superuser and Project. The upstream image runs migrations
@@ -27,19 +29,19 @@ alone."""
 # which runs Healthchecks's `Check.assign_all_channels()`.
 
 import json
-import os
 import uuid
 from django.contrib.auth import get_user_model
 from hc.accounts.models import Profile, Project
 from hc.api.models import Channel
 
-_hc_email = os.environ["CATENA_ADMIN_EMAIL"]
-_hc_pw = os.environ["CATENA_HC_SUPERUSER_PASSWORD"]
-_hc_inventory_hostname = os.environ["CATENA_INVENTORY_HOSTNAME"]
-_hc_api_key_readonly = os.environ["CATENA_HC_API_KEY_READONLY"]
-_hc_api_key_readwrite = os.environ.get("CATENA_HC_API_KEY_READWRITE", "")
-_hc_ping_key = os.environ["CATENA_HC_PING_KEY"]
-_hc_mail_enabled = os.environ["CATENA_MAIL_ENABLED"] == "true"
+# seed_config is defined by the `manage.py shell -c` line that runs this script.
+_hc_email = seed_config["admin_email"]
+_hc_pw = seed_config["superuser_password"]
+_hc_inventory_hostname = seed_config["inventory_hostname"]
+_hc_api_key_readonly = seed_config["api_key_readonly"]
+_hc_api_key_readwrite = seed_config.get("api_key_readwrite", "")
+_hc_ping_key = seed_config["ping_key"]
+_hc_mail_enabled = seed_config["mail_enabled"] == "true"
 _EMAIL_CHANNEL_CODE = uuid.uuid5(uuid.NAMESPACE_URL, "catena:healthchecks-seed:admin-email")
 
 User = get_user_model()

@@ -3,7 +3,7 @@
 alert delivery and rules, outgoing mail.
 
 Run on the host against the hub's loopback publish. Authenticates to
-PocketBase as the superuser bootstrapped from USER_EMAIL/USER_PASSWORD, then
+PocketBase as the superuser holding the admin email and password, then
 reconciles five things, the first two being:
 
 1. The single `universal_tokens` row (unique index on `user`). With a
@@ -29,27 +29,30 @@ Then the alert delivery (the Healthchecks shim's webhook, and no Beszel mail
 to the admin), the default alert rules and the hub's outgoing mail, each
 explained at its function below.
 
-The hub creates its superuser and the admin's users record from USER_EMAIL on
-its first start only. So the seed keeps the admin email it last signed in with
-in its state file, and after an admin email change signs in with that one and
-moves both records to the new address (follow_admin_email).
+A hub started on an empty volume has no user and a placeholder superuser, and
+serves its first-user endpoint until someone calls it. The seed calls it first,
+as the admin (claim_first_run), so the hub's spec never carries the password.
+The seed keeps the admin email it last signed in with in its state file, and
+after an admin email change signs in with that one and moves both records to
+the new address (follow_admin_email).
 
-Config via env (mirrors the healthchecks-seed.py contract; KeyErrors loudly on
-any wiring break):
+Config is one JSON object on stdin, so no credential is in the process's argv
+or environment, which `ps` shows every local user (KeyErrors loudly on any
+wiring break):
 
-    BESZEL_HUB_URL             e.g. http://127.0.0.1:18190
-    BESZEL_SEED_STATE          the seed's state file (beszel_seed_state_file)
-    BESZEL_ADMIN_EMAIL         superuser identity (== inventory admin_email)
-    BESZEL_ADMIN_PASSWORD      superuser password (admin_password)
-    BESZEL_UNIVERSAL_TOKEN     the token to seed (beszel_universal_token)
-    BESZEL_OIDC_CLIENT_ID      Keycloak clientId (realm-beszel.yaml.j2)
-    BESZEL_OIDC_CLIENT_SECRET  beszel_oidc_client_secret
-    BESZEL_OIDC_AUTH_URL       .../protocol/openid-connect/auth
-    BESZEL_OIDC_TOKEN_URL      .../protocol/openid-connect/token
-    BESZEL_OIDC_USERINFO_URL   .../protocol/openid-connect/userinfo
-    BESZEL_OIDC_DISPLAY_NAME   label on the hub's sign-in button
-    BESZEL_ALERT_WEBHOOK       the shim's Shoutrrr URL
-    BESZEL_SMTP_*              outgoing mail (optional; blank host = none)
+    hub_url             e.g. http://127.0.0.1:18190
+    state_file          the seed's state file (beszel_seed_state_file)
+    admin_email         superuser identity (== inventory admin_email)
+    admin_password      superuser password (admin_password)
+    universal_token     the token to seed (beszel_universal_token)
+    oidc_client_id      Keycloak clientId (realm-beszel.yaml.j2)
+    oidc_client_secret  beszel_oidc_client_secret
+    oidc_auth_url       .../protocol/openid-connect/auth
+    oidc_token_url      .../protocol/openid-connect/token
+    oidc_userinfo_url   .../protocol/openid-connect/userinfo
+    oidc_display_name   label on the hub's sign-in button
+    alert_webhook       the shim's Shoutrrr URL
+    smtp_*              outgoing mail (optional; blank host = none)
 
 Exit 0 on success, printing one line carrying every outcome so the caller's
 changed_when can read it. Any failure exits non-zero with a stderr message so
@@ -121,6 +124,21 @@ def sign_in(base: str, identities: list[str], password: str) -> tuple[dict, str]
     die(f"no superuser for {identities!r} (hub bootstrap incomplete?)")
 
 
+def claim_first_run(base: str, email: str, password: str) -> None:
+    """Make the admin the hub's first user and superuser while it has no user
+    (beszel v0.20.0 internal/hub/api.go first-run and create-user,
+    internal/users/users.go CreateFirstUser, which also removes the
+    placeholder superuser). A hub that has a user is left alone; one claimed by
+    somebody else answers 403, which fails the seed."""
+    try:
+        first = _req("GET", f"{base}/api/beszel/first-run").get("firstRun")
+    except urllib.error.URLError as exc:
+        die(f"first-run check failed (hub not ready yet?): {exc}")
+    if first is True:
+        _req("POST", f"{base}/api/beszel/create-user",
+             body={"email": email, "password": password})
+
+
 def follow_admin_email(base: str, auth: dict, old: str, new: str) -> None:
     """Move the superuser and the admin's users record from `old` to `new`.
     The users record keeps its id, so the universal token, the alert settings
@@ -148,38 +166,41 @@ def follow_admin_email(base: str, auth: dict, old: str, new: str) -> None:
 
 
 def main() -> int:
+    cfg = json.load(sys.stdin)
     try:
-        base = os.environ["BESZEL_HUB_URL"].rstrip("/")
-        state_file = os.environ["BESZEL_SEED_STATE"]
-        email = os.environ["BESZEL_ADMIN_EMAIL"]
-        password = os.environ["BESZEL_ADMIN_PASSWORD"]
-        token = os.environ["BESZEL_UNIVERSAL_TOKEN"]
+        base = cfg["hub_url"].rstrip("/")
+        state_file = cfg["state_file"]
+        email = cfg["admin_email"]
+        password = cfg["admin_password"]
+        token = cfg["universal_token"]
         oidc = {
-            "client_id": os.environ["BESZEL_OIDC_CLIENT_ID"],
-            "client_secret": os.environ["BESZEL_OIDC_CLIENT_SECRET"],
-            "auth_url": os.environ["BESZEL_OIDC_AUTH_URL"],
-            "token_url": os.environ["BESZEL_OIDC_TOKEN_URL"],
-            "userinfo_url": os.environ["BESZEL_OIDC_USERINFO_URL"],
-            "display_name": os.environ["BESZEL_OIDC_DISPLAY_NAME"],
+            "client_id": cfg["oidc_client_id"],
+            "client_secret": cfg["oidc_client_secret"],
+            "auth_url": cfg["oidc_auth_url"],
+            "token_url": cfg["oidc_token_url"],
+            "userinfo_url": cfg["oidc_userinfo_url"],
+            "display_name": cfg["oidc_display_name"],
         }
-        webhook = os.environ["BESZEL_ALERT_WEBHOOK"]
+        webhook = cfg["alert_webhook"]
         # Outgoing mail, resolved by the converge from the ONE stored choice
         # (catena_smtp_resolve). Blank host means the host has no mail
         # configured, which is a supported state and disables Beszel's mail
         # rather than failing.
         smtp = {
-            "host": os.environ.get("BESZEL_SMTP_HOST", ""),
-            "port": os.environ.get("BESZEL_SMTP_PORT", "587"),
-            "user": os.environ.get("BESZEL_SMTP_USER", ""),
-            "password": os.environ.get("BESZEL_SMTP_PASSWORD", ""),
-            "sender": os.environ.get("BESZEL_SMTP_SENDER", ""),
-            "app_name": os.environ.get("BESZEL_SMTP_APP_NAME", "Catena"),
+            "host": cfg.get("smtp_host", ""),
+            "port": cfg.get("smtp_port", "587"),
+            "user": cfg.get("smtp_user", ""),
+            "password": cfg.get("smtp_password", ""),
+            "sender": cfg.get("smtp_sender", ""),
+            "app_name": cfg.get("smtp_app_name", "Catena"),
         }
     except KeyError as exc:
-        die(f"missing required env var: {exc}")
+        die(f"missing required config key: {exc}")
 
-    # 1. Authenticate as the bootstrapped superuser, under the admin email the
-    # last run recorded when the hub does not know the current one yet.
+    # 1. Authenticate as the superuser, claiming a hub that has no user yet,
+    # under the admin email the last run recorded when the hub does not know
+    # the current one yet.
+    claim_first_run(base, email, password)
     state = read_state(state_file)
     recorded = str(state.get("admin_email") or "")
     auth, signed_in_as = sign_in(

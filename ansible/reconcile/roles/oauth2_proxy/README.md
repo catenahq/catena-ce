@@ -40,7 +40,7 @@ the browser through Keycloak once, silently while the Keycloak session lasts.
   sends its upstream as a Basic password (the panel's
   `catena_admin_gate_secret`, without which the panel serves every request
   as nobody), and `networks`, the overlays it joins besides `catena-network`
-  (the private networks of Healthchecks and Beszel's hub). Client apps are
+  (the private networks of Healthchecks, Beszel's hub and Portainer). Client apps are
   not listed here:
   dashboard-sync provisions an instance per app from its `vps.auth.*` labels.
 
@@ -48,7 +48,8 @@ the browser through Keycloak once, silently while the Keycloak session lasts.
 
 - The realm re-import runs only when the rendered client changed.
 - Each swarm secret is named after its content, so a rotated credential is a
-  new secret and redeploys the instance that reads it.
+  new secret and redeploys the instance that reads it; the secret it
+  replaced, which no service mounts, is removed after the deploy.
 - Traefik route files are rendered atomically per app.
 - The swarm stack deploy reports a change only when the rendered stack
   file differs.

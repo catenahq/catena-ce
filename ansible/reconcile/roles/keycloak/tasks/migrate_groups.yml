@@ -38,11 +38,19 @@
       delay: 4
       until: _kc_group_server_ct.stdout | length > 0
 
+    # The password reaches kcadm as KC_CLI_PASSWORD, read from stdin by the
+    # bash wrapper, never an argv.
     - name: "Keycloak groups: kcadm login to master"
       ansible.builtin.command:
         argv:
+          - bash
+          - -c
+          - 'IFS= read -r KC_CLI_PASSWORD; export KC_CLI_PASSWORD; exec "$@"'
+          - kcadm-login
           - docker
           - exec
+          - -e
+          - KC_CLI_PASSWORD
           - "{{ _kc_group_server_ct.stdout }}"
           - /opt/keycloak/bin/kcadm.sh
           - config
@@ -53,8 +61,7 @@
           - master
           - --user
           - "{{ admin_email }}"
-          - --password
-          - "{{ admin_password }}"
+        stdin: "{{ admin_password }}"
       changed_when: false
       no_log: true
 

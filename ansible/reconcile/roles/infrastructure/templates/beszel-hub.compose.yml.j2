@@ -9,11 +9,15 @@
 # leaving the box. On beszel_network only, which its gate, the panel and Gatus
 # join and no client app does (playbooks/group_vars/all/main.yml).
 #
-# USER_EMAIL/USER_PASSWORD bootstrap the hub on first boot: Beszel's
-# initial-settings migration creates a PocketBase superuser AND a regular
-# users record with these credentials (verified against henrygd/beszel
-# internal/migrations/initial-settings.go). beszel-seed.py reuses them to
-# authenticate and seed the universal token.
+# No credential in the spec, which `docker service inspect` shows. Without
+# USER_EMAIL/USER_PASSWORD the hub's first boot makes a placeholder superuser
+# and serves its first-user endpoint (beszel v0.20.0
+# internal/migrations/initial-settings.go, internal/users/users.go
+# CreateFirstUser), which scripts/beszel-seed.py, on the host's loopback,
+# calls with admin_email and admin_password before anything else: the
+# superuser and the admin's users record the rest of the seed signs in as.
+# Until then the endpoint answers only what reaches the hub: this host's own
+# processes, the admin-only gate, the panel and Gatus.
 #
 # Metrics history (/beszel_data) is a named volume EXCLUDED from restic
 # (see reconcile/roles/backup/defaults backup_exclude_patterns) -- disposable
@@ -26,8 +30,6 @@ services:
         condition: any
         delay: 5s
     environment:
-      USER_EMAIL: "{{ admin_email }}"
-      USER_PASSWORD: "{{ admin_password }}"
       # Same reason healthchecks branches here: with no domain entered yet
       # `beszel_hostname` renders `beszel.`, and a URL whose host ends in a
       # dot is not a degraded address, it is a malformed one. Deferred, the
@@ -44,7 +46,7 @@ services:
 {% endif %}
       # Let an OIDC identity with no local record sign in. Without it the
       # Keycloak button works for exactly ONE person -- the holder of
-      # admin_email, whose users record the bootstrap already created -- and
+      # admin_email, whose users record the seed's first-user claim created -- and
       # every other admin still meets the password prompt this is here to
       # remove.
       #

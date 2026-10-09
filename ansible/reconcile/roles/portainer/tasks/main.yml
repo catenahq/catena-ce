@@ -90,6 +90,35 @@
   vars:
     tier1_spec: "{{ _pt_spec }}"
 
+# --- its own network ----------------------------------------------------------
+# Portainer is on portainer_network alone (playbooks/group_vars/all/main.yml says
+# who joins it), never catena-network, where every client app could reach its
+# login. The engine creates the service there and does not move a service's
+# networks, so a service on any other network is moved here, by the drift the
+# panel's spec uses (filter_plugins/catena_admin_service.py
+# catena_admin_network_drift). `docker service update` waits for the new task.
+- name: "portainer: inspect the service"
+  ansible.builtin.command:
+    argv: [docker, service, inspect, "{{ portainer_service_name }}"]
+  register: _pt_inspect
+  changed_when: false
+
+- name: "portainer: the id of its network"
+  ansible.builtin.command:
+    argv: [docker, network, inspect, --format, "{{ '{{' }}.Id{{ '}}' }}", "{{ portainer_network }}"]
+  register: _pt_network
+  changed_when: false
+
+- name: "portainer: move it onto its own network"
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'service', 'update'] + _pt_network_drift + [portainer_service_name] }}"
+  vars:
+    _pt_network_drift: >-
+      {{ (_pt_inspect.stdout | from_json)
+         | catena_admin_network_drift({portainer_network: _pt_network.stdout | trim}) }}
+  when: _pt_network_drift | length > 0
+  changed_when: true
+
 # --- host-only firewall for the UI port (registry fragment) ------------------
 # `loopback`: nothing off this host reaches the UI. Every API call below runs
 # on the host against 127.0.0.1, and an administrator opens the UI through an

@@ -9,14 +9,14 @@ from pathlib import Path
 
 SEED = Path(__file__).resolve().parents[2] / "scripts" / "healthchecks-seed.py"
 
-BASE_ENV = {
-    "CATENA_ADMIN_EMAIL": "ops@example.com",
-    "CATENA_HC_SUPERUSER_PASSWORD": "hunter2",
-    "CATENA_INVENTORY_HOSTNAME": "vps-1",
-    "CATENA_HC_API_KEY_READONLY": "ro-key",
-    "CATENA_HC_API_KEY_READWRITE": "rw-key",
-    "CATENA_HC_PING_KEY": "ping-key",
-    "CATENA_MAIL_ENABLED": "false",
+BASE_CONFIG = {
+    "admin_email": "ops@example.com",
+    "superuser_password": "hunter2",
+    "inventory_hostname": "vps-1",
+    "api_key_readonly": "ro-key",
+    "api_key_readwrite": "rw-key",
+    "ping_key": "ping-key",
+    "mail_enabled": "false",
 }
 
 
@@ -168,8 +168,8 @@ def install_fake_django(monkeypatch) -> dict[str, _Manager]:
     return managers
 
 
-def run_seed(monkeypatch, **env) -> None:
-    """Run the real seed once, with BASE_ENV overridden by `env`."""
-    for key, value in {**BASE_ENV, **env}.items():
-        monkeypatch.setenv(key, value)
-    exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
+def run_seed(**config) -> None:
+    """Run the real seed once, with BASE_CONFIG overridden by `config`, the
+    way the task's `manage.py shell -c` line hands it seed_config."""
+    exec(compile(SEED.read_text(), str(SEED), "exec"),
+         {"__name__": "__seed__", "seed_config": {**BASE_CONFIG, **config}})

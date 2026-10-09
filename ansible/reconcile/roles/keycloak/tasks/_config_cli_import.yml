@@ -22,6 +22,14 @@
 - name: "Keycloak realm: keycloak-config-cli import-update-merge ({{ kc_import_dir }})"
   ansible.builtin.command:
     argv:
+      # KEYCLOAK_PASSWORD is read from this task's stdin by the bash wrapper
+      # and forwarded to the container by name, never spelled out on an argv,
+      # which `ps` shows every local user. A task `environment:` would not do:
+      # Ansible prefixes it to the module's own `/bin/sh -c` command line.
+      - bash
+      - -c
+      - 'IFS= read -r KEYCLOAK_PASSWORD; export KEYCLOAK_PASSWORD; exec "$@"'
+      - kc-import
       - docker
       - run
       - --rm
@@ -31,11 +39,6 @@
       - "KEYCLOAK_URL=http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}"
       - -e
       - "KEYCLOAK_USER={{ admin_email }}"
-      # KEYCLOAK_PASSWORD is forwarded from the task environment (set
-      # below) rather than spelled out as `KEY=value` on the argv. Argv
-      # is visible in `docker ps`, the host process tree, AND any Ansible
-      # log sink that captures the command line. Forwarding from env
-      # keeps the cleartext out of all three surfaces.
       - -e
       - KEYCLOAK_PASSWORD
       - -e
@@ -126,8 +129,7 @@
       - -v
       - "{{ kc_import_dir }}:/config:ro"
       - "{{ keycloak_config_cli_image }}"
-  environment:
-    KEYCLOAK_PASSWORD: "{{ admin_password }}"
+    stdin: "{{ admin_password }}"
   register: _keycloak_realm_import
   # Tool reports its own changed/no-op state on stdout. Treat as
   # `changed_when` true if a file it imports was re-rendered OR the
@@ -142,8 +144,8 @@
   # `failed_when: false` so the play doesn't abort BEFORE we get a
   # chance to surface stdout/stderr through the debug + fail pair
   # below. no_log: true on THIS task suppresses Ansible's default
-  # task-result log (which echoes the `environment:` block and would
-  # leak admin_password); the registered variable still carries
+  # task-result log (which echoes the module's stdin and would leak
+  # admin_password); the registered variable still carries
   # the stdout/stderr that the debug task explicitly emits next.
   failed_when: false
   # Retry the whole run on any failure: each attempt is a FRESH container
@@ -163,7 +165,7 @@
   no_log: true
 
 # Surface stdout + stderr from the kc-config-cli run. Restricted to
-# the two fields that are SAFE to log -- the env block (which holds
+# the two fields that are SAFE to log -- the stdin (which holds
 # admin_password) lives on the task definition above, not in
 # _keycloak_realm_import.* fields. Without this, no_log: true on the
 # parent task blackholes the actual error message, across the dozens of

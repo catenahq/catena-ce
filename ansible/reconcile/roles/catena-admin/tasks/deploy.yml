@@ -57,13 +57,15 @@
     _ca_spec:
       name: "{{ catena_admin_service_name }}"
       image: "{{ catena_admin_image }}"
-      # catena-network for its gate, Portainer, Keycloak and Gatus;
-      # healthchecks_network for Healthchecks and beszel_network for Beszel's
-      # hub, each on no other.
+      # catena-network for its gate, Keycloak and Gatus; healthchecks_network
+      # for Healthchecks, beszel_network for Beszel's hub and portainer_network
+      # for Portainer, which reads its App Templates catalog here, each on no
+      # other.
       networks:
         - "{{ catena_network_name | default('catena-network') }}"
         - "{{ healthchecks_network }}"
         - "{{ beszel_network }}"
+        - "{{ portainer_network }}"
       ui_port: "{{ catena_admin_ui_port }}"
       direct_port: "{{ catena_admin_direct_port }}"
       group: "{{ catena_admin_supplementary_gid }}"
@@ -396,6 +398,12 @@
     - catena_admin_deploy_from_converge | bool
     - _ca_reconcile is changed
     - _ca_reinspect.rc | default(1) == 0
+
+- name: "Catena-admin: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: "{{ catena_admin_secret_specs | map(attribute='base') | list }}"
+  when: catena_admin_deploy_from_converge | bool
 
 # A panel whose env moved answers a different managed env: a new domain moves
 # every managed DOMAIN_HOST with it. dashboard-sync already ran in this converge

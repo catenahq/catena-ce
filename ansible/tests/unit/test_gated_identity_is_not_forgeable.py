@@ -29,6 +29,7 @@ INFRA = ROLES / "infrastructure" / "templates"
 
 HC_NETWORK = "catena-healthchecks"
 BESZEL_NETWORK = "catena-beszel"
+PORTAINER_NETWORK = "catena-portainer-net"
 GATE_SECRET = "gate+secret/value=="
 
 
@@ -57,7 +58,8 @@ def _gated_apps() -> list[dict]:
         if "networks" in app:
             app["networks"] = [
                 env.from_string(n).render(healthchecks_network=HC_NETWORK,
-                                          beszel_network=BESZEL_NETWORK)
+                                          beszel_network=BESZEL_NETWORK,
+                                          portainer_network=PORTAINER_NETWORK)
                 for n in app["networks"]
             ]
         apps.append(app)
@@ -194,8 +196,6 @@ def _beszel_hub() -> dict:
     return _compose(
         "beszel-hub.compose.yml.j2",
         beszel_image="henrygd/beszel:test",
-        admin_email="admin@acme.test",
-        admin_password="pw",
         catena_public_surface_deferred=False,
         beszel_hostname="beszel.acme.test",
         beszel_hub_network_alias="beszel-hub",
@@ -243,8 +243,9 @@ def test_no_client_facing_gate_joins_the_beszel_network():
             f"{name} joins the Beszel network; only the hub's own gate may")
 
 
-def test_the_swarm_role_creates_both_networks():
+def test_the_swarm_role_creates_the_private_networks():
     tasks = yaml.safe_load((ROLES / "swarm" / "tasks" / "main.yml").read_text())
     create = next(t for t in tasks if "private overlays" in t.get("name", ""))
-    assert create["loop"] == ["{{ healthchecks_network }}", "{{ beszel_network }}"]
+    assert create["loop"] == ["{{ healthchecks_network }}", "{{ beszel_network }}",
+                              "{{ portainer_network }}"]
     assert "--attachable" not in create["ansible.builtin.command"]["argv"]

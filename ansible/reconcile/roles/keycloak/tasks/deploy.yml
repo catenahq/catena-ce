@@ -19,6 +19,20 @@
 - name: "Keycloak: the served domains"
   ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/served_zones.yml"
 
+# The compose mounts its credentials file (templates/keycloak.conf.j2) by this
+# name; swarm holds the value.
+- name: "Keycloak: name the credentials file's swarm secret after its content"
+  ansible.builtin.set_fact:
+    _keycloak_secrets: >-
+      {{ [{'base': keycloak_config_secret_base, 'target': keycloak_config_target,
+           'value': lookup('template', 'keycloak.conf.j2')}] | swarm_secret_entries }}
+  no_log: true
+
+- name: "Keycloak: create the missing swarm secret"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+  vars:
+    swarm_secrets: "{{ _keycloak_secrets }}"
+
 - name: "Keycloak: deploy as a swarm stack"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/swarm_stack.yml
   vars:
@@ -39,3 +53,8 @@
       renders the cloudflared ingress + Traefik route. Verified by
       tasks/validate.yml's /health/ready probe + the aggregate post-
       role probe in reconcile/roles/infrastructure.
+
+- name: "Keycloak: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: ["{{ keycloak_config_secret_base }}"]

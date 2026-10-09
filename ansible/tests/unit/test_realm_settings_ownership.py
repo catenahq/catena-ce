@@ -66,7 +66,8 @@ SEEDED_ONCE = (
 # The structure the product depends on. NO_DELETE already protects anything an
 # admin adds beside these, so asserting them costs nothing and dropping one
 # would leave a realm without the tier model the access matrix reads.
-STRUCTURE = ("groups", "clientScopes", "defaultDefaultClientScopes")
+STRUCTURE = ("groups", "roles", "clientScopes", "defaultDefaultClientScopes",
+             "authenticationFlows", "authenticatorConfig")
 
 _GUARD_OPEN = re.compile(r"\{%\s*if\s+realm_seed\s*\|\s*bool\s*%\}")
 _GUARD_CLOSE = re.compile(r"\{%\s*endif\s*%\}")

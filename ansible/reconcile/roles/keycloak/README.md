@@ -8,14 +8,29 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
    (`provision_db.yml`).
 2. Deploy the Keycloak compose as a swarm stack (`deploy.yml`) and wait
    for `/health/ready` (`validate.yml`), so the realm import and the
-   downstream roles (oauth2_proxy) do not race its startup.
+   downstream roles (oauth2_proxy) do not race its startup. Its database
+   password and initial admin password are a config file
+   (`templates/keycloak.conf.j2`) mounted as a swarm secret named after its
+   content and read through `KC_CONFIG_FILE`; a secret of that name no
+   service mounts is removed after the deploy.
 3. Bootstrap the `vps` realm (`realm_bootstrap.yml`) with
    keycloak-config-cli:
+   - Before any import, an `admin_email` that differs from the one the last
+     import ran under (`/var/lib/catena/keycloak-realm-admin-email`) moves
+     the admin's master-realm and realm accounts to the new address by id,
+     keeping their passwords and second factors: the import, which finds the
+     admin by username, then updates that one account. Every sign-in the
+     role makes reads the admin password on stdin, never an argv.
    - `realm-vps.yaml.j2` plus the service-account clients render into
      `/etc/catena/keycloak/realms` (parent dir 0700) and import on every
      converge: the four-tier groups (`admin`, `staff`, `client`,
-     `visitor`), the security posture, MFA enforcement and the realm's
-     mail settings, all from the on-box store.
+     `visitor`) with their tier roles, the default client scopes, the
+     two sign-in flows applications are bound to by tier, the security
+     posture, MFA enforcement and the realm's mail settings, all from the
+     on-box store.
+   - After the import it reads the two sign-in flows' ids
+     (`keycloak_signin_flows`), which dashboard-sync's env file carries,
+     and fails the converge when either is missing.
    - The realm admin's password and the realm's tunable settings are a
      seed: rendered into `/etc/catena/keycloak/seed`, imported once while
      a bootstrap marker under `/var/lib/catena` is missing, then deleted.
