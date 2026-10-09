@@ -23,8 +23,10 @@
 # service already runs, so following the service and following
 # catena_admin_image name the same image.
 #
-# The spec's image carries the digest swarm resolved at create/update time, so
-# following it is byte-exact rather than tag-exact.
+# The spec's image carries a digest whenever whoever set it named one: the
+# converge creates the service from catena_admin_image, and the panel's update
+# rolls it to the digest its pull resolved. Following it is then byte-exact
+# rather than tag-exact.
 - name: "Payload: what image is the catena-admin service running"
   ansible.builtin.command:
     argv:
@@ -171,6 +173,15 @@
       when:
         - catena_payload_image_digest | length > 0
         - catena_payload_image_digest not in (_payload_repo_digests.stdout | default(''))
+
+    # Said out loud like the unchecked case below, so a converge's output tells
+    # a checked extract from an unchecked one.
+    - name: "Payload: image digest matches the pin"
+      ansible.builtin.debug:
+        msg: >-
+          {{ catena_payload_image }} carries {{ catena_payload_image_digest }},
+          the digest this converge pins: digest check passed.
+      when: catena_payload_image_digest | length > 0
 
     - name: "Payload: image digest is NOT pinned"
       ansible.builtin.debug:

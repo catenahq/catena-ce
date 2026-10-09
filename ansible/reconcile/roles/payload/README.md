@@ -33,7 +33,8 @@ exists.
    the image the panel runs always is, so the host's own converge does not
    depend on the registry answering.
 3. Refuses, before anything is copied out or run, an image whose repo digests
-   do not include `catena_payload_image_digest` (see below).
+   do not include `catena_payload_image_digest` (see below), and says so when
+   they do.
 4. Refuses, before anything is copied out or run, an image built from another
    catena-ce tree than the one running this converge: it compares the hash the
    image records in `/usr/local/share/catena-ce/VENDOR.json` with this tree's,
@@ -99,8 +100,11 @@ The digest of the release that delivered the tree running this converge, read
 off `catena_admin_image` (`CATENA_ADMIN_IMAGE`). An install names its release
 as `repo:tag@sha256:...`, the reference
 `catena-ce/ansible/helpers/fetch_release.py` resolved
-and verified every byte of; a host's own converge names the image the panel
-service runs, as swarm records it, digest included.
+and verified every byte of; a host's own converge (catena-admin
+`catena-converge`) names the image the panel service runs by digest: the one
+the service spec records, else the one that image carries on the host for its
+repository. The panel's update rolls the service to the digest its pull
+resolved.
 
 The check proves that the engines come from the very bytes the running tree
 came from. It does not prove provenance: whoever named the digest is trusted,

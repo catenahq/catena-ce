@@ -45,8 +45,9 @@ catena_payload_image: >-
 # The digest catena_admin_image carries: the release that delivered the running
 # tree. An install's image is `repo:tag@sha256:...` as
 # catena-ce/ansible/helpers/fetch_release.py resolved and verified it, and a
-# host's own converge names the panel service's image as swarm records it,
-# digest included.
+# host's own converge (catena-admin catena-converge) names the panel service's
+# image by digest: the one the service spec records, else the one that image
+# carries on the host for its repository.
 #
 # What the check proves, and what it leaves to provenance: README.md, "Which
 # digest this asserts".

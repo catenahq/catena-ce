@@ -359,6 +359,19 @@ def test_an_unpinned_image_says_so_out_loud() -> None:
     assert "WITHOUT a digest check" in notice["ansible.builtin.debug"]["msg"]
 
 
+def test_a_checked_image_says_so_too() -> None:
+    """Both outcomes are named in the converge's output, so a reader of it can
+    tell the check ran. Placed after the refusal, which stops the play on a
+    mismatch, and before anything is copied out."""
+    flat = _flatten(_tasks())
+    notice = flat[_index_of(flat, "digest matches the pin")]
+    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
+    assert "catena_payload_image_digest | length > 0" in conds
+    assert "digest check passed" in notice["ansible.builtin.debug"]["msg"]
+    assert (_index_of(flat, "not the pinned one") < _index_of(flat, "digest matches the pin")
+            < _index_of(flat, "create a throwaway container"))
+
+
 def _render_digest(admin_image: str, env_digest: str = "") -> str:
     """catena_payload_image_digest rendered under a fake context. A substring
     check cannot tell a pin from one that never matches, and "never matches"
@@ -379,7 +392,7 @@ def _render_digest(admin_image: str, env_digest: str = "") -> str:
 def test_every_install_and_host_converge_arms_the_digest_gate() -> None:
     """The pin is the digest of the image the converge was started with:
     the release install-host.sh fetched, `repo:tag@sha256:...`, or the image
-    the panel service runs, which swarm records with its digest."""
+    the panel service runs, which catena-converge names by digest."""
     digest = "sha256:" + "ab" * 32
     for image in (f"ghcr.io/catenahq/catena-admin:v0.6.2@{digest}",
                   f"10.0.0.1:5001/catena-admin:bench-3@{digest}",
