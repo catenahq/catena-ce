@@ -90,7 +90,7 @@
 # reconcile.yml, so its presence is the only on-host evidence that the converge
 # reached the end rather than dying in a role. version.txt cannot say that:
 # playbooks/tasks/stamp_version.yml writes it before the first role, so it is
-# there after a converge that failed at role 9.
+# there after a converge that failed partway through.
 #
 # The action list is every name the converge's dispatch table carries, so an
 # empty one is a converge that recorded no table at all.

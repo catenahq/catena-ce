@@ -9,6 +9,7 @@ Run: uv run pytest tests/unit/test_beszel_oidc.py
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 from pathlib import Path
 
@@ -250,14 +251,156 @@ def test_a_never_registering_agent_fails_the_converge():
         "the rules pass swallows its own failure")
 
 
-def test_both_passes_report_all_four_outcomes():
-    """changed_when counts ok-exists across the four steps. Counting three
-    would report a converge that newly created every alert rule as unchanged."""
+def test_both_passes_report_all_five_outcomes():
+    """changed_when counts the no-op outcomes across the five steps. Counting
+    fewer would report a converge that newly created every alert rule, or
+    wrote only a new mail password, as unchanged."""
     tasks = [t for t in yaml.safe_load(BESZEL_TASKS.read_text()) if isinstance(t, dict)]
     for fragment in ("seed the universal token", "default alert rules"):
         task = next(t for t in tasks if fragment in str(t.get("name", "")))
-        assert "ok-exists') < 4" in str(task["changed_when"]), (
+        assert "count('no-mail')) < 5" in str(task["changed_when"]), (
             f"{fragment}: changed_when is {task['changed_when']!r}")
+
+
+def test_no_credential_is_rendered_into_the_seed_command():
+    tasks = [t for t in yaml.safe_load(BESZEL_TASKS.read_text()) if isinstance(t, dict)]
+    for fragment in ("seed the universal token", "default alert rules"):
+        task = next(t for t in tasks if fragment in str(t.get("name", "")))
+        assert task["ansible.builtin.command"] == "python3 /root/catena-beszel-seed.py"
+        assert task["environment"] == "{{ _beszel_seed_env }}"
+
+
+# ─── outgoing mail ─────────────────────────────────────────────────────────
+
+_MAIL = {"host": "smtp.resend.com", "port": "587", "user": "resend",
+         "password": "re_new", "sender": "no-reply@example.test"}
+
+
+def _hub_settings(enabled=True):
+    return {"smtp": {"enabled": enabled, "host": "smtp.resend.com", "port": 587,
+                     "username": "resend", "tls": False, "password": ""},
+            "meta": {"senderAddress": "no-reply@example.test", "senderName": "Catena"}}
+
+
+def _smtp_hub(settings):
+    writes = []
+
+    def fake_req(method, url, *, token=None, body=None):
+        if method == "GET":
+            return settings
+        writes.append(body)
+        return {}
+    return fake_req, writes
+
+
+def test_a_new_mail_password_alone_is_written(monkeypatch):
+    """PocketBase blanks the password in every read, so only the fingerprint
+    of the last write tells an unchanged password from a rotated one."""
+    fake, writes = _smtp_hub(_hub_settings())
+    monkeypatch.setattr(seed, "_req", fake)
+    state, fp = seed.configure_smtp("http://h", "tok", _MAIL, seed._fingerprint("re_old"))
+    assert state == "updated"
+    assert writes[0]["smtp"]["password"] == "re_new"
+    assert fp == seed._fingerprint("re_new")
+
+
+def test_an_unchanged_mail_password_writes_nothing(monkeypatch):
+    fake, writes = _smtp_hub(_hub_settings())
+    monkeypatch.setattr(seed, "_req", fake)
+    assert seed.configure_smtp("http://h", "tok", _MAIL, seed._fingerprint("re_new")) == (
+        "ok-exists", seed._fingerprint("re_new"))
+    assert writes == []
+
+
+def test_mail_turned_off_turns_the_hubs_off(monkeypatch):
+    fake, writes = _smtp_hub(_hub_settings())
+    monkeypatch.setattr(seed, "_req", fake)
+    assert seed.configure_smtp("http://h", "tok", {"host": ""}, "x")[0] == "disabled"
+    assert writes == [{"smtp": {"enabled": False}}]
+
+    fake, writes = _smtp_hub(_hub_settings(enabled=False))
+    monkeypatch.setattr(seed, "_req", fake)
+    assert seed.configure_smtp("http://h", "tok", {"host": ""}, "")[0] == "no-mail"
+    assert writes == []
+
+
+# ─── an admin email change ──────────────────────────────────────────────────
+
+class _Hub:
+    """A hub that created its superuser and users record from the first
+    admin email, and answers every other step as already seeded."""
+
+    def __init__(self, email):
+        self.superuser = email
+        self.user = email
+
+    def req(self, method, url, *, token=None, body=None):
+        import urllib.error
+        import urllib.parse
+
+        if url.endswith("/_superusers/auth-with-password"):
+            if body["identity"] != self.superuser or body["password"] != "pw":
+                raise urllib.error.HTTPError(url, 400, "Failed to authenticate.", None, None)
+            return {"token": "su-token", "record": {"id": "su1"}}
+        if method == "PATCH" and "/_superusers/records/su1" in url:
+            self.superuser = body["email"]
+            return {}
+        if method == "PATCH" and "/users/records/u1" in url:
+            self.user = body["email"]
+            return {}
+        if "/users/records?" in url:
+            found = f"email='{self.user}'" in urllib.parse.unquote(url)
+            return {"items": [{"id": "u1"}] if found else []}
+        if "/universal_tokens/" in url:
+            return {"items": [{"id": "t1", "token": "tok"}]}
+        if url.endswith("/api/collections/users"):
+            return {"oauth2": {"enabled": True, "providers": [seed._desired_provider(_OIDC)]}}
+        if "/user_settings/" in url:
+            return {"items": [{"id": "s1", "settings": {"webhooks": ["hook"], "emails": []}}]}
+        if "/systems/" in url:
+            return {"items": [{"id": "sys1"}]}
+        if "/alerts/" in url:
+            return {"items": [{"name": r["name"]} for r in seed._DEFAULT_RULES]}
+        if url.endswith("/api/settings"):
+            return _hub_settings(enabled=False)
+        raise AssertionError(f"unexpected {method} {url}")
+
+
+_OIDC = {"client_id": "beszel", "client_secret": "s", "auth_url": "a",
+         "token_url": "t", "userinfo_url": "u", "display_name": "Catena"}
+
+
+def _run_main(monkeypatch, tmp_path, hub, email):
+    env = {
+        "BESZEL_HUB_URL": "http://h", "BESZEL_SEED_STATE": str(tmp_path / "state.json"),
+        "BESZEL_ADMIN_EMAIL": email, "BESZEL_ADMIN_PASSWORD": "pw",
+        "BESZEL_UNIVERSAL_TOKEN": "tok", "BESZEL_OIDC_CLIENT_ID": "beszel",
+        "BESZEL_OIDC_CLIENT_SECRET": "s", "BESZEL_OIDC_AUTH_URL": "a",
+        "BESZEL_OIDC_TOKEN_URL": "t", "BESZEL_OIDC_USERINFO_URL": "u",
+        "BESZEL_OIDC_DISPLAY_NAME": "Catena", "BESZEL_ALERT_WEBHOOK": "hook",
+    }
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(seed, "_req", hub.req)
+    return seed.main()
+
+
+def test_an_admin_email_change_moves_the_hubs_records(monkeypatch, tmp_path, capsys):
+    """The hub keeps the email it first started with; the seed signs in with
+    the one it recorded and moves both records to the new address."""
+    hub = _Hub("old@example.test")
+    assert _run_main(monkeypatch, tmp_path, hub, "old@example.test") == 0
+    assert _run_main(monkeypatch, tmp_path, hub, "new@example.test") == 0
+    assert hub.superuser == hub.user == "new@example.test"
+    out = capsys.readouterr().out.splitlines()[-1]
+    assert out.count("ok-exists") == 4 and "smtp: no-mail" in out
+    assert json.loads((tmp_path / "state.json").read_text())["admin_email"] == "new@example.test"
+    assert oct((tmp_path / "state.json").stat().st_mode & 0o777) == "0o600"
+
+
+def test_an_unknown_admin_email_fails_loudly(monkeypatch, tmp_path):
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, tmp_path, _Hub("someone@example.test"), "new@example.test")
 
 
 def test_an_operator_added_webhook_is_not_dropped():

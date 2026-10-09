@@ -71,7 +71,7 @@ def test_the_passthrough_list_stays_minimal():
 
 def test_this_role_installs_no_dispatch_binary_of_its_own():
     """Every binary a dispatch action runs comes out of the image, installed by
-    reconcile/roles/payload at role 5.5 from its blanket `for f in bin/*` loop.
+    reconcile/roles/payload from its blanket `for f in bin/*` loop.
 
     A hand-installed one here -- the store writer, the restic-key helper, a
     check binary -- makes this role a second writer of a path

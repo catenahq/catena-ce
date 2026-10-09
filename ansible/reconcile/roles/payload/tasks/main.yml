@@ -1,6 +1,7 @@
 ---
 # Extract the host engine payload from the catena-admin image and install it.
-# See defaults/main.yml for why this runs at role 5.5 rather than at 13.
+# See defaults/main.yml for why this runs right after bootstrap/roles/docker
+# rather than with reconcile/roles/catena-admin.
 
 # Published for the roles downstream that dispatch an engine. They cannot read
 # this role's defaults reliably, and the difference matters to them: with the
@@ -35,7 +36,7 @@
   register: _payload_service_image
   changed_when: false
   # "no such service" is the normal first-converge answer, not an error: this
-  # role runs at 5.5 and reconcile/roles/catena-admin creates the service at 13.
+  # role runs before reconcile/roles/catena-admin, which creates the service.
   failed_when: false
 
 - name: "Payload: the engines follow the shell"
@@ -69,7 +70,8 @@
   block:
     # Created owned by the CONTAINER's uid, not root.
     #
-    # This role runs fifteen roles before catena-admin, so on a first converge
+    # This role runs before reconcile/roles/catena-admin in both converge
+    # playbooks, so on a first converge
     # it is what brings this directory into existence -- and the capture-restore
     # pair below preserves whatever owner it finds. Creating it root-owned meant
     # restoring it root-owned, and the chown in reconcile/roles/catena-admin only touches

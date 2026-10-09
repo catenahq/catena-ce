@@ -76,9 +76,9 @@
   vars:
     svc_name: "{{ beszel_hub_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hub.compose.yml.j2') }}"
-    svc_domain_host: "{{ beszel_hostname }}"
-    svc_domain_service: "app"
-    svc_domain_port: "{{ beszel_hub_internal_port }}"
+    # No route of its own: the hub is on beszel_network, which Traefik is
+    # not, so its one public path is its gate's route.
+    svc_domain_host: ""
     # Public readiness (302 through oauth2-proxy) is verified by the
     # aggregate post-role probe in main.yml. The pubkey read + seed below
     # carry their own retry loops against the loopback API, which is the
@@ -193,36 +193,45 @@
     _beszel_alert_webhook: >-
       generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
 
+# What both seed passes run with (scripts/beszel-seed.py documents each name).
+- name: "Beszel: the seed's environment"
+  ansible.builtin.set_fact:
+    _beszel_seed_env:
+      BESZEL_HUB_URL: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"
+      BESZEL_SEED_STATE: "{{ beszel_seed_state_file }}"
+      BESZEL_ADMIN_EMAIL: "{{ admin_email }}"
+      BESZEL_ADMIN_PASSWORD: "{{ admin_password }}"
+      BESZEL_UNIVERSAL_TOKEN: "{{ beszel_universal_token }}"
+      BESZEL_OIDC_CLIENT_ID: beszel
+      BESZEL_OIDC_CLIENT_SECRET: "{{ beszel_oidc_client_secret }}"
+      BESZEL_OIDC_AUTH_URL: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/auth"
+      BESZEL_OIDC_TOKEN_URL: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/token"
+      BESZEL_OIDC_USERINFO_URL: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/userinfo"
+      BESZEL_OIDC_DISPLAY_NAME: "{{ beszel_oidc_display_name }}"
+      BESZEL_ALERT_WEBHOOK: "{{ _beszel_alert_webhook }}"
+      BESZEL_SMTP_HOST: "{{ infrastructure_smtp.host }}"
+      BESZEL_SMTP_PORT: "{{ infrastructure_smtp.port | string }}"
+      BESZEL_SMTP_USER: "{{ infrastructure_smtp.user }}"
+      BESZEL_SMTP_SENDER: "{{ infrastructure_smtp.sender }}"
+      BESZEL_SMTP_PASSWORD: "{{ smtp_password | default('') }}"
+  no_log: true
+
 - name: "Beszel: seed the universal token + OIDC login (superuser-authenticated)"
-  ansible.builtin.shell: >-
-    BESZEL_HUB_URL=http://127.0.0.1:{{ beszel_hub_host_localhost_port }}
-    BESZEL_ADMIN_EMAIL={{ admin_email | quote }}
-    BESZEL_ADMIN_PASSWORD={{ admin_password | quote }}
-    BESZEL_UNIVERSAL_TOKEN={{ beszel_universal_token | quote }}
-    BESZEL_OIDC_CLIENT_ID=beszel
-    BESZEL_OIDC_CLIENT_SECRET={{ beszel_oidc_client_secret | quote }}
-    BESZEL_OIDC_AUTH_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/auth') | quote }}
-    BESZEL_OIDC_TOKEN_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/token') | quote }}
-    BESZEL_OIDC_USERINFO_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/userinfo') | quote }}
-    BESZEL_OIDC_DISPLAY_NAME={{ beszel_oidc_display_name | quote }}
-    BESZEL_ALERT_WEBHOOK={{ _beszel_alert_webhook | quote }}
-    BESZEL_SMTP_HOST={{ infrastructure_smtp.host | quote }}
-    BESZEL_SMTP_PORT={{ infrastructure_smtp.port | quote }}
-    BESZEL_SMTP_USER={{ infrastructure_smtp.user | quote }}
-    BESZEL_SMTP_SENDER={{ infrastructure_smtp.sender | quote }}
-    BESZEL_SMTP_PASSWORD={{ smtp_password | default('') | quote }}
-    python3 /root/catena-beszel-seed.py
+  ansible.builtin.command: python3 /root/catena-beszel-seed.py
+  environment: "{{ _beszel_seed_env }}"
   register: _beszel_seed
-  # The script prints one line carrying all FOUR outcomes. Steady state is
-  # "ok-exists" from every one; anything else is a real write. Counting them
-  # rather than matching a 'minted'/'updated' substring keeps a half-changed
-  # run (token current, OIDC newly configured) reported as changed.
+  # The script prints one line carrying all FIVE outcomes. Steady state is
+  # "ok-exists" from every one, or "no-mail" from the mail step on a host with
+  # mail off; anything else is a real write. Counting them rather than matching
+  # a 'minted'/'updated' substring keeps a half-changed run (token current,
+  # OIDC newly configured) reported as changed.
   #
-  # Four, not three: the alert rules report "no-systems" here on a first
-  # converge, because this runs BEFORE the agent deploy below -- the agent
-  # needs the universal token this task seeds. The pass after the agent is what
-  # turns that into "created N".
-  changed_when: _beszel_seed.stdout.count('ok-exists') < 4
+  # The alert rules report "no-systems" here on a first converge, because this
+  # runs BEFORE the agent deploy below -- the agent needs the universal token
+  # this task seeds. The pass after the agent is what turns that into
+  # "created N".
+  changed_when: >-
+    (_beszel_seed.stdout.count('ok-exists') + _beszel_seed.stdout.count('no-mail')) < 5
   retries: 24
   delay: 5
   until: _beszel_seed.rc == 0
@@ -237,8 +246,6 @@
     # the loopback. swarm_stack.yml removes the route file when
     # svc_domain_host is empty.
     svc_domain_host: ""
-    svc_domain_service: "app"
-    svc_domain_port: "{{ beszel_agent_port }}"
     svc_readiness_skip_reason: >-
       Host-network metrics agent; no HTTP surface. The hub's Systems view
       shows it online within a poll once it registers via the universal
@@ -255,26 +262,11 @@
 # registration rather than assuming it, so a fresh host finishes with a
 # complete alert path in ONE converge instead of needing a second.
 - name: "Beszel: seed the default alert rules once the agent has registered"
-  ansible.builtin.shell: >-
-    BESZEL_HUB_URL=http://127.0.0.1:{{ beszel_hub_host_localhost_port }}
-    BESZEL_ADMIN_EMAIL={{ admin_email | quote }}
-    BESZEL_ADMIN_PASSWORD={{ admin_password | quote }}
-    BESZEL_UNIVERSAL_TOKEN={{ beszel_universal_token | quote }}
-    BESZEL_OIDC_CLIENT_ID=beszel
-    BESZEL_OIDC_CLIENT_SECRET={{ beszel_oidc_client_secret | quote }}
-    BESZEL_OIDC_AUTH_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/auth') | quote }}
-    BESZEL_OIDC_TOKEN_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/token') | quote }}
-    BESZEL_OIDC_USERINFO_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/userinfo') | quote }}
-    BESZEL_OIDC_DISPLAY_NAME={{ beszel_oidc_display_name | quote }}
-    BESZEL_ALERT_WEBHOOK={{ _beszel_alert_webhook | quote }}
-    BESZEL_SMTP_HOST={{ infrastructure_smtp.host | quote }}
-    BESZEL_SMTP_PORT={{ infrastructure_smtp.port | quote }}
-    BESZEL_SMTP_USER={{ infrastructure_smtp.user | quote }}
-    BESZEL_SMTP_SENDER={{ infrastructure_smtp.sender | quote }}
-    BESZEL_SMTP_PASSWORD={{ smtp_password | default('') | quote }}
-    python3 /root/catena-beszel-seed.py
+  ansible.builtin.command: python3 /root/catena-beszel-seed.py
+  environment: "{{ _beszel_seed_env }}"
   register: _beszel_alert_seed
-  changed_when: _beszel_alert_seed.stdout.count('ok-exists') < 4
+  changed_when: >-
+    (_beszel_alert_seed.stdout.count('ok-exists') + _beszel_alert_seed.stdout.count('no-mail')) < 5
   # Long enough for the agent to come up and complete its first WebSocket
   # registration. Failing here is a real failure: an agent that never registers
   # is a monitor with nothing to watch, and it should not pass silently.
@@ -312,8 +304,6 @@
     svc_name: "{{ beszel_hc_shim_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hc-shim.compose.yml.j2') }}"
     svc_domain_host: ""
-    svc_domain_service: "app"
-    svc_domain_port: "{{ beszel_hc_shim_internal_port }}"
     svc_readiness_skip_reason: >-
-      Internal webhook receiver on catena-network; no public surface.
+      Internal webhook receiver on the hub's network; no public surface.
       Exercised by a Beszel alert firing.

@@ -209,8 +209,8 @@
     # Pings the self-hosted Healthchecks plane so a down clamd pages --
     # but ONLY when a consumer (dms or Nextcloud) is up
     # (run-clamav-watch.sh does the gate). Installed alongside clamd (not
-    # on a no-consumer VPS, so no stray green check there). Reuses the
-    # Healthchecks -> ntfy escalation; no new alert wiring.
+    # on a no-consumer VPS, so no stray green check there). Reuses
+    # Healthchecks' channels; no new alert wiring.
     - name: "ClamAV watch: env file"
       ansible.builtin.template:
         src: clamav-watch.env.j2

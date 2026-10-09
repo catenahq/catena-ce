@@ -59,7 +59,7 @@ entryPoints:
 # TLS terminates at Cloudflare. cloudflared reaches this proxy at
 # http://catena-traefik:80 over catena-network and the service publishes no
 # host ports, so :443 is reachable from nowhere. Every route catena generates
-# is `web`-only: app-route.yml.j2 (portainer_stack) and both route_synth
+# is `web`-only: app-route.yml.j2 (swarm_stack) and both route_synth
 # variants (dashboard-sync).
 #
 # A certResolver on this entrypoint is therefore an ACME order waiting for an

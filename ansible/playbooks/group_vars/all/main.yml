@@ -165,6 +165,14 @@ healthchecks_network: "catena-healthchecks"
 
 beszel_subdomain: "{{ cfg_beszel_subdomain | default('beszel', true) }}"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
+# The overlay Beszel's hub and its alert shim are on, instead of catena-network.
+# The hub's own sign-in creates an account for any realm user, and its
+# superuser's password is the shared admin password; the shim turns any request
+# into a Healthchecks ping. So only their callers join: the hub's sign-in gate
+# (reconcile/roles/oauth2_proxy), the panel (reconcile/roles/catena-admin) and
+# Gatus (reconcile/roles/infrastructure). reconcile/roles/swarm creates it
+# beside healthchecks_network.
+beszel_network: "catena-beszel"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
 # front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are
@@ -182,7 +190,7 @@ admin_email: "{{ cfg_admin_email | default('') }}"
 # smtp_host/smtp_port/etc. here -- doing so shadows the role default and
 # defeats the resolution.
 
-# ntfy + backup repo are NOT set here. They are store-owned (catena-admin >
+# The backup repo is NOT set here. It is store-owned (catena-admin >
 # Settings), and the roles and lanes read the store.
 
 # Auth is handled entirely by self-hosted SSO at auth.<zone> plus a per-app

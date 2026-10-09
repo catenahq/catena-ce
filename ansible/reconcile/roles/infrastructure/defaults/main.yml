@@ -117,6 +117,17 @@ healthchecks_image: >-
 healthchecks_compose_name: "healthchecks"
 healthchecks_network_alias: "healthchecks"
 healthchecks_internal_port: 8000
+# Healthchecks' credentials, as swarm secrets rather than service environment,
+# which `docker service inspect` prints. Healthchecks reads <target>_FILE for
+# each (hc/settings.py envsecret, v4.4). The mail password is blank while mail
+# is off, and a blank value mounts nothing.
+healthchecks_swarm_secrets:
+  - base: healthchecks_secret_key
+    target: SECRET_KEY
+    value: "{{ healthchecks_secret_key }}"
+  - base: healthchecks_email_password
+    target: EMAIL_HOST_PASSWORD
+    value: "{{ (smtp_password | default('')) if (infrastructure_smtp.enabled | bool) else '' }}"
 # Where gatus-sync writes the Healthchecks summary JSON. catena-admin
 # reads it via the backup_stats_dir read-only bind-mount.
 healthchecks_summary_file: "{{ backup_stats_dir | default('/var/lib/catena') }}/healthchecks-summary.json"
@@ -138,19 +149,14 @@ healthchecks_host_localhost_port: 18000
 # saves in Settings: a loopback ping cannot detect a host that is gone.
 healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
-
-# Alert delivery. Store-owned (the client changes these in catena-admin), so
-# they read the projected fact rather than .env; the inventory only seeds them
-# on the first converge. Both blank means no channel is seeded and the
-# converge says so -- see reconcile/roles/infrastructure/tasks/healthchecks.yml.
-ntfy_server: "{{ cfg_ntfy_server | default('') }}"
-ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
-
 # Outgoing mail, from the one choice in Settings > Mail, resolved by the
 # filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
 # smtp_resolve.py): {enabled, host, port, user, sender}. Healthchecks sends
 # its alerts through it, to the admin email channel healthchecks-seed.py
-# keeps, and Beszel its own mail. The credential is smtp_password.
+# keeps, Beszel its own mail and WordPress its sites' mail
+# (tasks/wordpress_plugins.yml). The credential is smtp_password. With mail
+# off the converge seeds no alert channel and says so
+# (tasks/healthchecks.yml).
 infrastructure_smtp: >-
   {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
        host=cfg_smtp_host | default(''),
@@ -201,6 +207,10 @@ beszel_agent_compose_name: "beszel-agent"
 # network_mode: host (canonical upstream shape for host + docker metrics)
 # so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
 beszel_agent_port: 45876
+# beszel-seed.py's record, beside the script: the admin email it last signed
+# in to the hub with, and the fingerprint of the mail password it last wrote,
+# neither of which the hub answers back. 0600, root.
+beszel_seed_state_file: /root/catena-beszel-seed.json
 
 # Label on the hub's OIDC sign-in button. Client-facing copy, so it names the
 # product rather than the software behind it -- "Keycloak" is a word the client

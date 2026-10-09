@@ -136,9 +136,9 @@
       #                 ready before forwarding requests to the service.
       #   03:32:19.555  Bootstrap completed in 3.563000 seconds
       #
-      # A bare TCP connect passed at 16.07 and the gate let kcadm through
-      # 3.5s too early. /health/ready reports the "Keycloak Initialized"
-      # check, which is the state the login actually needs.
+      # A bare TCP connect passes as soon as the listener opens, which lets
+      # kcadm through during that window. /health/ready reports the "Keycloak
+      # Initialized" check, which is the state the login actually needs.
       ansible.builtin.command:
         argv:
           - docker

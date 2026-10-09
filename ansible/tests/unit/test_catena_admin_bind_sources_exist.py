@@ -6,8 +6,8 @@ seconds forever, so a missing source is not an error the converge sees: it is
 an install parked on "create the swarm service (first run)" with no output.
 
 That is what /var/backups/catena-export did. Its contents belong to
-reconcile/roles/backup, which runs at converge.yml position 23 -- TWO roles after
-catena-admin at 21 -- so on a first converge the directory the panel mounts
+reconcile/roles/backup, which runs after reconcile/roles/catena-admin in both
+converge playbooks -- so on a first converge the directory the panel mounts
 did not exist yet, and every task swarm placed was rejected on sight:
 
     "invalid mount config for type \\"bind\\": bind source path does not
@@ -15,7 +15,7 @@ did not exist yet, and every task swarm placed was rejected on sight:
 
 The test bench never caught it because it sets catena_admin_deploy_from_converge
 false and deploys the panel out of band AFTER the converge, by which point
-reconcile/roles/backup has made the directory. The converge-time create at role 21 is
+reconcile/roles/backup has made the directory. The converge-time create is
 the path clients take and the one the bench does not exercise.
 
 Run: uv run pytest tests/unit/test_catena_admin_bind_sources_exist.py

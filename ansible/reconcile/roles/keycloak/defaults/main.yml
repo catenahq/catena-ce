@@ -120,8 +120,8 @@ keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 # configured, which says so on its own login page.
 
 # The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, and
-# every consumer calls it -- here, wordpress_plugins.yml and the infrastructure
-# role's infrastructure_smtp (Beszel, Healthchecks) -- so a host's
+# every consumer calls it -- here, and the infrastructure role's
+# infrastructure_smtp (Beszel, Healthchecks, WordPress) -- so a host's
 # password-reset mail, its alerts and its contact form resolve to the same
 # relay from the same stored config. test_smtp_resolution.py holds each
 # consumer to the filter.

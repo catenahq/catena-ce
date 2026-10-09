@@ -21,8 +21,8 @@ SECTIONS = ("secrets", "config")
 # The page's fieldsets. Not validated against catena-admin's Group constants --
 # this repo cannot import Go -- so the panel's own schema test is what holds
 # the two lists together.
-GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
-          "hostnames", "subdomains", "server")
+GROUPS = ("tunnel", "backup", "mail", "mailserver", "alerts", "share", "access",
+          "license", "hostnames", "subdomains", "server")
 # The named sources the panel fills a field's choices from at render time,
 # because the list belongs to the host: `timezones` is what the host's own
 # timedatectl accepts, `cloudflare_zones` the domains the stored Cloudflare

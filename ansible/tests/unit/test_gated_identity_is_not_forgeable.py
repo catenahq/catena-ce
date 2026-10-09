@@ -1,11 +1,13 @@
 """A client app container cannot claim a signed-in identity at the panel or at
-Healthchecks.
+Healthchecks, nor sign in to Beszel's hub.
 
 Both take the signed-in user from headers their oauth2-proxy gate sets, and
 every client app joins catena-network, where it can set any header. The panel
 therefore takes those headers only beside the gate secret its gate sends as a
 Basic password (catena-admin shell/auth Gate). Healthchecks cannot check a
-secret, so it is on a network no client app joins.
+secret, so it is on a network no client app joins. Beszel's hub creates an
+account for any realm user who drives its sign-in, so it is on another such
+network, with the alert shim it calls.
 
 The compose templates are rendered the way the converge renders them and read
 back as YAML.
@@ -25,6 +27,7 @@ ROLES = ANSIBLE / "reconcile" / "roles"
 INFRA = ROLES / "infrastructure" / "templates"
 
 HC_NETWORK = "catena-healthchecks"
+BESZEL_NETWORK = "catena-beszel"
 GATE_SECRET = "gate+secret/value=="
 
 
@@ -52,7 +55,8 @@ def _gated_apps() -> list[dict]:
         app = dict(app)
         if "networks" in app:
             app["networks"] = [
-                env.from_string(n).render(healthchecks_network=HC_NETWORK)
+                env.from_string(n).render(healthchecks_network=HC_NETWORK,
+                                          beszel_network=BESZEL_NETWORK)
                 for n in app["networks"]
             ]
         apps.append(app)
@@ -86,6 +90,7 @@ def _compose(name: str, **extra) -> dict:
     variables = dict(
         ansible_managed="",
         healthchecks_network=HC_NETWORK,
+        beszel_network=BESZEL_NETWORK,
         healthchecks_network_alias="healthchecks",
         healthchecks_internal_port=8000,
         healthchecks_ping_key="pk",
@@ -131,10 +136,8 @@ def test_healthchecks_is_on_its_own_network_only():
         healthchecks_host_localhost_port=18000,
         healthchecks_hostname="healthchecks.acme.test",
         cloudflare_zone="acme.test",
-        healthchecks_secret_key="sk",
-        healthchecks_superuser_password="su",
-        admin_email="admin@acme.test",
         infrastructure_smtp={"enabled": False, "sender": "no-reply@acme.test"},
+        _healthchecks_secrets=[{"name": "healthchecks_secret_key-0", "target": "SECRET_KEY"}],
     )["services"]["app"]
     assert app["environment"]["REMOTE_USER_HEADER"] == "HTTP_X_FORWARDED_EMAIL"
     assert list(app["networks"]) == [HC_NETWORK]
@@ -168,3 +171,63 @@ def test_no_client_facing_gate_joins_the_healthchecks_network():
         assert HC_NETWORK not in svc["networks"], (
             f"{name} joins the Healthchecks network; only Healthchecks' own "
             f"gate may")
+
+
+def _beszel_hub() -> dict:
+    return _compose(
+        "beszel-hub.compose.yml.j2",
+        beszel_image="henrygd/beszel:test",
+        admin_email="admin@acme.test",
+        admin_password="pw",
+        catena_public_surface_deferred=False,
+        beszel_hostname="beszel.acme.test",
+        beszel_hub_network_alias="beszel-hub",
+        beszel_hub_internal_port=8090,
+        beszel_hub_data_volume="beszel-hub-data",
+        beszel_hub_host_localhost_port=18190,
+    )
+
+
+def test_beszels_hub_is_on_its_own_network_only():
+    hub = _beszel_hub()
+    assert list(hub["services"]["app"]["networks"]) == [BESZEL_NETWORK]
+    assert list(hub["networks"]) == [BESZEL_NETWORK]
+
+
+def test_the_hubs_address_follows_its_hostname():
+    """The hub writes APP_URL over its stored meta.appURL on every start, and
+    a changed value redeploys it."""
+    env = _beszel_hub()["services"]["app"]["environment"]
+    assert env["APP_URL"] == "https://beszel.acme.test"
+
+
+def test_every_caller_of_the_hub_joins_its_network():
+    """Its gate, Gatus's probe and the panel's API reads reach the hub, which
+    calls the alert shim."""
+    hub_gate = _gates()["services"]["oauth2-proxy-beszel"]["networks"]
+    assert "catena-network" in hub_gate and BESZEL_NETWORK in hub_gate
+    assert BESZEL_NETWORK in _compose("gatus.compose.yml.j2")["services"]["app"]["networks"]
+    deploy = (ROLES / "catena-admin" / "tasks" / "deploy.yml").read_text()
+    assert '- "{{ beszel_network }}"' in deploy
+
+
+def test_the_alert_shim_is_reached_by_the_hub_alone():
+    """Any request the shim takes becomes a Healthchecks ping, so no client
+    app reaches it."""
+    shim = _compose("beszel-hc-shim.compose.yml.j2")["services"]["app"]["networks"]
+    assert set(shim) == {BESZEL_NETWORK, HC_NETWORK}
+
+
+def test_no_client_facing_gate_joins_the_beszel_network():
+    for name, svc in _gates()["services"].items():
+        if name == "oauth2-proxy-beszel":
+            continue
+        assert BESZEL_NETWORK not in svc["networks"], (
+            f"{name} joins the Beszel network; only the hub's own gate may")
+
+
+def test_the_swarm_role_creates_both_networks():
+    tasks = yaml.safe_load((ROLES / "swarm" / "tasks" / "main.yml").read_text())
+    create = next(t for t in tasks if "private overlays" in t.get("name", ""))
+    assert create["loop"] == ["{{ healthchecks_network }}", "{{ beszel_network }}"]
+    assert "--attachable" not in create["ansible.builtin.command"]["argv"]

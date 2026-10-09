@@ -1,12 +1,11 @@
 """Beszel's hub is public only through its own admin-only oauth2-proxy.
 
-The hub deploys as a swarm stack, whose route swarm_stack.yml writes at
-default priority straight to the hub. dashboard-sync gates only Portainer
-stacks, so the oauth2-proxy route that outranks that default is the one
-reconcile/roles/oauth2_proxy writes from oauth2_proxy_apps. Without an entry
-there the hub's own login is public: its password is the shared admin
-password, and its Keycloak sign-in creates a hub account for any realm user
-(USER_CREATION in beszel-hub.compose.yml.j2).
+The hub deploys as a swarm stack with no route of its own, on a network
+Traefik is not on. dashboard-sync gates only Portainer stacks, so its one
+public route is the one reconcile/roles/oauth2_proxy writes from
+oauth2_proxy_apps. The hub's own login is behind that gate: its password is
+the shared admin password, and its Keycloak sign-in creates a hub account for
+any realm user (USER_CREATION in beszel-hub.compose.yml.j2).
 
 Run: uv run pytest tests/unit/test_beszel_hub_is_gated.py
 """
@@ -33,7 +32,7 @@ def test_the_hub_has_an_admin_only_oauth2_proxy():
     assert hub["upstream_alias"] == infra["beszel_hub_network_alias"]
     assert hub["upstream_port"] == infra["beszel_hub_internal_port"]
     assert hub["slug"] != hub["upstream_alias"], (
-        "the proxy's alias would collide with the hub's on catena-network")
+        "the proxy's alias would collide with the hub's on their shared network")
 
 
 def test_the_hostname_is_declared_where_every_play_sees_it():

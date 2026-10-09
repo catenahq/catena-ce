@@ -15,10 +15,13 @@
 #   svc_name            -- stack name (also the compose project label and the
 #                          prefix of every service/container it creates)
 #   svc_compose_content -- the full compose YAML as a string
-#   svc_domain_host     -- FQDN to route to this app ("" = intra-cluster only)
+#   svc_domain_host     -- FQDN to route to this app ("" = no route of its
+#                          own: intra-cluster, or served by its sign-in gate)
 #   svc_domain_extra_hosts -- additional Host() rules on the same router
-#   svc_domain_service  -- the network alias the Traefik route targets
-#   svc_domain_port     -- backend port inside the container
+#   svc_domain_service  -- the network alias the Traefik route targets, its
+#                          own service's (with svc_domain_host only)
+#   svc_domain_port     -- backend port inside the container (with
+#                          svc_domain_host only)
 #   svc_readiness_url / svc_readiness_ok_codes / svc_readiness_validate_certs
 #   svc_readiness_skip_reason
 #
@@ -79,8 +82,9 @@
 # directly. Routing is not the control plane's job.
 #
 # Opt-out: intra-cluster-only services (e.g. oauth2-proxy, reached by their
-# catena-network alias) pass svc_domain_host="" -> the route file is removed
-# instead of written.
+# catena-network alias) and services a sign-in gate serves (Gatus,
+# Healthchecks, Beszel's hub) pass svc_domain_host="" -> the route file is
+# removed instead of written.
 - name: "Route: write Traefik file-provider route ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
   ansible.builtin.template:
     # Explicit playbook_dir-relative path: this file is include_tasks'd from

@@ -221,8 +221,8 @@ def test_emit_env_preserves_existing_values(seed, tmp_path):
 
 def test_emit_env_quotes_values_with_whitespace(seed, tmp_path):
     target = tmp_path / ".env"
-    seed.emit_env("NTFY_TOPIC=\n", {"NTFY_TOPIC": "topic with spaces"}, target)
-    assert '"topic with spaces"' in target.read_text()
+    seed.emit_env("SSH_PRIVATE_KEY=\n", {"SSH_PRIVATE_KEY": "~/my keys/catena"}, target)
+    assert '"~/my keys/catena"' in target.read_text()
 
 
 @pytest.mark.parametrize("keep_existing", [True, False])
@@ -248,12 +248,12 @@ def test_read_existing_env_parses_a_hand_filled_file(seed, tmp_path):
     target.write_text(
         "# comment\n"
         "ADMIN_EMAIL=admin@client.test\n"
-        "NTFY_TOPIC=\"topic with spaces\"\n"
+        "SSH_PRIVATE_KEY=\"~/my keys/catena\"\n"
         "\n"
     )
     assert seed.read_existing_env(target) == {
         "ADMIN_EMAIL": "admin@client.test",
-        "NTFY_TOPIC": "topic with spaces",
+        "SSH_PRIVATE_KEY": "~/my keys/catena",
     }
 
 

@@ -6,7 +6,7 @@ renders.
 
 Three properties are worth pinning:
 
-  - it is written LAST, so a converge that died at role 9 leaves the previous
+  - it is written LAST, so a converge that died partway leaves the previous
     manifest standing instead of claiming plumbing it never delivered;
   - the action list comes from the same merged fact the dispatch table renders
     from, not a hand-kept copy that drifts;

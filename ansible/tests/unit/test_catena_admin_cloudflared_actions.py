@@ -120,7 +120,7 @@ def test_no_root_dispatch_runs_out_of_the_container_writable_mirror():
 
 
 def test_deploy_no_longer_owns_the_payload_install():
-    """The install moved to reconcile/roles/payload, four roles ahead of this one.
+    """The install moved to reconcile/roles/payload, earlier in the converge.
 
     Leaving a second installer here would reinstall the engines from the
     container's mirrored copy after reconcile/roles/payload already installed them from

@@ -376,11 +376,12 @@
         _parsed: "{{ _wp_npp_current.stdout | from_json }}"
 
     # ── Step 7: configure wp-mail-smtp (only when SMTP configured) ──
-    # SMTP fact resolution mirrors keycloak/defaults/main.yml lines
-    # 92-127 -- the same RESEND/BREVO/SMTP_HOST dotenv chain. Lifted
-    # inline rather than imported because role defaults from the
-    # keycloak role are not in scope when this infrastructure-role
-    # task runs.
+    # The mail settings are this role's infrastructure_smtp
+    # (../defaults/main.yml), the one resolution Healthchecks and Beszel read
+    # too, sender fallback to the admin email included. A second resolution
+    # here would let one host send a contact-form mail through a different
+    # relay, or from a different sender, than its alerts, from the same stored
+    # config, with nothing saying so.
     #
     # Password is NOT stored in the wp_mail_smtp option. The plugin
     # reads `defined('WPMS_SMTP_PASS') ? WPMS_SMTP_PASS : ...` so
@@ -388,28 +389,13 @@
     # keeping the password out of the WP database. The constant
     # itself is set from the WPMS_SMTP_PASS env var (auto-healed
     # via env_managed_keys from smtp_password).
-    # One resolution, shared with reconcile/roles/keycloak and reconcile/roles/infrastructure's
-    # Beszel seeding: playbooks/filter_plugins/smtp_resolve.py. A second
-    # resolution here lets one host send a contact-form mail through a different
-    # relay than its own password resets, from the same stored config, with
-    # nothing saying so.
-    - name: "WordPress plugins: resolve the SMTP choice"
-      ansible.builtin.set_fact:
-        _wp_smtp: >-
-          {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
-               host=cfg_smtp_host | default(''),
-               port=cfg_smtp_port | default(''),
-               user=cfg_smtp_user | default(''),
-               sender=cfg_smtp_sender | default('')) }}
-      when: _wp_installed.rc == 0
-
     - name: "WordPress plugins: derive consolidated SMTP config"
       ansible.builtin.set_fact:
-        _wp_smtp_enabled: "{{ _wp_smtp.enabled }}"
-        _wp_smtp_host: "{{ _wp_smtp.host }}"
-        _wp_smtp_port: "{{ _wp_smtp.port }}"
-        _wp_smtp_user: "{{ _wp_smtp.user }}"
-        _wp_smtp_from: "{{ _wp_smtp.sender }}"
+        _wp_smtp_enabled: "{{ infrastructure_smtp.enabled }}"
+        _wp_smtp_host: "{{ infrastructure_smtp.host }}"
+        _wp_smtp_port: "{{ infrastructure_smtp.port }}"
+        _wp_smtp_user: "{{ infrastructure_smtp.user }}"
+        _wp_smtp_from: "{{ infrastructure_smtp.sender }}"
       when: _wp_installed.rc == 0
 
     - name: "WordPress plugins: skip wp-mail-smtp wiring (no SMTP configured)"

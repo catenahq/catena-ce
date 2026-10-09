@@ -4,12 +4,15 @@
 # webhook and maps triggered/resolved to Healthchecks /fail + success
 # pings so Beszel threshold alerts ride the same notification plane as
 # Gatus (clients keep their self-service channels). See
-# internal_docs/tools/notifications.md and vps-scripts/beszel-hc-shim.py.
+# ops/internal_docs/tools/notifications.md and
+# catena-ce/ansible/scripts/beszel-hc-shim.py.
 #
-# No public surface (traefik.enable=false). Reachable on catena-network
-# at {{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }};
-# the operator points Beszel's webhook notification at
+# No public surface (traefik.enable=false). Reachable on beszel_network at
+# {{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}, where
+# the hub is its one caller: catena-ce/ansible/scripts/beszel-seed.py points
+# the hub's webhook at
 # generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
+# Any request it takes becomes a Healthchecks ping, so no client app reaches it.
 services:
   app:
     image: {{ beszel_hc_shim_image }}
@@ -25,7 +28,7 @@ services:
     volumes:
       - {{ beszel_hc_shim_host_dir }}:/app:ro
     networks:
-      catena-network:
+      {{ beszel_network }}:
         aliases:
           - {{ beszel_hc_shim_network_alias }}
       # Where HC_URL answers: Healthchecks is on no other network.
@@ -34,7 +37,7 @@ services:
       - traefik.enable=false
 
 networks:
-  catena-network:
+  {{ beszel_network }}:
     external: true
   {{ healthchecks_network }}:
     external: true

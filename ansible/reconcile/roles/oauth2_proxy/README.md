@@ -29,7 +29,8 @@ though the SSO session is shared.
   sends its upstream as a Basic password (the panel's
   `catena_admin_gate_secret`, without which the panel serves every request
   as nobody), and `networks`, the overlays it joins besides `catena-network`
-  (Healthchecks' private network). Client apps are not listed here:
+  (the private networks of Healthchecks and Beszel's hub). Client apps are
+  not listed here:
   dashboard-sync provisions an instance per app from its `vps.auth.*` labels.
 
 ## Idempotency

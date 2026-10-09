@@ -39,7 +39,9 @@ panel's values are credentials. They arrive as swarm secrets mounted at
 Swarm secrets are IMMUTABLE: a name, once created, is bound to its bytes
 forever. So a rotated credential must arrive under a NEW name or it never
 reaches the container, which is why secret_name() hashes the VALUE into the
-name. A fixed name would make rotation a silent no-op.
+name. A fixed name would make rotation a silent no-op. secret_entries, the
+swarm_secret_entries filter, names every swarm secret the converge creates
+(playbooks/tasks/swarm_secrets.yml), Healthchecks' too.
 
 End-to-end coverage:
     catena-ce ansible/tests/unit/test_catena_admin_service.py
@@ -343,7 +345,7 @@ def catena_admin_network_drift(inspect, network_ids):
 class FilterModule:
     def filters(self):
         return {
-            "catena_admin_secret_entries": secret_entries,
+            "swarm_secret_entries": secret_entries,
             "catena_admin_full_env": catena_admin_full_env,
             "catena_admin_service_argv": catena_admin_service_argv,
             "catena_admin_env_drift": catena_admin_env_drift,

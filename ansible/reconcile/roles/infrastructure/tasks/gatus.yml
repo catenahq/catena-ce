@@ -89,9 +89,10 @@
   vars:
     svc_name: "{{ gatus_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'gatus.compose.yml.j2') }}"
-    svc_domain_host: "{{ infrastructure_gatus_hostname }}"
-    svc_domain_service: "app"
-    svc_domain_port: "{{ gatus_internal_port }}"
+    # No route of its own: its gate's route above is its one public path, and
+    # a default-priority route to the app would bypass the gate the moment
+    # that route was missing.
+    svc_domain_host: ""
     # Per-service readiness probe is deferred to the aggregate post-role
     # verification in main.yml -- the SSO chain (Keycloak + oauth2-proxy)
     # finishes settling during the surrounding infra deploys.

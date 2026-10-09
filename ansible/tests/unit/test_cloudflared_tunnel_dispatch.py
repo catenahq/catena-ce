@@ -131,7 +131,7 @@ def test_the_decision_comes_from_the_shared_predicate():
 
 
 def test_a_missing_engine_fails_a_converge_that_installs_it():
-    """reconcile/roles/payload puts the engine on the host four roles earlier. If
+    """reconcile/roles/payload puts the engine on the host earlier in the converge. If
     it is not there, deferring only moves the failure to oauth2_proxy, which
     waits on an edge this role is the one to bring up."""
     task = _find("engine is missing from a converge that installs it")

@@ -318,15 +318,32 @@ def test_the_reconcile_checks_that_it_settled():
     )
 
 
-def test_the_converge_joins_the_healthchecks_network():
-    """Healthchecks is on its own network and nowhere else, so a panel left
-    off it reads no checks."""
+def test_the_converge_joins_the_private_networks():
+    """Healthchecks and Beszel's hub are each on their own network and nowhere
+    else, so a panel left off one reads no checks or no hub."""
     spec = next(
         t["ansible.builtin.set_fact"]["_ca_spec"]
         for t in _deploy_tasks()
         if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {})
     )
     assert "{{ healthchecks_network }}" in spec["networks"]
+    assert "{{ beszel_network }}" in spec["networks"]
+
+
+def test_the_secrets_are_created_by_the_shared_task():
+    """One task creates every swarm secret the converge mounts, the panel's
+    and Healthchecks', with the value on stdin."""
+    create = next(t for t in _deploy_tasks() if "create the missing" in t.get("name", ""))
+    assert create["ansible.builtin.include_tasks"].endswith("/tasks/swarm_secrets.yml")
+    import yaml
+
+    shared = yaml.safe_load(
+        (DEPLOY.parents[4] / "playbooks" / "tasks" / "swarm_secrets.yml").read_text())
+    cmd = next(t for t in shared if "create" in t["name"])["ansible.builtin.command"]
+    assert cmd["argv"][-1] == "-"
+    assert cmd["stdin"] == "{{ item.item.value }}"
+    assert cmd["stdin_add_newline"] is False
+    assert not any("value" in str(a) for a in cmd["argv"])
 
 
 def test_networks_are_reconciled_and_settled_like_env_and_secrets():

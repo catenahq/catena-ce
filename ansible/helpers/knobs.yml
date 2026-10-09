@@ -246,10 +246,15 @@ secrets:
 
   # The mailserver APPLICATION's relay credential and Spamhaus subscription.
   # They configure that template, not the host's shared outbound path, so they
-  # are not in the mail group on the settings page.
+  # have a group of their own on the settings page rather than the mail one.
+  # The relay password reaches the deployed application through dashboard-sync
+  # (the template's env_managed_keys); the key reaches rspamd through
+  # reconcile/roles/infrastructure/tasks/mailserver_filtering.yml.
   - key: mailserver_relay_password
+    panel: {group: mailserver, section: secrets, kind: secret, optional: true}
 
   - key: mailserver_spamhaus_dqs_key
+    panel: {group: mailserver, section: secrets, kind: secret, optional: true}
 
   # CIFS credentials for the optional bulk mount. Client-held: the share is
   # the client's NAS. NFS authenticates by source IP and supplies neither. The
@@ -628,17 +633,7 @@ config:
     depends: {choice: SMTP_PROVIDER, values: [brevo, server]}
 
   # ---- alert delivery ----
-  - key: NTFY_SERVER
-    residence: store
-    var: cfg_ntfy_server
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  # Must be hard to guess: anyone who knows it can post to it.
-  - key: NTFY_TOPIC
-    residence: store
-    var: cfg_ntfy_topic
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
+  #
   # The check at an outside monitoring service the heartbeat lane calls, the
   # one signal that leaves the host: it reports a host that is gone. No `var`:
   # catena-admin's catena-heartbeat reads it off the store on every run.

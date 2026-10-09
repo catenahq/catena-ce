@@ -157,8 +157,9 @@ def test_the_only_users_any_realm_template_declares_are_the_install_itself():
             )
 
 
-# The four tiers the PRODUCT itself knows. shell/labels.ResolveAuthMode
-# defaults a private app to {admin, client, staff} and treats `visitor` as the
+# The four tiers the PRODUCT itself knows. The access resolution
+# (catena-admin payload/lib/labels_schema.py resolve_auth_mode) defaults a
+# private app to {admin, client, staff} and treats `visitor` as the
 # keyword meaning public, so these names are product shape and the converge is
 # right to seed them. Anything else is a group the client made up, which is
 # theirs.

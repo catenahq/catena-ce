@@ -1,8 +1,8 @@
 """Lock down reconcile/roles/payload -- the host engine install.
 
-The role closes a real ordering hole. reconcile/roles/cloudflare_tunnel at
-converge.yml position 9 dispatches one of the engines, so engines arriving any later
--- from reconcile/roles/catena-admin at position 13, say -- leave a first
+The role closes a real ordering hole. reconcile/roles/cloudflare_tunnel
+dispatches one of the engines, so engines arriving any later -- from
+reconcile/roles/catena-admin, which runs after it, say -- leave a first
 converge on a host that already holds a Cloudflare token with no tunnel, and
 reconcile/roles/oauth2_proxy then waits on an edge nobody brought up. These tests
 pin the two things that keep it closed: the role's POSITION in converge.yml, and the

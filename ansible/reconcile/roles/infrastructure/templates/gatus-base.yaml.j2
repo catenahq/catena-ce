@@ -48,30 +48,29 @@ ui:
   dashboard-subheading: "Services with their version shown in < > are not updated automatically. Click on any service for more details."
 
 alerting:
-  # Gatus pipes every alert to Healthchecks instead of ntfy directly.
-  # Rationale:
+  # Gatus pipes every alert to Healthchecks rather than to a channel of its
+  # own. Rationale:
   #   - Clients need to own their notification channels (email, Slack,
   #     Discord, ...). Gatus's alerting providers are config-as-code --
   #     no UI to add channels. Healthchecks has a full per-user
   #     integration UI, gated by oauth2-proxy + Keycloak SSO. One
   #     notification plane wins: clients add integrations in
   #     healthchecks.<zone>, Gatus just pushes state transitions.
-  #   - The operator's default ntfy channel is auto-provisioned in
-  #     Healthchecks (see reconcile/roles/infrastructure/tasks/healthchecks.yml
-  #     Django seed), so the existing operator-ntfy flow keeps working
-  #     with zero client-visible surface.
+  #   - The admin's email channel is seeded in Healthchecks
+  #     (scripts/healthchecks-seed.py), so alerts reach the admin with no
+  #     client-visible setup.
   #
   # URL + placeholder trick: Gatus's `custom` provider templates the URL
   # with:
   #   - [ALERT_DESCRIPTION] -> per-endpoint slug, makes Healthchecks
-  #     auto-create a distinct check per service so the ntfy title reads
+  #     auto-create a distinct check per service so the alert reads
   #     "gatus-<service> is DOWN" instead of a single aggregate name.
   #   - [ALERT_TRIGGERED_OR_RESOLVED] -> /fail for failures, empty for
   #     recoveries (pings the success endpoint).
   # `?create=1` auto-provisions the check on first failure.
   # Healthchecks assigns ALL project-level channels to new checks, so
-  # the operator ntfy channel (seeded in healthchecks-seed.py) is
-  # attached automatically without per-check wiring.
+  # the admin's email channel is attached automatically without per-check
+  # wiring.
   #
   # Every endpoint below sets `description:` on its alert (overriding
   # default-alert.description), and that description is the slug.

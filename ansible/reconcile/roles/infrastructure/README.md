@@ -16,9 +16,9 @@ Portainer in the path, so a Portainer that will not start leaves them running:
   backup, the nightly chain, the offsite copy, the off-site heartbeat, the
   reboot-required probe, the ClamAV watch, the mail canary and Beszel's alerts
   ping. Missed pings alert the admin's email, through the outgoing mail set in
-  catena-admin, and the ntfy channel set there. This role seeds the channels;
-  catena-admin's catena-schedule keeps the scheduled lanes' checks on their
-  schedule.
+  catena-admin, and the channels added in Healthchecks. This role seeds the
+  email channel; catena-admin's catena-schedule keeps the scheduled lanes'
+  checks on their schedule.
 - **Beszel** (`beszel.<zone>`) -- hub and host agent for resource history and
   threshold alerts, with a small shim that forwards those alerts to
   Healthchecks.
@@ -32,13 +32,18 @@ Portainer in the path, so a Portainer that will not start leaves them running:
   is refused.
 
 Gatus, Healthchecks and Beszel's hub sit behind their own oauth2-proxy,
-rendered by `reconcile/roles/oauth2_proxy` before this role runs.
+rendered by `reconcile/roles/oauth2_proxy` before this role runs, and each
+one's only public route is its gate's.
 
 Healthchecks takes the signed-in user from the `X-Forwarded-Email` header its
 gate sets, from whoever sends it, so it is on `healthchecks_network` and not
 on `catena-network`, where every client app is. Its gate, the panel, Gatus
-(its alerts) and the Beszel shim join that network to reach it; its only
-public route is its gate's.
+(its alerts) and the Beszel shim join that network to reach it.
+
+Beszel's hub signs in any realm user who reaches it, and its superuser's
+password is the shared admin password, so the hub is on `beszel_network`
+alone, with its gate, the panel and Gatus (its probe). The Beszel shim, whose
+only caller is the hub, is there too, and on `healthchecks_network` to ping.
 
 ## Catalog app wiring
 

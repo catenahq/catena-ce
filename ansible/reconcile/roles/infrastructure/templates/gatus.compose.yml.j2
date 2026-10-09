@@ -46,9 +46,11 @@ services:
       catena-network:
         aliases:
           - {{ gatus_network_alias }}
-      # Where its alerts reach Healthchecks (gatus-base.yaml.j2), which is on
-      # no other network.
+      # Where its alerts reach Healthchecks (gatus-base.yaml.j2) and its probe
+      # reaches Beszel's hub (gatus-infra-spec.json.j2), each on no other
+      # network.
       {{ healthchecks_network }}: {}
+      {{ beszel_network }}: {}
     # No Docker HEALTHCHECK block. twinproduction/gatus v5+ ships a
     # distroless-ish image with no wget/curl/nc, so a CMD healthcheck
     # fails with "executable not found" and the container gets marked
@@ -82,4 +84,6 @@ networks:
   catena-network:
     external: true
   {{ healthchecks_network }}:
+    external: true
+  {{ beszel_network }}:
     external: true

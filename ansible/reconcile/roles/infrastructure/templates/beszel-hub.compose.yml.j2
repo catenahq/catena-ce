@@ -6,7 +6,8 @@
 # oauth2_proxy_apps, which writes the route and the Keycloak redirect URI.
 # Also published on the host loopback so beszel-seed.py and the
 # network_mode:host agent can reach the PocketBase API + WebSocket without
-# leaving the box.
+# leaving the box. On beszel_network only, which its gate, the panel and Gatus
+# join and no client app does (playbooks/group_vars/all/main.yml).
 #
 # USER_EMAIL/USER_PASSWORD bootstrap the hub on first boot: Beszel's
 # initial-settings migration creates a PocketBase superuser AND a regular
@@ -31,6 +32,11 @@ services:
       # `beszel_hostname` renders `beszel.`, and a URL whose host ends in a
       # dot is not a degraded address, it is a malformed one. Deferred, the
       # hub addresses itself by the network alias it is already reachable at.
+      #
+      # The hub writes APP_URL over PocketBase's stored meta.appURL each time
+      # it starts (internal/hub/hub.go initialize, beszel v0.20.0), so a new
+      # hostname reaches the links in its mail through the redeploy that this
+      # changed value causes.
 {% if catena_public_surface_deferred | default(false) | bool %}
       APP_URL: "http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}"
 {% else %}
@@ -42,12 +48,13 @@ services:
       # every other admin still meets the password prompt this is here to
       # remove.
       #
-      # The blast radius is bounded by the proxy, not by this flag: the hub is
-      # published on the host loopback only, and its public host is routed
-      # through the admin-only oauth2-proxy (reconcile/roles/oauth2_proxy), so
-      # reaching the login form at all requires having authenticated to
-      # Keycloak AND being in the admin group. Auto-creating a monitoring
-      # account for someone who has already cleared that grants nothing new.
+      # The blast radius is bounded by who reaches the hub, not by this flag:
+      # its public host is routed through the admin-only oauth2-proxy
+      # (reconcile/roles/oauth2_proxy), its loopback publish answers this host
+      # only, and its network is shared with its gate, the panel and Gatus
+      # alone. So driving its sign-in requires having authenticated to Keycloak
+      # AND being in the admin group, and auto-creating a monitoring account for
+      # someone who has already cleared that grants nothing new.
       USER_CREATION: "true"
       # DISABLE_PASSWORD_AUTH is deliberately NOT set. See
       # scripts/beszel-seed.py: Beszel is base-plane infrastructure, and a
@@ -68,7 +75,7 @@ services:
         protocol: tcp
         mode: host
     networks:
-      catena-network:
+      {{ beszel_network }}:
         aliases:
           - {{ beszel_hub_network_alias }}
     labels:
@@ -84,5 +91,5 @@ volumes:
   {{ beszel_hub_data_volume }}:
 
 networks:
-  catena-network:
+  {{ beszel_network }}:
     external: true

@@ -43,8 +43,8 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   shell's writable bind is `/var/lib/catena/ee-payload`, where it mirrors
   its embedded host payload (all engines -- `catena-cloudflared-sync`,
   `catena-daily`, the lane scripts, units) at startup.
-- Does NOT install that payload. `reconcile/roles/payload` does, four roles ahead
-  of this one, straight out of the image -- two installers would race
+- Does NOT install that payload. `reconcile/roles/payload` does, earlier in
+  the converge, straight out of the image -- two installers would race
   over `/usr/local/bin` and the loser would be whichever image was
   staler. It is ungated: even a plain Community host gets the engines
   (the Cloudflare tunnel engine especially, which
@@ -73,8 +73,9 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   every request it forwards: the panel's listener is on `catena-network`,
   where any client app container can set identity headers, and it takes an
   identity only from a request carrying that secret. The service also joins
-  Healthchecks' private overlay (`healthchecks_network`) to read its checks,
-  and the spec's networks are reconciled like its env and secrets. No
+  the private overlays of Healthchecks (`healthchecks_network`), to read its
+  checks, and of Beszel's hub (`beszel_network`), to read its API, and the
+  spec's networks are reconciled like its env and secrets. No
   Traefik route is written here (oauth2-proxy owns the gated `dash.<zone>`
   route). The test bench renders its argv from the same filter plugin when it
   recreates a panel a scenario removed.

@@ -1,7 +1,7 @@
 """Seed and reconcile self-hosted Healthchecks: the operator superuser, the
-project and its API keys, and the notification channels (the admin's email and
-ntfy). It creates no check. Re-running reconciles drift and leaves
-client-added checks and channels alone."""
+project and its API keys, and the admin's email channel. It creates no check.
+Re-running reconciles drift and leaves client-added checks and channels
+alone."""
 # Managed by Ansible (reconcile/roles/infrastructure). Do not edit by hand.
 #
 # Runs inside the Healthchecks container via `docker exec -i ... python
@@ -10,18 +10,15 @@ client-added checks and channels alone."""
 # missing one raises KeyError, so a wiring break fails loud.
 #
 # Seeds:
-#   0. The operator superuser and Project, when missing. The upstream
-#      entrypoint runs migrations only and ignores
-#      SUPERUSER_EMAIL/SUPERUSER_PASSWORD, so a fresh container has an empty
-#      auth_user table, and the oauth2-proxy hop (X-Forwarded-Email) needs a
-#      User row to map onto.
+#   0. The operator superuser and Project. The upstream image runs migrations
+#      only, so a fresh container has an empty auth_user table, and the
+#      oauth2-proxy hop (X-Forwarded-Email) needs a User row to map onto.
 #   1. Project.api_key_readonly, ping_key and name, pinned to the on-box store.
-#   2. Catena's two channels, through _ensure_channel: the admin's email while
-#      outgoing mail is on, ntfy while NTFY_SERVER and NTFY_TOPIC are both
-#      set. Each carries a fixed `code`, so a converge updates or removes that
-#      one row and never a channel the client added. A channel is attached to
-#      every check when it is created, and never again, so a client who
-#      detaches it from a check keeps that choice.
+#   2. Catena's channel, the admin's email while outgoing mail is on, through
+#      _ensure_channel. It carries a fixed `code`, so a converge updates or
+#      removes that one row and never a channel it does not own. It is
+#      attached to every check when it is created, and never again, so a
+#      client who detaches it from a check keeps that choice.
 #
 # The checks come from elsewhere, each with every project channel attached:
 # catena-admin's catena-schedule creates the scheduled lanes' checks through
@@ -42,37 +39,35 @@ _hc_inventory_hostname = os.environ["CATENA_INVENTORY_HOSTNAME"]
 _hc_api_key_readonly = os.environ["CATENA_HC_API_KEY_READONLY"]
 _hc_api_key_readwrite = os.environ.get("CATENA_HC_API_KEY_READWRITE", "")
 _hc_ping_key = os.environ["CATENA_HC_PING_KEY"]
-_hc_ntfy_topic = os.environ["CATENA_NTFY_TOPIC"]
-_hc_ntfy_server = os.environ["CATENA_NTFY_SERVER"]
 _hc_mail_enabled = os.environ["CATENA_MAIL_ENABLED"] == "true"
-_NTFY_CHANNEL_CODE = uuid.uuid5(uuid.NAMESPACE_URL, "catena:healthchecks-seed:ntfy")
 _EMAIL_CHANNEL_CODE = uuid.uuid5(uuid.NAMESPACE_URL, "catena:healthchecks-seed:admin-email")
 
 User = get_user_model()
 
-# Bootstrap the superuser. Use username=email so the oauth2-proxy
-# identity hop (REMOTE_USER_HEADER=HTTP_X_FORWARDED_EMAIL) can map
-# the incoming email to this User. On re-converge we reconcile the
-# staff/superuser flags but never touch the password - if the operator
-# changed it via /admin/ we don't want to stomp it.
-operator = User.objects.filter(username=_hc_email).first()
+# The operator is the owner of the project this seed pins by its ping key, so
+# an admin email change renames that one superuser. Looked up by the email
+# instead, a new address would get a second superuser, whose project could
+# never take the ping key (Project.ping_key is unique). With no pinned project
+# yet, it is the user named after the admin email, created when missing.
+#
+# username = email, so the oauth2-proxy identity hop
+# (REMOTE_USER_HEADER=HTTP_X_FORWARDED_EMAIL, matched on the email) lands the
+# admin in this account. The password is set on creation only: one changed
+# in /admin/ is kept.
+project = Project.objects.filter(ping_key=_hc_ping_key).first()
+operator = project.owner if project else User.objects.filter(username=_hc_email).first()
 if operator is None:
     operator = User.objects.create_superuser(
         username=_hc_email, email=_hc_email, password=_hc_pw,
     )
 else:
-    _dirty = False
-    if operator.email != _hc_email:
-        operator.email = _hc_email
-        _dirty = True
-    if not operator.is_superuser:
-        operator.is_superuser = True
-        _dirty = True
-    if not operator.is_staff:
-        operator.is_staff = True
-        _dirty = True
-    if _dirty:
-        operator.save(update_fields=["email", "is_superuser", "is_staff"])
+    _wanted = {"username": _hc_email, "email": _hc_email,
+               "is_superuser": True, "is_staff": True}
+    _changed = [f for f, v in _wanted.items() if getattr(operator, f) != v]
+    for _field in _changed:
+        setattr(operator, _field, _wanted[_field])
+    if _changed:
+        operator.save(update_fields=_changed)
 
 # Follow the browser's light/dark preference by default.
 #
@@ -93,15 +88,12 @@ if _profile.theme is None:
     _profile.theme = "system"
     _profile.save(update_fields=["theme"])
 
-# The operator's Project owns the seeded checks and channels.
-# Project.objects.create() skips the signup flow's tutorial check and email
-# channel.
-if not Project.objects.filter(owner=operator).exists():
-    Project.objects.create(owner=operator, name=_hc_inventory_hostname)
-
-project = Project.objects.filter(owner=operator).first()
-if not project:
-    raise SystemExit("Healthchecks project bootstrap failed unexpectedly")
+# The operator's Project owns the seeded channel. Project.objects.create()
+# skips the signup flow's tutorial check and email channel.
+if project is None:
+    project = Project.objects.filter(owner=operator).first()
+if project is None:
+    project = Project.objects.create(owner=operator, name=_hc_inventory_hostname)
 
 project.api_key_readonly = _hc_api_key_readonly
 # The RW key is what catena-gatus-sync's orphan-pause pass and catena-schedule's
@@ -121,15 +113,15 @@ project.save(update_fields=_save_fields)
 def _ensure_channel(code, kind, value, name):
     """Keep the one channel this seed owns under `code` in the project:
     created with `value` and attached to every check, updated in place, or
-    deleted when `value` is None. Returns (channel or None, rows deleted).
+    deleted when `value` is None. Returns the channel, or None.
 
     Selecting on the fixed code leaves every channel a client added alone, and
     an update leaves the channel's check bindings as they are. An email channel
     is marked verified: Healthchecks sends to an unverified one nothing at all,
     and the admin's address is the install's own."""
     if value is None:
-        removed, _ = Channel.objects.filter(project=project, code=code).delete()
-        return None, removed
+        Channel.objects.filter(project=project, code=code).delete()
+        return None
     channel, created = Channel.objects.update_or_create(
         project=project,
         code=code,
@@ -142,15 +134,15 @@ def _ensure_channel(code, kind, value, name):
     )
     if created:
         channel.assign_all_checks()
-    return channel, 0
+    return channel
 
 
-# The admin's email is the default alert channel, through the outgoing mail
-# chosen in Settings > Mail (healthchecks.compose.yml.j2's EMAIL_* settings).
-# Notified on down and on up. With mail turned off nothing could send it, so
-# the channel is removed, and alerts reach only ntfy and the channels a client
-# added in the Healthchecks integrations UI.
-email_channel, _ = _ensure_channel(
+# The admin's email is the alert channel, through the outgoing mail chosen in
+# Settings > Mail (healthchecks.compose.yml.j2's EMAIL_* settings). Notified
+# on down and on up. With mail turned off nothing could send it, so the
+# channel is removed, and alerts reach only the channels a client added in the
+# Healthchecks integrations UI.
+email_channel = _ensure_channel(
     _EMAIL_CHANNEL_CODE,
     "email",
     json.dumps({"value": _hc_email, "up": True, "down": True})
@@ -158,43 +150,4 @@ email_channel, _ = _ensure_channel(
     "Admin email ({})".format(_hc_inventory_hostname),
 )
 
-# The ntfy channel is OPTIONAL, and both halves are required to make one.
-# Neither NTFY_SERVER nor NTFY_TOPIC defaults to a value: a default of
-# https://ntfy.sh would be public and unauthenticated, where the topic is
-# the only access control, so a host nobody configured would push its
-# alerts to a server nobody here runs -- the wrong thing to do by
-# default. Requiring both also avoids a channel with an empty topic when
-# only the server is set: a route that resolves and delivers nowhere, yet
-# reads in the UI as configured.
-#
-# Both blank is a supported end state, not a half-finished install: the checks
-# still record every ping and reach the admin's email, and the client attaches
-# their own channel through the Healthchecks integrations UI. Clearing the
-# values on a converge removes the channel an earlier converge seeded, rather
-# than leaving a stale one nobody can see is dead.
-if _hc_ntfy_topic and _hc_ntfy_server:
-    channel, _ = _ensure_channel(
-        _NTFY_CHANNEL_CODE,
-        "ntfy",
-        json.dumps({
-            "topic": _hc_ntfy_topic,
-            "url": _hc_ntfy_server,
-            "priority": 3,
-            "priority_up": 3,
-        }),
-        "ntfy ({})".format(_hc_inventory_hostname),
-    )
-else:
-    channel, removed = _ensure_channel(_NTFY_CHANNEL_CODE, "ntfy", None, "")
-    print(
-        "healthchecks-seed: no ntfy channel configured (NTFY_SERVER and "
-        "NTFY_TOPIC must both be set); nothing is pushed to ntfy. Removed {} "
-        "stale ntfy channel(s).".format(removed)
-    )
-
-print(
-    "OK channel={} email={}".format(
-        channel.code if channel is not None else "none",
-        email_channel.code if email_channel is not None else "none",
-    )
-)
+print("OK email={}".format(email_channel.code if email_channel is not None else "none"))

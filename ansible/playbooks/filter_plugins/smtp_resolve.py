@@ -6,11 +6,11 @@ supply their own host and port, and Resend also supplies its username, which is
 the literal string `resend` for every account. Everything else reads the fields
 as given.
 
-WHY A FILTER. Three places resolve it -- reconcile/roles/keycloak defaults,
-reconcile/roles/infrastructure defaults (infrastructure_smtp, read by Beszel
-and Healthchecks) and wordpress_plugins.yml -- and all three call here, so
-Keycloak's password-reset mail, the monitoring alerts and WordPress's contact
-form land on the same relay from the same stored config.
+WHY A FILTER. Two places resolve it -- reconcile/roles/keycloak defaults and
+reconcile/roles/infrastructure defaults (infrastructure_smtp, read by Beszel,
+Healthchecks and WordPress) -- and both call here, so Keycloak's
+password-reset mail, the monitoring alerts and WordPress's contact form land on
+the same relay, from the same sender, from the same stored config.
 test_smtp_resolution.py holds each consumer to it. Project rule: a non-trivial
 transform gets a filter plugin and a unit test, not a copy of an expression.
 

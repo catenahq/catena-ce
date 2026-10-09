@@ -719,8 +719,8 @@ def test_no_settings_key_is_read_from_dotenv_outside_the_seed(oc):
 
 
 def test_settings_config_vars_projects_only_present_keys(oc):
-    got = oc.settings_config_vars({"NTFY_SERVER": "https://n.example"})
-    assert got == {"cfg_ntfy_server": "https://n.example"}
+    got = oc.settings_config_vars({"SMTP_SENDER": "no-reply@n.example"})
+    assert got == {"cfg_smtp_sender": "no-reply@n.example"}
 
 
 def test_settings_config_vars_ignores_unknown_keys(oc):
@@ -744,25 +744,25 @@ def test_seeding_is_fill_only(oc, tmp_path):
     overwrote would undo every settings-page edit on the next run."""
     p = tmp_path / "config.json"
     store = oc.load(p)
-    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://seed.example"})
+    oc.apply_inputs(store, config_in={"SMTP_SENDER": "seed@example.test"})
     oc.dump(store, p)
 
     store = oc.load(p)
-    store["config"]["NTFY_SERVER"] = "https://client-chose.example"
+    store["config"]["SMTP_SENDER"] = "client-chose@example.test"
     oc.dump(store, p)
 
     store = oc.load(p)
-    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://seed.example"})
-    assert store["config"]["NTFY_SERVER"] == "https://client-chose.example"
+    oc.apply_inputs(store, config_in={"SMTP_SENDER": "seed@example.test"})
+    assert store["config"]["SMTP_SENDER"] == "client-chose@example.test"
 
 
 def test_a_settings_write_overwrites(oc, tmp_path):
     """The panel edit path uses overwrite=True, which is what makes the store
     the owner rather than a cache of the first value seen."""
-    store = {"secrets": {}, "config": {"NTFY_SERVER": "https://old.example"}}
-    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://new.example"},
+    store = {"secrets": {}, "config": {"SMTP_SENDER": "old@example.test"}}
+    oc.apply_inputs(store, config_in={"SMTP_SENDER": "new@example.test"},
                     overwrite=True)
-    assert store["config"]["NTFY_SERVER"] == "https://new.example"
+    assert store["config"]["SMTP_SENDER"] == "new@example.test"
 
 
 def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path, capsys):

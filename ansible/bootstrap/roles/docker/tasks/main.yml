@@ -124,7 +124,7 @@
 - name: "Verify docker binary exists on disk (guard against phantom-installed dpkg state)"
   # If /var/lib/dpkg says docker-ce is installed but /usr/bin/docker is
   # missing, apt's idempotent install is a no-op and the failure only
-  # surfaces two roles later when something tries to run `docker`.
+  # surfaces in a later role, when something tries to run `docker`.
   # Force a --reinstall when the binary is absent. This catches the
   # class of bug where dpkg DB was restored without the package files.
   ansible.builtin.stat:

@@ -32,14 +32,15 @@ catena_admin_deploy_from_converge: >-
 # when Portainer is the thing that did not come back.
 #
 # catena_admin_service_name lives in playbooks/group_vars/all/main.yml for the same reason
-# the image does: reconcile/roles/payload reads it at role 5.5 to ask swarm which image
-# this service runs, and this role's defaults are not in scope that early. See
+# the image does: reconcile/roles/payload, which runs well before this role,
+# reads it to ask swarm which image this service runs, and this role's
+# defaults are not in scope that early. See
 # the block there, including why the name is load-bearing for oauth2_proxy.
 
 # Swarm secrets for the values that must not travel in argv. Each real name
-# gets the value's hash appended (filter_plugins/catena_admin_service.py
-# secret_name) because swarm secrets are immutable -- a fixed name would make
-# every rotation a silent no-op.
+# gets the value's hash appended (playbooks/filter_plugins/
+# catena_admin_service.py secret_name) because swarm secrets are immutable -- a
+# fixed name would make every rotation a silent no-op.
 #
 # The target name doubles as the env var: <KEY>_FILE points at
 # /run/secrets/<target>, which catena-admin's secretenv.go reads.
@@ -78,10 +79,6 @@ catena_admin_secret_specs:
 # so without this the Recovery tab lists nothing even when the host wrote a
 # recovery zip.
 catena_admin_supplementary_gid: "1000"
-
-# Where a secret's bytes are staged for `docker secret create`. Root-owned
-# 0600 and removed in the same block that writes it.
-catena_admin_secret_staging_path: "/root/.catena-admin-secret"
 
 # Hardening subset, reconciled by swarm_service_drift on every converge.
 #

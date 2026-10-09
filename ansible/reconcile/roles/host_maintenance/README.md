@@ -67,9 +67,10 @@ still running on replaced libraries. It writes
 `/var/lib/catena/reboot-required.json` and pings the self-hosted Healthchecks
 plane: `/fail` while a reboot is pending, success while it is not.
 
-Healthchecks notifies on the transition and escalates through ntfy, so a person
-is told once when the host starts needing a reboot and once when it stops. No
-second alert path exists to configure, or to forget to configure.
+Healthchecks notifies on the transition through its channels, the admin's email
+among them, so a person is told once when the host starts needing a reboot and
+once when it stops. No second alert path exists to configure, or to forget to
+configure.
 
 Services on replaced libraries are reported and do not page: needrestart has
 already restarted the ones it may, and the ones left (the container engine

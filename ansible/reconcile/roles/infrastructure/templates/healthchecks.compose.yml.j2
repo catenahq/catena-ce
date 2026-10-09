@@ -50,40 +50,27 @@ services:
 {% else %}
       ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost,127.0.0.1"
 {% endif %}
-      SECRET_KEY: "{{ healthchecks_secret_key }}"
+      # SECRET_KEY and the mail password are swarm secrets
+      # (healthchecks_swarm_secrets in ../defaults/main.yml), read from the
+      # file each <NAME>_FILE names, so `docker service inspect` shows a path.
+{% for _secret in _healthchecks_secrets %}
+      {{ _secret.target }}_FILE: "/run/secrets/{{ _secret.target }}"
+{% endfor %}
       DEBUG: "False"
-      # Closed registration -- oauth2-proxy + Keycloak gate the UI, and our seed
-      # task (scripts/healthchecks-seed.py, step 0) creates the operator
-      # superuser + default Project on first converge. SUPERUSER_EMAIL
-      # and SUPERUSER_PASSWORD below are INERT to this image's
-      # entrypoint (upstream runs migrations only, no auto-bootstrap);
-      # they're kept here for visibility/parity so the expected
-      # superuser credentials are discoverable on the running container.
+      # Closed registration: oauth2-proxy + Keycloak gate the UI, and
+      # scripts/healthchecks-seed.py creates the superuser and its Project.
       REGISTRATION_OPEN: "False"
-      SUPERUSER_EMAIL: "{{ admin_email }}"
-      SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
-      # PING_KEY is set here for convention/visibility, but Healthchecks
-      # actually routes auto-provisioning against Project.ping_key in the
-      # DB -- not this env var. The seed task in healthchecks.yml writes
-      # the same value into Project.ping_key. Keep this line so future
-      # tooling that expects PING_KEY to be present sees it.
-      # Auto-provision URL: /ping/<ping_key>/<slug>?create=1 (the ?create=1
-      # is required -- without it, unknown slugs 404).
-      PING_KEY: "{{ healthchecks_ping_key }}"
       DB: "sqlite"
       DB_NAME: "/data/hc.sqlite"
       # Mail goes out through the outgoing mail chosen in Settings > Mail
       # (infrastructure_smtp), to the admin email channel healthchecks-seed.py
       # keeps. Always STARTTLS on the port given, as every sender on the host.
       # Mail turned off leaves EMAIL_HOST empty, which gives Healthchecks no
-      # mailer, and the seed removes the email channel. The password is JSON-
-      # quoted and its `$` doubled, so `docker stack deploy` interpolates
-      # nothing out of it.
+      # mailer, and the seed removes the email channel.
 {% if infrastructure_smtp.enabled | bool %}
       EMAIL_HOST: "{{ infrastructure_smtp.host }}"
       EMAIL_PORT: "{{ infrastructure_smtp.port }}"
       EMAIL_HOST_USER: "{{ infrastructure_smtp.user }}"
-      EMAIL_HOST_PASSWORD: {{ smtp_password | default('') | replace('$', '$$') | to_json }}
       EMAIL_USE_TLS: "True"
       EMAIL_USE_SSL: "False"
 {% else %}
@@ -99,8 +86,8 @@ services:
       # HTTP_X_FORWARDED_EMAIL. REMOTE_USER_HEADER makes Healthchecks take
       # it as the signed-in user, on every request, from whoever sends it:
       # it logs in the account with that email and creates one when none
-      # exists. SUPERUSER_EMAIL equals ADMIN_EMAIL, so the admin lands in
-      # the seeded account and skips the Healthchecks login page.
+      # exists. The seeded superuser carries the admin email, so the admin
+      # lands in it and skips the Healthchecks login page.
       #
       # Healthchecks cannot tell the gate from any other caller, so the
       # network decides who may call it: it is on healthchecks_network
@@ -129,6 +116,11 @@ services:
       {{ healthchecks_network }}:
         aliases:
           - {{ healthchecks_network_alias }}
+    secrets:
+{% for _secret in _healthchecks_secrets %}
+      - source: {{ _secret.name }}
+        target: {{ _secret.target }}
+{% endfor %}
     labels:
       # FALSE on purpose -- see the note in gatus.compose.yml.j2.
       - traefik.enable=false
@@ -143,3 +135,11 @@ networks:
   # Created by reconcile/roles/swarm before this deploys.
   {{ healthchecks_network }}:
     external: true
+
+# Created by playbooks/tasks/swarm_secrets.yml before this deploys, each named
+# after its value, so a new value is a new secret and redeploys the service.
+secrets:
+{% for _secret in _healthchecks_secrets %}
+  {{ _secret.name }}:
+    external: true
+{% endfor %}

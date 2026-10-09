@@ -119,7 +119,7 @@ def _code(path: Path) -> str:
         ln for ln in path.read_text().splitlines() if not ln.lstrip().startswith("#"))
 
 
-@pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, WORDPRESS, INFRA_DEFAULTS])
+@pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, INFRA_DEFAULTS])
 def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
     """A hand-written copy of the ladder is free to drift, and the symptom is
     a host that sends password-reset mail through one relay and a contact
@@ -133,10 +133,10 @@ def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
             f"{path.name} hardcodes {literal}; that belongs to the filter")
 
 
-@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS_COMPOSE])
-def test_beszel_and_healthchecks_read_the_infrastructure_resolution(path):
-    """Beszel's mail and Healthchecks's alert mail take the infrastructure
-    role's one resolution rather than a copy each."""
+@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS_COMPOSE, WORDPRESS])
+def test_the_infrastructure_consumers_read_its_resolution(path):
+    """Beszel's mail, Healthchecks's alert mail and WordPress's mail take the
+    infrastructure role's one resolution rather than a copy each."""
     code = _code(path)
     assert "infrastructure_smtp." in code, (
         f"{path.name} does not read infrastructure_smtp")
@@ -145,6 +145,27 @@ def test_beszel_and_healthchecks_read_the_infrastructure_resolution(path):
     for literal in ("smtp.resend.com", "smtp-relay.brevo.com"):
         assert literal not in code, (
             f"{path.name} hardcodes {literal}; that belongs to the filter")
+
+
+def test_wordpress_sends_from_the_admin_email_when_no_sender_is_set():
+    """The sender WordPress is given is the infrastructure resolution's, whose
+    fallback is the admin email, as for every other sender on the host."""
+    import jinja2
+    import yaml
+
+    expr = yaml.safe_load(INFRA_DEFAULTS.read_text())["infrastructure_smtp"]
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["catena_smtp_resolve"] = _resolve()
+    body = expr.strip().removeprefix("{{").removesuffix("}}")
+    smtp = env.from_string(f"{{% set r = {body} %}}{{{{ r.sender }}}}").render(
+        cfg_smtp_provider="resend", cfg_smtp_host="", cfg_smtp_port="",
+        cfg_smtp_user="", cfg_smtp_sender="", admin_email="admin@acme.test")
+    assert smtp == "admin@acme.test"
+
+    tasks = yaml.safe_load(WORDPRESS.read_text())
+    flat = yaml.safe_dump(tasks)
+    assert "_wp_smtp_from: '{{ infrastructure_smtp.sender }}'" in flat
+    assert "from_email: '{{ _wp_smtp_from }}'" in flat
 
 
 def test_implicit_tls_is_not_offered_and_not_stored():

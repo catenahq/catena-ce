@@ -4,34 +4,21 @@ is created and never again, updated in place, and removed when mail is turned
 off. A channel the client added is never touched.
 
 The real seed script runs against the stand-in Django models of
-test_healthchecks_seed_ntfy_optional.py.
+healthchecks_seed_standins.py.
 
 Run: uv run pytest tests/unit/test_healthchecks_seed_email_channel.py
 """
 from __future__ import annotations
 
-import importlib.util
 import json
-from pathlib import Path
 
-_SPEC = importlib.util.spec_from_file_location(
-    "healthchecks_seed_standins",
-    Path(__file__).with_name("test_healthchecks_seed_ntfy_optional.py"),
-)
-standins = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(standins)
+from healthchecks_seed_standins import BASE_ENV, install_fake_django, run_seed
 
-SEED = standins.SEED
-ADMIN = standins.BASE_ENV["CATENA_ADMIN_EMAIL"]
+ADMIN = BASE_ENV["CATENA_ADMIN_EMAIL"]
 
 
 def _seed(monkeypatch, *, mail: bool) -> None:
-    for key, value in standins.BASE_ENV.items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.setenv("CATENA_NTFY_SERVER", "")
-    monkeypatch.setenv("CATENA_NTFY_TOPIC", "")
-    monkeypatch.setenv("CATENA_MAIL_ENABLED", "true" if mail else "false")
-    exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
+    run_seed(monkeypatch, CATENA_MAIL_ENABLED="true" if mail else "false")
 
 
 def _email_channels(managers) -> list:
@@ -39,7 +26,7 @@ def _email_channels(managers) -> list:
 
 
 def test_mail_on_seeds_a_verified_channel_to_the_admin(monkeypatch, capsys):
-    managers = standins._install_fake_django(monkeypatch)
+    managers = install_fake_django(monkeypatch)
     _seed(monkeypatch, mail=True)
     [channel] = _email_channels(managers)
     assert json.loads(channel.value) == {"value": ADMIN, "up": True, "down": True}
@@ -48,10 +35,10 @@ def test_mail_on_seeds_a_verified_channel_to_the_admin(monkeypatch, capsys):
     assert f"email={channel.code}" in capsys.readouterr().out
 
 
-def test_the_channel_reaches_checks_that_already_exist(monkeypatch, capsys):
+def test_the_channel_reaches_checks_that_already_exist(monkeypatch):
     """Mail is configured after the install, so the channel arrives on a host
     whose checks exist: it attaches to every check in the project."""
-    managers = standins._install_fake_django(monkeypatch)
+    managers = install_fake_django(monkeypatch)
     _seed(monkeypatch, mail=False)
     project = managers["project"].rows[0]
     gatus = managers["check"].create(project=project, slug="gatus-auth")
@@ -63,10 +50,10 @@ def test_the_channel_reaches_checks_that_already_exist(monkeypatch, capsys):
     assert channel in gatus.channel_set.added
 
 
-def test_an_update_keeps_the_bindings_and_never_reattaches(monkeypatch, capsys):
+def test_an_update_keeps_the_bindings_and_never_reattaches(monkeypatch):
     """A stale address is rewritten in place, and a check the client detached
     the channel from stays detached."""
-    managers = standins._install_fake_django(monkeypatch)
+    managers = install_fake_django(monkeypatch)
     _seed(monkeypatch, mail=False)
     project = managers["project"].rows[0]
     for slug in ("catena-backup-attempted", "catena-backup-succeeded"):
@@ -85,7 +72,7 @@ def test_an_update_keeps_the_bindings_and_never_reattaches(monkeypatch, capsys):
 
 
 def test_mail_turned_off_removes_the_channel(monkeypatch, capsys):
-    managers = standins._install_fake_django(monkeypatch)
+    managers = install_fake_django(monkeypatch)
     _seed(monkeypatch, mail=True)
     assert len(_email_channels(managers)) == 1
     _seed(monkeypatch, mail=False)
@@ -93,8 +80,8 @@ def test_mail_turned_off_removes_the_channel(monkeypatch, capsys):
     assert "email=none" in capsys.readouterr().out
 
 
-def test_a_client_added_email_channel_is_never_touched(monkeypatch, capsys):
-    managers = standins._install_fake_django(monkeypatch)
+def test_a_client_added_email_channel_is_never_touched(monkeypatch):
+    managers = install_fake_django(monkeypatch)
     operator = managers["user"].create(username=ADMIN, email=ADMIN)
     project = managers["project"].create(owner=operator, name="vps-1")
     mine = managers["channel"].create(

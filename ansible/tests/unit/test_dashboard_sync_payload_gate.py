@@ -2,7 +2,7 @@
 
 catena-dashboard-sync and its lib modules live in the catena-admin payload, so
 reconcile/roles/infrastructure wires a timer around a binary
-reconcile/roles/payload put on the host five roles earlier. Whether its absence
+reconcile/roles/payload put on the host earlier in the converge. Whether its absence
 is a defect depends on whether THIS converge is the one that had to install it
 -- the same two-legged shape reconcile/roles/cloudflare_tunnel and
 reconcile/roles/backup use.

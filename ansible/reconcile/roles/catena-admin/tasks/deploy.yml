@@ -38,31 +38,14 @@
   # reports it. Blank values are dropped -- the shell's env fallback is the
   # documented degraded path, an empty secret file is not.
   ansible.builtin.set_fact:
-    _ca_secrets: "{{ catena_admin_secret_specs | catena_admin_secret_entries }}"
+    _ca_secrets: "{{ catena_admin_secret_specs | swarm_secret_entries }}"
   no_log: true
   when: catena_admin_deploy_from_converge | bool
 
-- name: "Catena-admin: which swarm secrets already exist"
-  ansible.builtin.command:
-    argv: [docker, secret, inspect, "{{ item.name }}"]
-  loop: "{{ _ca_secrets }}"
-  loop_control:
-    label: "{{ item.name }}"
-  register: _ca_secret_exists
-  changed_when: false
-  failed_when: false
-  when: catena_admin_deploy_from_converge | bool
-
 - name: "Catena-admin: create the missing swarm secrets"
-  ansible.builtin.include_tasks: secret.yml
-  loop: >-
-    {{ _ca_secret_exists.results
-       | rejectattr('skipped', 'defined')
-       | selectattr('rc', 'ne', 0)
-       | map(attribute='item') | list }}
-  loop_control:
-    loop_var: ca_secret
-    label: "{{ ca_secret.name }}"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+  vars:
+    swarm_secrets: "{{ _ca_secrets }}"
   when: catena_admin_deploy_from_converge | bool
 
 # ─── the service spec ────────────────────────────────────────────────────
@@ -74,11 +57,13 @@
     _ca_spec:
       name: "{{ catena_admin_service_name }}"
       image: "{{ catena_admin_image }}"
-      # catena-network for its gate, Portainer, Keycloak, Gatus and Beszel;
-      # healthchecks_network for Healthchecks, which is on no other.
+      # catena-network for its gate, Portainer, Keycloak and Gatus;
+      # healthchecks_network for Healthchecks and beszel_network for Beszel's
+      # hub, each on no other.
       networks:
         - "{{ catena_network_name | default('catena-network') }}"
         - "{{ healthchecks_network }}"
+        - "{{ beszel_network }}"
       ui_port: "{{ catena_admin_ui_port }}"
       direct_port: "{{ catena_admin_direct_port }}"
       group: "{{ catena_admin_supplementary_gid }}"

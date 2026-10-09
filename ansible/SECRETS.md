@@ -61,8 +61,8 @@ ride the backup, because it is what unlocks the backup.
 | `admin_password` | first login (Portainer + Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
-| `mailserver_relay_password` | mail server app's smarthost (opt) | store only, no panel field | no |
-| `mailserver_spamhaus_dqs_key` | mail server app's RBL (opt) | store only, no panel field | no |
+| `mailserver_relay_password` | mail server app's smarthost (opt) | settings page | no |
+| `mailserver_spamhaus_dqs_key` | mail server app's RBL (opt) | settings page | no |
 | `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
 | `storage_bulk_password` | ^ | settings page | no |
 | `catena_license` | Polar subscription key (opt; empty is Community) | settings page | no |
@@ -172,9 +172,10 @@ installer sends the `.env` with an install, for that run only.
 **Store, catena-admin Settings only:** the domain (`CLOUDFLARE_ZONE`), the
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
 `HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
-notifications (`NTFY_*`), `IDENTITY_ENFORCE_MFA`, and the server's time zone
-and locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They have no `.env`
-line; the installer names a filled one it finds, because nothing reads it.
+the off-site heartbeat (`OFFSITE_HEARTBEAT_URL`), `IDENTITY_ENFORCE_MFA`, and
+the server's time zone and locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They
+have no `.env` line; the installer names a filled one it finds, because
+nothing reads it.
 
 The owners are DECLARED, in `helpers/knobs.yml` (a knob has an `env` entry, a
 `panel` entry, or neither, never both), and projected by
