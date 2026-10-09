@@ -171,7 +171,7 @@ def sentences(text: str):
             if len(words) >= MIN_WORDS and len(words) >= 0.7 * len(tokens):
                 yield start, sentence
 
-    for number, raw in enumerate(text.splitlines(), 1):
+    for number, raw in enumerate(text.split("\n"), 1):
         ends = raw.endswith(_END)
         line = _QUOTES.sub("", _MARKER.sub("", raw.rstrip(_END).rstrip()).strip())
         if line:
