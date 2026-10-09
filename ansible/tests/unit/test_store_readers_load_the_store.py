@@ -18,6 +18,7 @@ Run: uv run pytest tests/unit/test_store_readers_load_the_store.py
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -64,15 +65,17 @@ def _store_backed_vars() -> dict[str, str]:
     return out
 
 
-def _roles_of(playbook: Path) -> list[str]:
-    plays = yaml.safe_load(playbook.read_text()) or []
-    out: list[str] = []
-    for play in plays:
-        if not isinstance(play, dict):
-            continue
-        for entry in play.get("roles") or []:
-            out.append(entry["role"] if isinstance(entry, dict) else entry)
-    return out
+def _plays(playbook: Path) -> list[dict]:
+    return [p for p in yaml.safe_load(playbook.read_text()) or [] if isinstance(p, dict)]
+
+
+def _roles_of(play: dict) -> list[str]:
+    return [entry["role"] if isinstance(entry, dict) else entry
+            for entry in play.get("roles") or []]
+
+
+def _loads(tasks) -> bool:
+    return any(loader in json.dumps(tasks or [], default=str) for loader in _LOADERS)
 
 
 def _role_text(role: str) -> str:
@@ -103,29 +106,37 @@ def test_the_scan_finds_the_store_backed_variables():
 
 
 def test_every_play_that_reads_the_store_loads_it():
+    """Per play, in order: a play's roles see the store's facts only when the
+    load ran before them, in that play's pre_tasks or in an earlier play. A
+    load later in the same playbook comes too late for them."""
     store_backed = _store_backed_vars()
     offenders: dict[str, list[str]] = {}
 
     for playbook in sorted(_PLAYBOOKS.glob("*.yml")):
-        text = playbook.read_text(encoding="utf-8", errors="ignore")
-        if (any(loader in text for loader in _LOADERS)
-                or playbook.name in LOADER_EXEMPT):
+        if playbook.name in LOADER_EXEMPT:
             continue
+        loaded = False
         reads: set[str] = set()
-        for role in _roles_of(playbook):
-            body = _role_text(role)
-            for var in store_backed:
-                if re.search(r"\b" + var + r"\b", body):
-                    reads.add(f"{var} (via roles/{role})")
+        for play in _plays(playbook):
+            loaded = loaded or _loads(play.get("pre_tasks"))
+            if not loaded:
+                for role in _roles_of(play):
+                    body = _role_text(role)
+                    for var in store_backed:
+                        if re.search(r"\b" + var + r"\b", body):
+                            reads.add(f"{var} (via roles/{role})")
+            loaded = loaded or _loads(play.get("tasks"))
         if reads:
             offenders[playbook.name] = sorted(reads)
 
     assert not offenders, (
-        "these plays read a value the store owns and never load the store, so "
-        "the variable resolves to nothing and the play configures the host "
+        "these plays read a value the store owns before the store is loaded, "
+        "so the variable resolves to nothing and the play configures the host "
         "against a blank: "
-        f"{offenders}. Add the load_onbox_config include, or read the store in "
-        "the role and declare the play in LOADER_EXEMPT with the reason"
+        f"{offenders}. Load it first (the load_onbox_config or "
+        "seed_onbox_config include in this play's pre_tasks or an earlier "
+        "play), or read the store in the role and declare the play in "
+        "LOADER_EXEMPT with the reason"
     )
 
 
@@ -190,8 +201,9 @@ def test_every_exemption_reads_the_store_for_itself():
         assert playbook.is_file(), f"{name} is declared exempt and does not exist"
         assert len(reason) > 60, f"{name} has no real reason: {reason!r}"
         body = playbook.read_text(encoding="utf-8", errors="ignore")
-        for role in _roles_of(playbook):
-            body += _role_text(role)
+        for play in _plays(playbook):
+            for role in _roles_of(play):
+                body += _role_text(role)
         assert "config.json" in body, (
             f"{name} is exempt from loading the store and does not read the "
             "store either, so the values it needs resolve to nothing"

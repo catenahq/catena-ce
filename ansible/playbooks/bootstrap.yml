@@ -1,29 +1,24 @@
 ---
 # The first playbook of an install's second leg, run on the server by
 # ansible/install-host.sh in a session that logged in as ops with the
-# installer's key: the baseline and the sshd hardening
-# (bootstrap/roles/common), then the on-box config store seeded from the
-# installer's .env and the ansible-core the host reconciles itself with.
-# show-keyset.yml and converge.yml follow it. Run again on an installed host,
-# it finds its work done.
+# installer's key: the on-box config store seeded from the installer's .env,
+# then the baseline and the sshd hardening (bootstrap/roles/common), then the
+# ansible-core the host reconciles itself with. show-keyset.yml and
+# converge.yml follow it. Run again on an installed host, it finds its work
+# done.
 #
 # Public port 22 stays open: the panel's Lockdown closes it, after proving the
 # tailnet path.
-- name: "Bootstrap: baseline and hardening"
+- name: "Bootstrap: the on-box store, the baseline and hardening"
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true
   gather_facts: true
-  roles:
-    - role: common
-
-- name: "Bootstrap: seed the on-box store + the ansible runtime"
-  hosts: "{{ stage_hosts | default('vps') }}"
-  become: true
-  gather_facts: false
   pre_tasks:
-    # THE STORE IS CREATED HERE, before any later playbook reads it. They read
-    # their settings from store-projected cfg_* facts with no inventory
-    # fallback, so against a host with no store every one of them is blank.
+    # THE STORE IS CREATED HERE, before anything reads it. Every later play
+    # reads its settings from store-projected cfg_* facts with no inventory
+    # fallback, and so does common: the apt proxy, and the access method that
+    # decides whether a reinstall opens public SSH. Read blank, they would undo
+    # on every reinstall what converge.yml applies.
     #
     # Only the CONFIG half seeds here. The rest of load_onbox_config.yml MINTS
     # the internal secrets and the user-held passwords, and asks the container
@@ -32,6 +27,13 @@
     - name: "Seed the on-box config store before anything reads it"
       ansible.builtin.include_tasks:
         file: tasks/seed_onbox_config.yml
+  roles:
+    - role: common
+
+- name: "Bootstrap: the ansible runtime"
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
   roles:
     # The ansible-core the host reconciles itself with, the venv
     # install-host.sh runs this from and catena-admin's catena-converge

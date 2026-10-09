@@ -27,7 +27,7 @@ transforms live in Python with a unit test rather than in Jinja);
 | File | What it does |
 | --- | --- |
 | `accounts.yml` | The first leg of an install, run on the server by install-host.sh through the provider's login: the ops account and the panel's forward-only account, each with the installer's public key, and ops' passwordless sudo. |
-| `bootstrap.yml` | The first playbook of an install's second leg, run on the server by ansible/install-host.sh in a session that logged in as ops with the installer's key: the baseline and the sshd hardening (bootstrap/roles/common), then the on-box config store seeded from the installer's .env and the ansible-core the host reconciles itself with. show-keyset.yml and converge.yml follow it. |
+| `bootstrap.yml` | The first playbook of an install's second leg, run on the server by ansible/install-host.sh in a session that logged in as ops with the installer's key: the on-box config store seeded from the installer's .env, then the baseline and the sshd hardening (bootstrap/roles/common), then the ansible-core the host reconciles itself with. show-keyset.yml and converge.yml follow it. |
 | `converge.yml` | The full converge: bring a bootstrapped host to the desired state, every role in dependency order. |
 | `lockdown.yml` | Join the tailnet, and -- only when the panel's Lockdown asks -- close public port 22 behind it. |
 | `reconcile.yml` | The half of a converge a host runs against itself, from the tree inside the panel image. |
