@@ -86,8 +86,9 @@ if [ "${#missing[@]}" -gt 0 ]; then
     echo "error: missing required env on $ct:" >&2
     for m in "${missing[@]}"; do echo "  - $m" >&2; done
     echo >&2
-    echo "Open Portainer > App Templates > Nextcloud > Edit > Environment" >&2
-    echo "and confirm the HPB env vars are set, then redeploy." >&2
+    echo "The stack sets these on its app service. In Portainer, open" >&2
+    echo "Stacks > catena-nextcloud, check them in the editor and in the" >&2
+    echo "stack's environment variables, then update the stack." >&2
     exit 2
 fi
 

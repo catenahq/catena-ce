@@ -83,4 +83,5 @@ def test_a_missing_host_is_refused_before_any_occ_call(tmp_path: Path, name: str
     out, occ = _run(tmp_path, {k: v for k, v in ENV.items() if k != name})
     assert out.returncode == 2
     assert f"  - {name}" in out.stderr
+    assert "Stacks > catena-nextcloud" in out.stderr
     assert occ == []

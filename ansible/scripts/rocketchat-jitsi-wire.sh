@@ -7,10 +7,13 @@
 # overwrites in place). Re-clicking the button after a domain or
 # secret change picks up the new values.
 #
-# Reads the bootstrap admin credentials from the rocketchat container
-# environment (ROOT_URL + the OVERWRITE_SETTING_* values shipped in
-# the compose). The admin password is the host's admin_password, which
-# the catalog sets in the stack environment as ADMIN_PASS at deploy time.
+# Reads ROOT_URL, the bootstrap admin credentials (ADMIN_USERNAME,
+# ADMIN_PASS) and JITSI_HOSTNAME from the rocketchat container's
+# environment. The template builds JITSI_HOSTNAME from the same stack
+# variable as jitsi-web's PUBLIC_URL, so the Jitsi host Rocket.Chat dials
+# is the one jitsi-web answers as. The admin password is the host's
+# admin_password, which the catalog sets in the stack environment as
+# ADMIN_PASS at deploy time.
 
 set -euo pipefail
 
@@ -23,29 +26,23 @@ get_env() {
 }
 
 ROOT_URL=$(get_env ROOT_URL)
-RC_HOSTNAME=$(echo "$ROOT_URL" | sed -e 's,^https\?://,,' -e 's,/.*,,')
 ADMIN_USER=$(get_env ADMIN_USERNAME)
 ADMIN_PASS=$(get_env ADMIN_PASS)
-
-# Derive the base zone from the RC hostname (drop the leading
-# rocketchat.).
-RC_HOSTNAME_BASE=$(echo "$RC_HOSTNAME" | sed -e 's/^rocketchat\.//')
-if [ -z "$RC_HOSTNAME_BASE" ] || [ "$RC_HOSTNAME_BASE" = "$RC_HOSTNAME" ]; then
-    RC_HOSTNAME_BASE="$RC_HOSTNAME"
-fi
-JITSI_DOMAIN="meet.$RC_HOSTNAME_BASE"
+JITSI_DOMAIN=$(get_env JITSI_HOSTNAME)
 
 missing=()
-[ -z "$ROOT_URL" ]    && missing+=("ROOT_URL")
-[ -z "$ADMIN_USER" ]  && missing+=("ADMIN_USERNAME")
-[ -z "$ADMIN_PASS" ]  && missing+=("ADMIN_PASS")
+[ -z "$ROOT_URL" ]     && missing+=("ROOT_URL")
+[ -z "$ADMIN_USER" ]   && missing+=("ADMIN_USERNAME")
+[ -z "$ADMIN_PASS" ]   && missing+=("ADMIN_PASS")
+[ -z "$JITSI_DOMAIN" ] && missing+=("JITSI_HOSTNAME")
 
 if [ "${#missing[@]}" -gt 0 ]; then
     echo "error: missing required env on $ct:" >&2
     for m in "${missing[@]}"; do echo "  - $m" >&2; done
     echo >&2
-    echo "Open Portainer > App Templates > rocketchat > Edit > Environment" >&2
-    echo "and confirm the bootstrap admin env is set, then redeploy." >&2
+    echo "The stack sets these on its rocketchat service. In Portainer, open" >&2
+    echo "Stacks > catena-rocketchat, check them in the editor and in the" >&2
+    echo "stack's environment variables, then update the stack." >&2
     exit 2
 fi
 
@@ -83,8 +80,7 @@ login_json=$(docker exec "$ct" /bin/sh -c "
         -d '{\"user\":\"'\"$ADMIN_USER\"'\",\"password\":\"'\"$ADMIN_PASS\"'\"}'
 ")
 
-# Parse with the python interpreter inside RC's image (Node, not
-# Python -- use jq if available, else hand-parse with sed).
+# The token and user id are read out of the reply with sed, on the host.
 auth_token=$(echo "$login_json" \
     | sed -nE 's/.*"authToken"\s*:\s*"([^"]+)".*/\1/p' \
     | head -n1)
@@ -121,12 +117,12 @@ set_setting Jitsi_Enabled            '{"value":true}'
 set_setting Jitsi_Domain             "{\"value\":\"$JITSI_DOMAIN\"}"
 set_setting Jitsi_URL_Room_Prefix    '{"value":"Catena"}'
 set_setting Jitsi_URL_Room_Hash      '{"value":false}'
+# Calls open at https://<JITSI_DOMAIN>/<room>: TLS for every public host
+# ends at the Cloudflare edge.
 set_setting Jitsi_SSL                '{"value":true}'
-# v1 ships without JWT-gated rooms -- channel access is by RC link.
-# Flip Jitsi_Enable_Channels=true to allow conf creation per channel.
+# Rooms carry no JWT: a call is joined by its link. Every channel can
+# start one.
 set_setting Jitsi_Enable_Channels    '{"value":true}'
-# meet.<base> rides cloudflared (proxied: true), which terminates TLS
-# at the edge -- the iframe URL is `https://<JITSI_DOMAIN>/<room>`.
 
 echo
 echo "+ Rocket.Chat -> Jitsi wired."
@@ -135,4 +131,4 @@ echo "Verify: open a channel in Rocket.Chat, click the phone icon to"
 echo "start a video call. The popup loads https://$JITSI_DOMAIN/<room>."
 echo "Two participants on different networks should connect via direct"
 echo "JVB UDP (port 10000); restrictive-network clients fall back to"
-echo "the shared coturn relay at turn.$RC_HOSTNAME_BASE:5349."
+echo "the shared coturn relay on port 5349."
