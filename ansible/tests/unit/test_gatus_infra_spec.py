@@ -1,4 +1,5 @@
-"""Each infrastructure endpoint Gatus probes is the service its name says.
+"""Each infrastructure endpoint Gatus probes is the service its name says, and
+a probe through the public edge exists only once the edge serves the domain.
 
 The spec is rendered the way the converge renders it, from the roles'
 defaults, with StrictUndefined, and read back as JSON: catena-gatus-sync turns
@@ -24,25 +25,30 @@ def _vars(*parts: str) -> dict:
     return yaml.safe_load(ROLES.joinpath(*parts).read_text())
 
 
-def _spec() -> list[dict]:
+def _spec(edge_up: bool = True, zone: str = ZONE) -> list[dict]:
+    """The spec as a converge renders it: `edge_up` is the role's
+    _infra_edge_up (a Cloudflare token and the tunnel engine), `zone` the
+    domain, empty on a host that has none yet."""
     infra = _vars("infrastructure", "defaults", "main.yml")
     keycloak = _vars("keycloak", "defaults", "main.yml")
     keycloak_vars = _vars("keycloak", "vars", "main.yml")
     context = {
-        "cloudflare_zone": ZONE,
-        "infrastructure_gatus_hostname": f"gatus.{ZONE}",
-        "catena_admin_hostname": f"dash.{ZONE}",
-        "portainer_admin_hostname": f"portainer.{ZONE}",
-        "healthchecks_hostname": f"healthchecks.{ZONE}",
+        "_infra_edge_up": edge_up,
+        "catena_public_surface_deferred": not zone,
+        "cloudflare_zone": zone,
+        "infrastructure_gatus_hostname": f"gatus.{zone}",
+        "catena_admin_hostname": f"dash.{zone}",
+        "portainer_admin_hostname": f"portainer.{zone}",
+        "healthchecks_hostname": f"healthchecks.{zone}",
         "keycloak_server_alias": keycloak_vars["keycloak_server_alias"],
         "keycloak_management_port": keycloak["keycloak_management_port"],
         "keycloak_health_path": keycloak["keycloak_health_path"],
         "beszel_hub_network_alias": infra["beszel_hub_network_alias"],
         "beszel_hub_internal_port": infra["beszel_hub_internal_port"],
     }
-    rendered = jinja2.Environment(undefined=jinja2.StrictUndefined).from_string(
-        SPEC.read_text()).render(**context)
-    return json.loads(rendered)
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["bool"] = bool
+    return json.loads(env.from_string(SPEC.read_text()).render(**context))
 
 
 def _entry(label: str) -> dict:
@@ -90,3 +96,22 @@ def test_keycloak_is_probed_inside_the_network():
     keycloak = _entry("Keycloak")
     assert keycloak["url"] == "http://keycloak-server:9000/health/ready"
     assert keycloak["accepted"] == [200]
+
+
+def test_no_name_under_the_domain_is_probed_before_the_edge_serves_it():
+    """A name asked before the domain's wildcard exists is answered NXDOMAIN,
+    and resolvers keep that answer for the zone's negative TTL (30 minutes on
+    Cloudflare): a probe written before the edge serves the domain reads red
+    that long after it does. With no domain the names are `<sub>.` and never
+    resolve at all."""
+    for edge_up, zone in ((False, ZONE), (True, ""), (False, "")):
+        public = [e["url"] for e in _spec(edge_up, zone) if e["url"].startswith("https://")]
+        assert public == [], (edge_up, zone, public)
+
+
+def test_the_edge_probes_arrive_with_the_edge():
+    """The converge that brings the edge up for a domain writes every probe
+    through it, the tunnel's included."""
+    public = {e["label"] for e in _spec() if e["url"].startswith("https://")}
+    assert public == {f"gatus.{ZONE}", f"dash.{ZONE}", f"portainer.{ZONE}",
+                      f"healthchecks.{ZONE}", "cloudflared"}

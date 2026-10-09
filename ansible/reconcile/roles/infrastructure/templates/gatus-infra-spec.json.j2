@@ -1,3 +1,22 @@
+{# One entry per infrastructure endpoint; catena-gatus-sync (catena-admin
+   payload) writes each as an endpoint of 40-infra.yaml.
+
+   version_key is the catena-version-check row whose version the endpoint name
+   carries: the last path segment of the image the service runs
+   (quay.io/phasetwo/phasetwo-keycloak -> phasetwo-keycloak). null when no
+   running image backs the entry.
+
+   An entry that reaches its service through the public edge, at a name under
+   the domain, is written only while the edge serves the domain: a Cloudflare
+   token in the store, the tunnel engine on the host
+   (reconcile/roles/infrastructure/tasks/main.yml _infra_edge_up) and a domain.
+   A name asked before the domain's wildcard record exists is answered NXDOMAIN,
+   and resolvers keep that answer for the zone's negative TTL, 30 minutes on
+   Cloudflare, so a probe written early reads red that long after the edge comes
+   up. A converge runs reconcile/roles/cloudflare_tunnel before this role, so
+   the wildcard exists before Gatus first asks. #}
+{% set _through_the_edge = (_infra_edge_up | bool)
+     and not (catena_public_surface_deferred | bool) %}
 [
   {
     "label": "catena-traefik",
@@ -7,8 +26,9 @@
     "ignore_redirect": false,
     "interval": "60s",
     "alert_slug": "traefik-internal",
-    "version_key": "Traefik"
+    "version_key": "traefik"
   },
+{% if _through_the_edge %}
   {
     "label": "{{ infrastructure_gatus_hostname }}",
     "url": "https://{{ infrastructure_gatus_hostname }}",
@@ -17,7 +37,7 @@
     "ignore_redirect": true,
     "interval": "120s",
     "alert_slug": "{{ infrastructure_gatus_hostname | lower | replace('.', '-') }}",
-    "version_key": "Gatus"
+    "version_key": "gatus"
   },
 {# catena-admin (the Go shell) is the admin panel. It sits behind the
    staff/admin oauth2-proxy slug, so an unauthenticated probe gets a 302
@@ -43,7 +63,7 @@
     "ignore_redirect": true,
     "interval": "120s",
     "alert_slug": "{{ portainer_admin_hostname | lower | replace('.', '-') }}",
-    "version_key": "Portainer"
+    "version_key": "portainer-ce"
   },
   {
     "label": "{{ healthchecks_hostname }}",
@@ -53,8 +73,9 @@
     "ignore_redirect": true,
     "interval": "120s",
     "alert_slug": "{{ healthchecks_hostname | lower | replace('.', '-') }}",
-    "version_key": "Healthchecks"
+    "version_key": "healthchecks"
   },
+{% endif %}
   {
     "label": "Restic backup",
     "url": "http://homepage-stats/backup-stats.json",
@@ -63,7 +84,7 @@
     "ignore_redirect": false,
     "interval": "300s",
     "alert_slug": "restic-backup",
-    "version_key": "Restic",
+    "version_key": null,
     "extra_conditions": [
       "[BODY].status == ok"
     ]
@@ -82,14 +103,15 @@
       "[BODY].count_high <= {{ container_cve_high_threshold | default(10) }}"
     ]
   },
+{% if _through_the_edge %}
 {# The tunnel, through a name under the domain's wildcard that nothing routes:
    the Cloudflare edge hands it to this host's connector, which passes it to
    Traefik, and Traefik answers 404 for a host it has no route for. A connector
    that is down gets 530 from the edge, and one whose ingress does not serve
    the domain answers the tunnel's catch-all 418
    (catena-admin/payload/engines/cloudflared/api.go catchAllService), so only
-   a working tunnel reaches 404. The tunnel engine's own chain probe makes the
-   same request. #}
+   a working tunnel reaches 404. The tunnel engine's own chain probe asks the
+   same way, under a fresh name each time. #}
   {
     "label": "cloudflared",
     "url": "https://cf-chain-probe.{{ cloudflare_zone }}/",
@@ -98,8 +120,9 @@
     "ignore_redirect": false,
     "interval": "120s",
     "alert_slug": "cloudflared",
-    "version_key": "Cloudflared"
+    "version_key": "cloudflared"
   },
+{% endif %}
 {# Keycloak's readiness on its management port, over catena-network: the
    same check its container healthcheck runs. #}
   {
@@ -110,7 +133,7 @@
     "ignore_redirect": false,
     "interval": "60s",
     "alert_slug": "keycloak",
-    "version_key": "Keycloak"
+    "version_key": "phasetwo-keycloak"
   },
 {# Beszel's hub, by its alias on beszel_network. Its public host sits behind
    oauth2-proxy and answers 302 whatever the hub's state, so the hub itself
@@ -123,6 +146,6 @@
     "ignore_redirect": false,
     "interval": "60s",
     "alert_slug": "beszel-hub",
-    "version_key": "Beszel"
+    "version_key": "beszel"
   }
 ]

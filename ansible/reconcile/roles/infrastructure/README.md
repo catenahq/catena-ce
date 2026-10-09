@@ -11,7 +11,9 @@ Portainer in the path, so a Portainer that will not start leaves them running:
 
 - **Gatus** (`gatus.<zone>`) -- endpoint monitoring. `00-base.yaml` is
   rendered here; `catena-gatus-sync` writes `50-catena-apps.yaml` from the
-  running containers' labels.
+  app intent and `40-infra.yaml` from `templates/gatus-infra-spec.json.j2`,
+  whose probes through the public edge are written once the edge serves a
+  domain.
 - **Healthchecks** (`healthchecks.<zone>`) -- the dead-man-switch plane the
   backup, the nightly chain, the offsite copy, the off-site heartbeat, the
   reboot-required probe, the ClamAV watch, the mail canary and Beszel's alerts
