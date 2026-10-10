@@ -82,7 +82,7 @@
               - _ms_dns_zones.json.result | length == 1
             fail_msg: >-
               Zone '{{ cloudflare_zone }}' not found (or token lacks access).
-              The API token needs Zone:DNS:Edit scope on this zone.
+              Mail DNS records need an API token with Zone:DNS:Edit scope.
 
         - name: "Mailserver DNS: capture zone_id"
           ansible.builtin.set_fact:

@@ -102,8 +102,7 @@
     msg: >-
       No clamd consumer running (no dms, no Nextcloud app). The
       {{ clamav_network }} network is created but clamd is NOT deployed
-      (saves ~1.5 GB). It deploys automatically on the converge after a
-      consumer first comes up.
+      (saves ~1.5 GB). The first converge after a consumer comes up deploys it.
   when: (_clamav_consumer.stdout | default('') | trim) | length == 0
 
 - name: "ClamAV: deploy clamd + watchdog when a consumer is running"

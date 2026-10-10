@@ -1,16 +1,16 @@
 # Which side of the converge boundary each role sits on.
 #
-# THE RULE, in two questions asked in order.
+# THE RULE (SPEC.md, "The boundary"), two questions asked in order.
 #
-#   1. If this is wrong, is anything left that can fix it? If no, it is
-#      BOOTSTRAP: only the install applies it, run by a person through the
-#      installer (ansible/install-host.sh), never by the host on a timer.
-#      That set is small and it is meant to stay small.
+#   1. Can anything repair this role's result once it is wrong?
+#      If nothing can, the role is BOOTSTRAP: only the install applies it, run
+#      by a person through the installer (ansible/install-host.sh), never by the
+#      host on a timer. That set is small and it is meant to stay small.
 #
-#   2. Otherwise, is the correct value a function of the product VERSION or of
-#      THIS HOST? Version-shaped things travel in the image; host-shaped things
-#      live in /etc/catena/config.json. Either way the role is RECONCILE: it can
-#      run on the host, unattended, from the image, on a timer.
+#   2. Does the correct value follow the product VERSION or THIS
+#      HOST? Version-shaped things travel in the image; host-shaped things live
+#      in /etc/catena/config.json. Both kinds are RECONCILE roles, which the host
+#      runs against itself, unattended, from the image, on a timer.
 #
 # Ownership draws the line, whatever the storage location: the Gatus endpoint
 # list sits in a file on the host, yet it lists what the product decided to

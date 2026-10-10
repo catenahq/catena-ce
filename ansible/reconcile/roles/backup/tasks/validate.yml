@@ -128,8 +128,8 @@
   ansible.builtin.debug:
     msg: >-
       Backup is not configured on this host, so the restic repo checks below
-      are skipped. Set the repo + S3 keys in catena-admin > Settings > Backup;
-      catena-backup-run self-gates until then.
+      are skipped. The repo and S3 keys are entered in catena-admin > Settings
+      > Backup, and catena-backup-run self-gates until they are.
   when: not (_bk_configured | bool)
 
 - name: "validate/backup: restic can reach the repo"

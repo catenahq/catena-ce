@@ -72,8 +72,8 @@
       {{ cloudflared_sync_bin }} is absent although reconcile/roles/payload ran in this
       converge. The Cloudflare tunnel cannot be brought up, and reconcile/roles/keycloak
       and reconcile/roles/oauth2_proxy are about to wait on an edge that will never
-      answer. Check the "Payload:" tasks above for why the extract from
-      {{ catena_admin_image }} did not land.
+      answer. The "Payload:" tasks above say why the tunnel engine was not
+      extracted from {{ catena_admin_image }}.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool

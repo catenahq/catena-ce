@@ -344,8 +344,8 @@
     msg: >-
       /etc/systemd/system/{{ license_refresh_systemd_unit_name }}.timer is
       absent although reconcile/roles/payload ran in this converge, so this
-      host would never check its licence key with Polar. Check the "Payload:"
-      tasks above for why the extract did not land.
+      host would never check its licence key with Polar. The "Payload:" tasks
+      above say why the licence timer was not extracted.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool

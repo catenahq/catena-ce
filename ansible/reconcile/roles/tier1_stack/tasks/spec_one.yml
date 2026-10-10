@@ -41,12 +41,10 @@
   ansible.builtin.fail:
     msg: >-
       {{ tier1_engine_bin }} is absent, so the built-in spec for
-      {{ tier1_spec_name }} cannot be read. The engine ships in the
-      catena-admin host payload and reconcile/roles/payload installs it right after
-      bootstrap/roles/docker -- check the "Payload:" tasks above for why the extract did
-      not land. A host whose payload is staged out of band
-      (CATENA_PAYLOAD_INSTALL=false) must be staged BEFORE the converge that
-      brings the control plane up.
+      {{ tier1_spec_name }} cannot be read. reconcile/roles/payload installs
+      the engine from the catena-admin image; the "Payload:" tasks above say
+      why it is missing. With CATENA_PAYLOAD_INSTALL=false, stage the payload
+      before running the converge that brings the control plane up.
   when: not (_t1_spec_bin.stat.exists | default(false))
 
 - name: "tier1: read the built-in spec for {{ tier1_spec_name }}"

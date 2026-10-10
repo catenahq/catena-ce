@@ -197,9 +197,8 @@
     msg: >-
       {{ backup_wrapper_script }} is absent although reconcile/roles/payload ran in this
       converge, so catena-backup.service would point at nothing and every
-      scheduled backup would fail silently at the unit level. Check
-      the "Payload:" tasks above for why the extract from
-      {{ catena_admin_image }} did not land.
+      scheduled backup would fail silently at the unit level. The "Payload:"
+      tasks above say why {{ catena_admin_image }} did not extract.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool

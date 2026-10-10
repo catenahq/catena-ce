@@ -3,16 +3,3 @@
 # and so does an entry that is no longer duplicated. One sentence per line,
 # matched case- and punctuation-insensitively. Meant to shrink: an
 # explanation belongs in one place, which the others point to.
-
-A host whose payload is staged out of band (CATENA_PAYLOAD_INSTALL=false) must be staged BEFORE the converge that brings the control plane up.
-Check the "Payload:" tasks above for why the extract did not land.
-Check the "Payload:" tasks above for why the extract from {{ catena_admin_image }} did not land.
-Either way the role is **Reconcile**: it can run on the host, unattended, from the image, on a timer.
-If this is wrong, is anything left that can fix it?
-It deploys automatically on the converge after a consumer first comes up.
-It is normally minted by reconcile/roles/portainer earlier in this same converge; if you see this, portainer did not run or failed to mint the key.
-Otherwise, is the correct value a function of the product VERSION or of THIS HOST?
-Set the repo + S3 keys in catena-admin > Settings > Backup; catena-backup-run self-gates until then.
-The API token needs Zone:DNS:Edit scope on this zone.
-The converge mints it on the box; a missing one means the on-box store at /etc/catena/config.json was not loaded or was truncated.
-The engine ships in the catena-admin host payload and reconcile/roles/payload installs it right after bootstrap/roles/docker

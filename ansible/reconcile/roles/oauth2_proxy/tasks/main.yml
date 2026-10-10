@@ -187,9 +187,8 @@
   ansible.builtin.debug:
     msg: >-
       Skipping oauth2-proxy realm + middleware + compose + validate --
-      portainer_api_key is not yet present. It is normally minted by
-      reconcile/roles/portainer earlier in this same converge; if you see this,
-      portainer did not run or failed to mint the key.
+      portainer_api_key is not yet present. reconcile/roles/portainer mints it
+      earlier in this converge, so the portainer role did not run or failed.
   when:
     - not (catena_public_surface_deferred | default(false) | bool)
     - portainer_api_key is not defined or (portainer_api_key | length) <= 10
