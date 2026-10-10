@@ -57,7 +57,7 @@ TIER-1 SWARM SERVICE, with the argv rendered by
 - Creates the catena-admin container as a tier-1 swarm service
   ([tasks/deploy.yml](tasks/deploy.yml)), pulling the PUBLIC GHCR image
   (`catena_admin_image`) anonymously -- every install gets the panel; the
-  Business feature set inside it is gated at runtime by the license
+  Pro and Business features inside it are gated at runtime by the license
   check. The image is `CATENA_ADMIN_IMAGE`, the one the converge was
   started with: the release install-host.sh installs, or the image the
   panel runs on a converge the host runs itself (catena-converge). The
@@ -87,13 +87,13 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   behind the shared `oauth2-proxy` realm client and the staff/admin
   oauth2-proxy slug.
 
-## Community vs Business actions
+## Community vs licensed actions
 
 The canonical catalog ships only Community actions: manual backup +
 snapshot browse/export, the per-app wiring buttons, and Ops
 diagnostics. The **Upgrades** category is
 intentionally empty in Community -- managed updates and the
-catena-daily orchestrator are Business lanes whose buttons are
+catena-daily orchestrator are Pro lanes whose buttons are
 contributed at runtime by license-gated plugins (the Go shell merges
 plugin `Actions()` into this catalog). An Upgrades / daily-chain button
 therefore cannot appear without an active license.

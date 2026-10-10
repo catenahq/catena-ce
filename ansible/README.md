@@ -71,11 +71,12 @@ antivirus watch, mail canary, public-port reconciliation and the
 reboot-required probe. Each is an enumerated allowlist entry, machine-enforced
 rather than conventional, and none of them spends object storage.
 
-The managed lifecycle -- scheduled backup, verification and offsite
-copies, container updates with rollback, CVE remediation, attestation,
-the catena-daily orchestrator chain -- is the Business edition. Its engines ship in the public catena-admin payload and install
-on every host, but the license check gates their features at runtime, so
-they stay dormant on a Community host. On a Business host `catena-schedule`
+The managed lifecycle -- scheduled backup and verification, container
+updates with rollback, CVE remediation, the catena-daily orchestrator
+chain -- is the Pro edition; offsite copies and attestation are Business.
+Its engines ship in the public catena-admin payload and install on every
+host, but the license check gates their features at runtime, so they stay
+dormant on a Community host. On a Pro or Business host `catena-schedule`
 turns on the lanes set on the panel's Schedules page.
 
 ## The inventory
