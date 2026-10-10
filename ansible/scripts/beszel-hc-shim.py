@@ -24,9 +24,10 @@ fire, exactly like the Gatus path in notifications.md.
 Runs inside a python:alpine container on the Beszel hub's network, its one
 caller, and on the Healthchecks network it pings. Config via env:
 
-    HC_URL        Healthchecks base, e.g. http://healthchecks:8000
-    HC_PING_KEY   the project ping key (healthchecks_ping_key)
-    LISTEN_PORT   port to listen on (default 8099)
+    HC_URL            Healthchecks base, e.g. http://healthchecks:8000
+    HC_PING_KEY_FILE  the swarm secret holding the project ping key
+                      (healthchecks_ping_key)
+    LISTEN_PORT       port to listen on (default 8099)
 """
 
 from __future__ import annotations
@@ -127,7 +128,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     _Handler.hc_url = os.environ["HC_URL"]
-    _Handler.hc_ping_key = os.environ["HC_PING_KEY"]
+    with open(os.environ["HC_PING_KEY_FILE"], encoding="utf-8") as f:
+        _Handler.hc_ping_key = f.read().strip()
     port = int(os.environ.get("LISTEN_PORT", "8099"))
     HTTPServer(("0.0.0.0", port), _Handler).serve_forever()
     return 0

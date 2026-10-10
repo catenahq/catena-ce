@@ -50,8 +50,9 @@ The hub's spec carries no credential: the seed makes the admin its first user
 through its first-user endpoint on the loopback publish.
 
 The Healthchecks and Beszel seeds read their values on stdin, never an argv or
-environment, and Healthchecks' credentials are swarm secrets: a secret of
-theirs that no service mounts is removed after the deploy.
+environment. Healthchecks' credentials, the Beszel agent's token and the
+shim's ping key are swarm secrets: a secret of theirs that no service mounts is
+removed after the deploy.
 
 ## Catalog app wiring
 

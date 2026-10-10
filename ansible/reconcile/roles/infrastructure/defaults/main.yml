@@ -192,14 +192,21 @@ beszel_hub_internal_port: 8090
 # (UFW-safe, loopback never publicly reachable; mirrors gatus_host_
 # localhost_port / healthchecks_host_localhost_port):
 #   - beszel-seed.py (universal-token seed against the PocketBase API)
-#   - the beszel-agent (network_mode: host) dialling HUB_URL
+#   - the beszel-agent (on the host network) dialling HUB_URL
 beszel_hub_host_localhost_port: 18190
 beszel_hub_data_volume: "beszel-hub-data"
 beszel_agent_compose_name: "beszel-agent"
-# Agent listens on this port for the hub handshake. The agent runs with
-# network_mode: host (canonical upstream shape for host + docker metrics)
-# so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
+# Agent listens on this port for the hub handshake. The agent runs on the host
+# network (canonical upstream shape for host + docker metrics) so it reaches
+# the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
 beszel_agent_port: 45876
+# The agent's universal token, as a swarm secret, of which
+# `docker service inspect` shows the path. The agent reads the file TOKEN_FILE
+# names (agent/client.go getToken, henrygd/beszel v0.20.0).
+beszel_agent_swarm_secrets:
+  - base: beszel_agent_token
+    target: TOKEN
+    value: "{{ beszel_universal_token }}"
 # beszel-seed.py's record, beside the script: the admin email it last signed
 # in to the hub with, and the fingerprint of the mail password it last wrote,
 # neither of which the hub answers back. 0600, root.
@@ -211,10 +218,10 @@ beszel_seed_state_file: /root/catena-beszel-seed.json
 beszel_oidc_display_name: "Catena"
 
 # --- Beszel -> Healthchecks alert shim ----------------------------------
-# Tiny stdlib-Python sidecar on catena-network. Receives Beszel's
+# Tiny stdlib-Python sidecar on the hub's network. Receives Beszel's
 # Shoutrrr generic-webhook POST, derives a beszel-<slug> check name, and
-# forwards triggered -> /fail, resolved -> success against the
-# Healthchecks loopback alias. Healthchecks attaches every project channel to
+# forwards triggered -> /fail, resolved -> success to Healthchecks' network
+# alias. Healthchecks attaches every project channel to
 # a check its `?create=1` ping creates (zero per-check wiring).
 beszel_hc_shim_compose_name: "beszel-hc-shim"
 beszel_hc_shim_network_alias: "beszel-hc-shim"
@@ -225,6 +232,12 @@ beszel_hc_shim_image: >-
      | catena_image_pin(catena_image_pins | default({})) }}
 # Host dir the shim script is dropped into + bind-mounted read-only.
 beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
+# The ping key, as a swarm secret for the same reason as the agent's token. The
+# shim reads the file HC_PING_KEY_FILE names.
+beszel_hc_shim_swarm_secrets:
+  - base: beszel_hc_shim_ping_key
+    target: HC_PING_KEY
+    value: "{{ healthchecks_ping_key }}"
 
 # --- Off-site heartbeat ---------------------------------------------------
 # catena-admin's catena-heartbeat lane (payload/lanes) probes Gatus,

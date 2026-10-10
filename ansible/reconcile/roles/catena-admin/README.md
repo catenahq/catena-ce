@@ -64,8 +64,8 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   started with: the release install-host.sh installs, or the image the
   panel runs on a converge the host runs itself (catena-converge). The
   service is created against the local swarm directly because the panel
-  holds the key that drives Portainer and is the tool that repairs it, so
-  it cannot depend on Portainer to start. The
+  is the tool that repairs the host, Portainer included, so it cannot
+  depend on Portainer to start. The
   credentials arrive as swarm secrets, not `--env`: `docker service
   create` has no `--env-file`, so an `--env` value sits in the host
   process table where any local user can read it. One of them,

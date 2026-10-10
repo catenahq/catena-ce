@@ -25,9 +25,9 @@ WHAT THIS RENDER IS FOR
   names services `<stack>_<key>`; there is no flag to suppress the prefix, and
   deploying over an existing standalone service does not adopt it -- it creates
   a second service beside it. Renaming catena-traefik / catena-postgres /
-  catena-portainer reaches 13 DNS sites (Keycloak's JDBC URL, cloudflared's
-  ingress target, the Gatus probes, oauth2-proxy's upstream,
-  PORTAINER_API_BASE), three anchored matchers in catena-admin's recovery
+  catena-portainer reaches every DNS site that names them (Keycloak's JDBC URL,
+  cloudflared's ingress target, the Gatus probes, oauth2-proxy's upstream),
+  three anchored matchers in catena-admin's recovery
   engines, and 107 bench assertions. The anchored ones -- pgreplay.go's
   pauseExcludeRe, quiesce.go's isControlPlane, restore.go's isRestoreExempt --
   would stop matching SILENTLY. Not worth the declarative reset and --prune it

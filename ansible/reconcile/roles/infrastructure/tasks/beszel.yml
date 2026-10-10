@@ -14,7 +14,8 @@
 #      (superuser-authenticated, idempotent). With it, the
 #      agent auto-registers its system on first WebSocket connect
 #      (createNewSystemForUniversalToken) -- no "add system" UI click.
-#   4. Deploy the agent (network_mode: host) with KEY + TOKEN + HUB_URL.
+#   4. Deploy the agent on the host network with KEY + HUB_URL, and the token
+#      as a swarm secret.
 #
 # Always runs: the include in main.yml carries no gate. The universal token is
 # an INTERNAL_SECRET minted on the box by helpers/onbox_config.py; this role
@@ -240,6 +241,19 @@
   until: _beszel_seed.rc == 0
   no_log: true
 
+# The agent's token and the alert shim's ping key: each compose names its
+# secret and mounts it, and swarm holds the value.
+- name: "Beszel: name the agent's and the alert shim's swarm secrets after their values"
+  ansible.builtin.set_fact:
+    _beszel_agent_secrets: "{{ beszel_agent_swarm_secrets | swarm_secret_entries }}"
+    _beszel_hc_shim_secrets: "{{ beszel_hc_shim_swarm_secrets | swarm_secret_entries }}"
+  no_log: true
+
+- name: "Beszel: create the missing swarm secrets"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+  vars:
+    swarm_secrets: "{{ _beszel_agent_secrets + _beszel_hc_shim_secrets }}"
+
 - name: "Beszel: deploy agent as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml
   vars:
@@ -311,3 +325,10 @@
     svc_readiness_skip_reason: >-
       Internal webhook receiver on the hub's network; no public surface.
       Exercised by a Beszel alert firing.
+
+- name: "Beszel: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: >-
+      {{ (beszel_agent_swarm_secrets + beszel_hc_shim_swarm_secrets)
+         | map(attribute='base') | list }}

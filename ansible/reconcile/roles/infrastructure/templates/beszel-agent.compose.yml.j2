@@ -13,7 +13,7 @@
 #
 # Auth: KEY is the hub's public SSH key, read back from the running hub
 # at converge time (beszel.yml derives _beszel_hub_pubkey via ssh-keygen
-# -y on /beszel_data/id_ed25519). TOKEN is the seeded universal token, so
+# -y on /beszel_data/id_ed25519). The token is the seeded universal token, so
 # the hub auto-creates this system on first WebSocket connect
 # (createNewSystemForUniversalToken). No Traefik surface.
 services:
@@ -40,10 +40,20 @@ services:
     environment:
       LISTEN: "{{ beszel_agent_port }}"
       HUB_URL: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"
-      TOKEN: "{{ beszel_universal_token }}"
       KEY: "{{ _beszel_hub_pubkey }}"
+      # The token is a swarm secret (beszel_agent_swarm_secrets in
+      # ../defaults/main.yml), read from the file TOKEN_FILE names, so
+      # `docker service inspect` shows a path.
+{% for _secret in _beszel_agent_secrets %}
+      {{ _secret.target }}_FILE: "/run/secrets/{{ _secret.target }}"
+{% endfor %}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    secrets:
+{% for _secret in _beszel_agent_secrets %}
+      - source: {{ _secret.name }}
+        target: {{ _secret.target }}
+{% endfor %}
     labels:
       - traefik.enable=false
 
@@ -54,3 +64,10 @@ networks:
   hostnet:
     external: true
     name: host
+
+# Created and named by playbooks/tasks/swarm_secrets.yml before this deploys.
+secrets:
+{% for _secret in _beszel_agent_secrets %}
+  {{ _secret.name }}:
+    external: true
+{% endfor %}

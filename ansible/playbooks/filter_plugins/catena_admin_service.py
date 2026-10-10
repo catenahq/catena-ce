@@ -1,11 +1,11 @@
 """Ansible filters: the catena-admin panel as a tier-1 swarm service, not a
 Portainer stack.
 
-The panel holds the API key that drives Portainer, so deploying it VIA
-Portainer would make it a dependent of the thing it exists to drive -- a
-Portainer that will not start would take down the only tool that could
-repair it. The converge creates the service directly instead, the same way
-reconcile/roles/traefik, reconcile/roles/postgres and reconcile/roles/portainer do.
+The panel is the tool that repairs the host, the restore that brings Portainer
+back included, so deploying it VIA Portainer would let a Portainer that will
+not start take down the only tool that could repair it. The converge creates
+the service directly instead, the same way reconcile/roles/traefik,
+reconcile/roles/postgres and reconcile/roles/portainer do.
 
 Four filters over one spec dict:
 
@@ -31,7 +31,7 @@ out of the catena-ce tree.
 
 SECRETS, NOT --env. `docker service create` has no --env-file, so every
 value passed with --env sits in the host's process table for the duration of
-the create -- readable there by any local user, not just root. Three of the
+the create -- readable there by any local user, not just root. Several of the
 panel's values are credentials. They arrive as swarm secrets mounted at
 /run/secrets/<name>, and only the PATH travels in the environment, as
 <KEY>_FILE. The reader is catena-admin shell/cmd/catena-admin/secretenv.go.

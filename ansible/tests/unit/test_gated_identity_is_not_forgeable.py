@@ -110,7 +110,7 @@ def _compose(name: str, **extra) -> dict:
         beszel_network=BESZEL_NETWORK,
         healthchecks_network_alias="healthchecks",
         healthchecks_internal_port=8000,
-        healthchecks_ping_key="pk",
+        _beszel_hc_shim_secrets=[{"name": "beszel_hc_shim_ping_key-0", "target": "HC_PING_KEY"}],
         beszel_hc_shim_image="python:test",
         beszel_hc_shim_internal_port=8099,
         beszel_hc_shim_network_alias="beszel-hc-shim",

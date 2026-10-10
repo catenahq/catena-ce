@@ -1,11 +1,9 @@
 ---
 # Deploy the catena-admin Go shell as a TIER-1 SWARM SERVICE, not a Portainer
-# stack: the panel holds PORTAINER_API_BASE + PORTAINER_API_KEY and
-# reconciles Portainer's stacks, so deploying it VIA Portainer would make it
-# a dependent of the thing it exists to drive -- a Portainer that would not
-# start would take down the only tool that could repair it, including the
-# restore that needs the panel at exactly the moment Portainer is what did
-# not come back.
+# stack: the panel is the tool that repairs the host, so deploying it VIA
+# Portainer would let a Portainer that would not start take down the only tool
+# that could repair it, including the restore that needs the panel at exactly
+# the moment Portainer is what did not come back.
 #
 # So it is created the same way reconcile/roles/traefik, reconcile/roles/postgres and
 # reconcile/roles/portainer create theirs -- `docker service create` against the local
@@ -107,12 +105,6 @@
         # The domain this server serves, compared against the domain a
         # licence token names so one key cannot unlock two servers.
         CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone | default('') }}"
-        # The port is portainer_ui_port, the product's value in
-        # playbooks/group_vars/all/main.yml, passed so the panel and the
-        # converge read the same number; the service name and the /api suffix
-        # are the image's.
-        PORTAINER_API_BASE: >-
-          http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api
         KEYCLOAK_HOSTNAME: "{{ keycloak_hostname }}"
         KEYCLOAK_REALM: "{{ keycloak_realm }}"
         # Host facts the app-catalog render substitutes into a template's env

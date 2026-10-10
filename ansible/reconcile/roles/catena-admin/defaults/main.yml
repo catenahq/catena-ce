@@ -26,7 +26,7 @@ catena_admin_deploy_from_converge: >-
 
 # --- tier-1 swarm service ---------------------------------------------
 # The panel is created directly with `docker service create`, not through
-# Portainer's stack API. It holds the key that drives Portainer, so being
+# Portainer's stack API. It is the tool that repairs the host, so being
 # deployed BY Portainer would let a broken Portainer take down the one tool
 # that can repair it -- including the restore that needs the panel precisely
 # when Portainer is the thing that did not come back.
@@ -57,9 +57,6 @@ catena_admin_secret_specs:
   - base: catena_admin_healthchecks_key
     target: HEALTHCHECKS_API_KEY_READONLY
     value: "{{ healthchecks_api_key_readonly | default('') }}"
-  - base: catena_admin_portainer_key
-    target: PORTAINER_API_KEY
-    value: "{{ portainer_api_key | default('') }}"
   # The realm service account behind the People panel. Absent on a host whose
   # converge predates it, which the panel renders as "no directory credential
   # yet" rather than as an error -- an empty secret is a state, not a fault.
