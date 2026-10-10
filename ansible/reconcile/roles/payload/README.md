@@ -29,24 +29,26 @@ exists.
    engines from that. Falls back to `catena_payload_image` only when there is
    no service to follow -- a first converge, or an explicit
    `CATENA_PAYLOAD_IMAGE`.
-2. Pulls that image, unless it is addressed by digest and already on the host:
+2. Refuses the converge, before anything is pulled, copied out or run, when
+   `catena_payload_image_digest` is empty: the converge named the image
+   without a digest (see below).
+3. Pulls that image, unless it is addressed by digest and already on the host:
    the image the panel runs always is, so the host's own converge does not
    depend on the registry answering.
-3. Refuses, before anything is copied out or run, an image whose repo digests
-   do not include `catena_payload_image_digest` (see below), and says so when
-   they do.
-4. Refuses, before anything is copied out or run, an image built from another
+4. Refuses, before anything is copied out or run, an image whose repo digests
+   do not include `catena_payload_image_digest`, and says so when they do.
+5. Refuses, before anything is copied out or run, an image built from another
    catena-ce tree than the one running this converge: it compares the hash the
    image records in `/usr/local/share/catena-ce/VENDOR.json` with this tree's,
    both named by `helpers/tree_hash.py`. Engines under another version's roles
    leave a file one version hands to the other with no owner.
-5. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
+6. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
    Equal means the installed engines already came from this image and the role
    stops there -- so a re-converge changes nothing.
-6. Otherwise: `docker cp` the payload tree out of a throwaway container,
+7. Otherwise: `docker cp` the payload tree out of a throwaway container,
    remove it, restore the directory's ownership, and run the image's own
    `install-ee-payload.sh`.
-7. Writes the image ID into the marker.
+8. Writes the image ID into the marker.
 
 Step 1 is the reason the two halves cannot drift apart. The engines and the
 shell come out of one image because there is one place the version is decided:
@@ -92,7 +94,7 @@ The marker holds an image ID, not a timestamp or a bare "installed" flag:
 | `catena_payload_tree_record` | `/usr/local/share/catena-ce/VENDOR.json` | where the image records the tree it was built with |
 | `catena_payload_pull` | `CATENA_PAYLOAD_PULL`, `true` | pull before extracting |
 | `catena_payload_install` | `CATENA_PAYLOAD_INSTALL`, `true` | run the install at all |
-| `catena_payload_image_digest` | `CATENA_PAYLOAD_IMAGE_DIGEST`, else the digest `catena_admin_image` carries | digest the image must resolve to before anything is extracted |
+| `catena_payload_image_digest` | `CATENA_PAYLOAD_IMAGE_DIGEST`, else the digest `catena_admin_image` carries | digest the image must resolve to before anything is extracted; empty refuses the converge |
 
 ## Which digest this asserts
 
@@ -103,8 +105,9 @@ as `repo:tag@sha256:...`, the reference
 and verified every byte of; a host's own converge (catena-admin
 `catena-converge`) names the image the panel service runs by digest: the one
 the service spec records, else the one that image carries on the host for its
-repository. The panel's update rolls the service to the digest its pull
-resolved.
+repository, and refuses an image that carries none. The panel's update rolls
+the service to the digest its pull resolved, and refuses a pull that resolves
+none.
 
 The check proves that the engines come from the very bytes the running tree
 came from. It does not prove provenance: whoever named the digest is trusted,
@@ -113,5 +116,6 @@ registry passes it. Provenance is `cosign verify` against the keyless
 signature catena-admin's publish workflow records, which needs cosign on the
 host.
 
-An image named by tag alone carries no digest: the role extracts it and says
-out loud that it went unchecked.
+An image named by tag alone carries no digest, and the role refuses the
+converge. An image built or loaded by hand on the server has none until it is
+pushed to a registry and pulled from there.

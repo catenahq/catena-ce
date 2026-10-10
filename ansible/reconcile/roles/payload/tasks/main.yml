@@ -59,6 +59,24 @@
       CATENA_PAYLOAD_IMAGE named one explicitly.
   when: not (_payload_from_service | default(false))
 
+# Refused, before anything is pulled, copied out or run. The engines run as
+# root, and without a digest nothing holds them, or the panel, to the bytes a
+# registry published. Every install, every host's own converge and the panel's
+# update name the image by digest (README.md, "Which digest this asserts"), so
+# what reaches this is a converge started by hand with a tag, or an image
+# built or loaded on the server.
+- name: "Payload: the image names no digest -- refusing"
+  ansible.builtin.fail:
+    msg: >-
+      This converge names the catena-admin image {{ catena_admin_image }}
+      without a digest, so nothing can check that the engines in
+      {{ catena_payload_image }} and the panel are the bytes a registry
+      published. Nothing was pulled, extracted or run. Name the image by
+      digest (repo:tag@sha256:...). An image built or loaded by hand on the
+      server has no digest until it is pushed to a registry and pulled from
+      there.
+  when: catena_payload_image_digest | length == 0
+
 - name: "Payload: install skipped -- engines are staged out of band"
   ansible.builtin.debug:
     msg: >-
@@ -161,7 +179,6 @@
           - "{{ catena_payload_image }}"
       register: _payload_repo_digests
       changed_when: false
-      when: catena_payload_image_digest | length > 0
 
     - name: "Payload: the image is not the pinned one -- refusing to extract"
       ansible.builtin.fail:
@@ -170,28 +187,14 @@
           {{ _payload_repo_digests.stdout | default('') | trim | default('no repo digest', true) }}
           but this deployment pins {{ catena_payload_image_digest }}. Refusing
           to extract or root-execute the payload.
-      when:
-        - catena_payload_image_digest | length > 0
-        - catena_payload_image_digest not in (_payload_repo_digests.stdout | default(''))
+      when: catena_payload_image_digest not in (_payload_repo_digests.stdout | default(''))
 
-    # Said out loud like the unchecked case below, so a converge's output tells
-    # a checked extract from an unchecked one.
+    # Said out loud, so a converge's output shows the check ran.
     - name: "Payload: image digest matches the pin"
       ansible.builtin.debug:
         msg: >-
           {{ catena_payload_image }} carries {{ catena_payload_image_digest }},
           the digest this converge pins: digest check passed.
-      when: catena_payload_image_digest | length > 0
-
-    - name: "Payload: image digest is NOT pinned"
-      ansible.builtin.debug:
-        msg: >-
-          {{ catena_admin_image }} names no digest, so
-          {{ catena_payload_image }} is being extracted and root-executed
-          WITHOUT a digest check. Name the image by digest
-          (repo:tag@sha256:...) or set CATENA_PAYLOAD_IMAGE_DIGEST. This is
-          unchecked, not verified.
-      when: catena_payload_image_digest | length == 0
 
     - name: "Payload: read the image, then remove what was created to read it"
       block:

@@ -52,10 +52,9 @@ catena_payload_image: >-
 # What the check proves, and what it leaves to provenance: README.md, "Which
 # digest this asserts".
 #
-# Empty is NOT "verified", it is "unchecked", and the role says so out loud on
-# every converge: an image named by tag alone carries no digest. A silent skip
-# here would read exactly like a passing verification, which is the failure
-# mode this whole gate exists to avoid.
+# Empty refuses the converge (tasks/main.yml) before anything is pulled or
+# extracted: an image named by tag alone carries no digest, so there is
+# nothing to check its engines against.
 #
 # CATENA_PAYLOAD_IMAGE_DIGEST wins over all of it, and a deliberately wrong
 # value is how the fail-closed leg gets exercised.

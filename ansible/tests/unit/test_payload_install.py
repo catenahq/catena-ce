@@ -140,7 +140,7 @@ def test_an_explicit_image_override_still_wins():
 
 def test_having_no_service_to_follow_says_so_out_loud():
     """Silence here reads as "followed the shell" on a host where nothing was
-    followed -- the same shape as the unchecked-digest skip."""
+    followed."""
     flat = _flatten(_tasks())
     notice = flat[_index_of(flat, "nothing to follow")]
     conds = " ".join(str(c) for c in _as_list(notice.get("when")))
@@ -341,32 +341,42 @@ def test_the_copied_record_is_removed_even_on_failure() -> None:
     raise AssertionError("the tree record copy is not removed in an `always` block")
 
 
-def test_digest_gate_is_conditional_on_a_pin_being_set() -> None:
+def test_digest_gate_compares_the_image_with_the_pin() -> None:
     flat = _flatten(_tasks())
     fail_task = flat[_index_of(flat, "not the pinned one")]
     conds = " ".join(str(c) for c in _as_list(fail_task.get("when")))
-    assert "catena_payload_image_digest | length > 0" in conds
     assert "catena_payload_image_digest not in" in conds
 
 
-def test_an_unpinned_image_says_so_out_loud() -> None:
-    """Empty is "unchecked", not "verified". A silent skip reads exactly like
-    a passing verification, which is the failure this gate exists to avoid."""
+def test_an_image_without_a_digest_is_refused_before_anything_is_pulled_or_run() -> None:
+    """Nothing is extracted unchecked. The refusal sits outside the install
+    block, so a converge that installs no engines still refuses to put an
+    unchecked panel on the host, and an empty pin cannot reach the mismatch
+    gate, where `'' not in ...` would read as a match."""
     flat = _flatten(_tasks())
-    notice = flat[_index_of(flat, "digest is NOT pinned")]
-    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
-    assert "catena_payload_image_digest | length == 0" in conds
-    assert "WITHOUT a digest check" in notice["ansible.builtin.debug"]["msg"]
+    refuse_at = _index_of(flat, "names no digest -- refusing")
+    refuse = flat[refuse_at]
+    conds = " ".join(str(c) for c in _as_list(refuse.get("when")))
+    assert conds == "catena_payload_image_digest | length == 0"
+    msg = refuse["ansible.builtin.fail"]["msg"]
+    assert "repo:tag@sha256:" in msg
+    assert "pushed to a registry and pulled" in msg
+    for later in ("ensure the extraction directory exists",
+                  "Payload: pull",
+                  "not the pinned one",
+                  "create a throwaway container",
+                  "docker cp the payload tree",
+                  "install the engines onto the host"):
+        assert refuse_at < _index_of(flat, later), f"{later!r} runs before the refusal"
+    assert "WITHOUT a digest check" not in TASKS.read_text()
 
 
-def test_a_checked_image_says_so_too() -> None:
-    """Both outcomes are named in the converge's output, so a reader of it can
-    tell the check ran. Placed after the refusal, which stops the play on a
-    mismatch, and before anything is copied out."""
+def test_a_checked_image_says_so() -> None:
+    """The converge's output names the check, so a reader of it can tell it
+    ran. Placed after the refusal, which stops the play on a mismatch, and
+    before anything is copied out."""
     flat = _flatten(_tasks())
     notice = flat[_index_of(flat, "digest matches the pin")]
-    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
-    assert "catena_payload_image_digest | length > 0" in conds
     assert "digest check passed" in notice["ansible.builtin.debug"]["msg"]
     assert (_index_of(flat, "not the pinned one") < _index_of(flat, "digest matches the pin")
             < _index_of(flat, "create a throwaway container"))
@@ -374,8 +384,7 @@ def test_a_checked_image_says_so_too() -> None:
 
 def _render_digest(admin_image: str, env_digest: str = "") -> str:
     """catena_payload_image_digest rendered under a fake context. A substring
-    check cannot tell a pin from one that never matches, and "never matches"
-    reads as an unchecked extract, which looks exactly like a passing one."""
+    check cannot tell a pin from one that never matches."""
     raw = _defaults()["catena_payload_image_digest"]
     asked = []
 
@@ -400,9 +409,8 @@ def test_every_install_and_host_converge_arms_the_digest_gate() -> None:
         assert _render_digest(image) == digest, image
 
 
-def test_an_image_named_by_tag_alone_is_extracted_unchecked() -> None:
-    """No digest to hold it to; the role says so out loud rather than failing
-    closed on a host whose image was named without one."""
+def test_an_image_named_by_tag_alone_arms_no_pin() -> None:
+    """No digest to hold it to, which the role refuses."""
     assert _render_digest("ghcr.io/catenahq/catena-admin:v0.6.2") == ""
     assert _render_digest("") == ""
 
