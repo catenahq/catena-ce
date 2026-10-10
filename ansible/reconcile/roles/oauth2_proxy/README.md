@@ -45,7 +45,8 @@ the browser through Keycloak once, silently while the Keycloak session lasts.
   as nobody), and `networks`, the overlays it joins besides `catena-network`
   (the private networks of Healthchecks, Beszel's hub and Portainer). Client apps are
   not listed here:
-  dashboard-sync provisions an instance per app from its `vps.auth.*` labels.
+  dashboard-sync provisions one per gated address of an app, from the
+  `vps.auth.*` labels of the service that declares the address.
 
 ## Idempotency
 

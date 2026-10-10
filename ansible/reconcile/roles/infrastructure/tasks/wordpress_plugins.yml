@@ -1,19 +1,17 @@
 ---
-# Post-deploy WordPress plugin curation + configuration. Mirrors
-# nextcloud_oidc.yml shape: find running container -> HTTP readiness
-# probe -> idempotent wp-cli install + activate -> idempotent option
-# updates for the plugins that need pre-configuration.
+# Post-deploy WordPress plugin curation + configuration: find the running
+# container, wait for the install wizard to finish, install and activate the
+# curated plugins with wp-cli, enable the redis-cache drop-in, and seed the
+# options of the plugins that need pre-configuration (once per site, step 5.5).
 #
-# Atomicity: gates on `wp core is-installed`, which returns rc 0 only
-# AFTER the operator has run the in-browser install wizard. Until
-# then the task is a no-op (skipped with a debug message). The wp
-# image entrypoint copies files; wizard provisions wp_options /
-# wp_users. Per project CLAUDE.md, this is the readiness probe -- not
-# "container exists in docker ps", which would race the wizard.
+# Readiness gate: `wp core is-installed` returns rc 0 only AFTER the in-browser
+# install wizard has provisioned wp_options / wp_users (the wp image
+# entrypoint only copies files). Until then the task is a no-op (skipped with a
+# debug message).
 #
-# Idempotent: every mutation gates on a `wp <foo> is-X` check first.
-# Running this task twice in a row produces zero `changed=` on the
-# second run.
+# Idempotent: every mutation gates on a `wp <foo> is-X` check first, and the
+# option seed runs once per site. Running this task twice in a row produces
+# zero `changed=` on the second run.
 
 # ── Step 0: curated plugin slugs ─────────────────────────────────
 # Order is irrelevant -- each step gates independently. Adding a slug
@@ -95,7 +93,7 @@
       register: _wp_cli_install
       changed_when: "'CHANGED' in _wp_cli_install.stdout"
 
-    # ── Step 3: HTTP readiness gate -- wp core is-installed ──────
+    # ── Step 3: readiness gate -- wp core is-installed ───────────
     # Returns rc 0 when WP is installed (wp_options.siteurl set,
     # wp_users seeded). rc 1 while the operator has not yet completed
     # the in-browser install wizard. Retry loop covers the deploy-

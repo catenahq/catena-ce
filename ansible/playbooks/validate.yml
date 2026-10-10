@@ -165,8 +165,8 @@
         - _smtp_enabled | bool
         - (_keycloak_server_ct.stdout | default('') | length) > 0
 
-    # The converge's own sign-in: the master realm's automation client, its
-    # secret on stdin (reconcile/roles/keycloak/tasks/_master_login.yml).
+    # The converge's own sign-in: the master realm's automation client
+    # (reconcile/roles/keycloak/tasks/_master_login.yml).
     - name: "Keycloak: kcadm login to master as the automation client"
       ansible.builtin.include_role:
         name: keycloak
@@ -384,17 +384,19 @@
     #   - The platform's gated apps (gatus, catena-admin at dash.<zone>,
     #     healthchecks, portainer, beszel) are always probed.
     #   - `validate_extra_gated_hosts` adds ad-hoc gated hostnames.
-    #   - Client apps get their Traefik routes + oauth2-proxy gating from
-    #     dashboard-sync (the route service's vps.route.host + vps.auth.*
-    #     labels). Their auth contract is checked on the host by
+    #   - Client apps get a Traefik route per address and an oauth2-proxy
+    #     per gated address from dashboard-sync, each read from the
+    #     vps.route.host and vps.auth.* labels of the service that declares
+    #     the address. Their auth contract is checked on the host by
     #     verify_gated_intent.py (reconcile/roles/infrastructure
     #     verify_gated_services.yml), from the same app intent dashboard-sync
     #     builds.
     #
-    # Public apps that sign in by themselves (vps.auth.mode=public, with a
-    # sign-in entry from vps.auth.oidc) are not in this set: no oauth2-proxy
-    # stands in front of them, so /oauth2/start does not exist at their hosts
-    # and a probe there 200s against the app's own UI.
+    # Public addresses, those of apps that sign in by themselves among them
+    # (vps.auth.mode=public, with a sign-in entry from vps.auth.oidc), stay
+    # out of this set: no oauth2-proxy stands in front of them, so
+    # /oauth2/start does not exist at their hosts and a probe there 200s
+    # against the app's own UI.
     - name: "Build gated-host probe set"
       ansible.builtin.set_fact:
         # Keycloak's own host (auth.<zone>) is the IdP, not an

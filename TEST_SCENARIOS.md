@@ -5,18 +5,23 @@
 
 # Test scenarios
 
-The 174 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 180 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
 | `activate_ee` | A Community host becomes a licensed host when a key Polar grants is saved in its Settings, and unlocks nothing for a key Polar refuses. |
 | `admin_action_unknown_rejected` | The administrative action dispatcher refuses a request for an action it does not carry, exits non-zero, and names nothing it might have run. |
+| `admin_apps_tab_admin_full` | An administrator signed in to the panel sees every application tile, those hidden or reserved to others included, and every administrator tab. |
+| `admin_apps_tab_staff_filtered` | A staff member signed in to the panel sees the application tiles their groups open, none of those reserved to administrators, and no administrator tab. |
 | `admin_email_change_follows` | An administrator email change moves the administrator's account to the new address: the sign-in service keeps one administrator, the same account under the new address, signing in with the same password, and the job monitor and the resource monitor follow it. |
+| `admin_staff_cannot_reach_admin_routes` | A staff member signed in to the panel is refused every administrator page and every administrator action. |
 | `app_container_cannot_claim_an_identity` | A container on the server cannot claim a signed-in identity at the dashboard or at the job monitor, nor reach the container manager's or the resource monitor's login but through its sign-in gate, and no sign-in cookie a client app or another admin tool sees opens the dashboard or another client app, while a real sign-in reaches both. |
+| `app_several_addresses` | An application can publish several addresses: each one is routed and watched on its own and admits only the people its own labels name, a sign-in at one address opens no other, and an address another one already holds, or an application that does not say which of its addresses is the main one, gets no route. |
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
 | `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing at all. |
 | `catalog_app_sign_in` | Every catalog application that offers single sign-on in its free edition signs a new staff account in with Keycloak, and the others create no sign-in entry. |
+| `catena_admin_resources_tab_links_beszel` | The panel's System tab shows the processor load it reads from the resource monitor itself and links out to the monitor, and the Resources address leads there. |
 | `catena_admin_self_update` | The administration panel updates itself as one unit -- the container, the engines it installs on the host and the host configuration the new version carries -- and restores all three if the new version is bad. |
 | `ce_admin_actions` | Pressing a maintenance button in the Community administration panel dispatches the action and streams its result back. |
 | `ce_admin_smoke` | A Community host carries the host-side state its administration panel needs, and the panel answers. |
@@ -173,6 +178,7 @@ The 174 scenarios the maintainers' test bench carries, and the behaviour each on
 | `sovereign_exit` | The suite keeps running after the administration panel is deleted, because the panel is glue rather than a data hub. |
 | `stack_record_stale_reported` | An application whose saved definition names an image none of its services runs is reported once in the maintenance log the panel shows, and a settings change is not redeployed onto it from that definition. |
 | `swarm_overlay_selfheal` | Applications rejoin their private overlay network by themselves after the container daemon restarts. |
+| `tag_scheme_migration` | An application pinned on nightly builds moves onto its stable releases under the major update policy: all of its images, in one deploy, to the newest stable release published since the nightly was built and newer than every release published before it. |
 | `tailscale_oauth_rotation_round_trip` | The private network credential is rotated on the planned cycle and every host stays reachable across the change. |
 | `unlicensed_schedules_nothing` | A host with no licence schedules no unattended work of any kind. |
 | `update_from_previous_release` | A server installed with the previous release moves to this one through the panel's update and through a reinstall, and ends on one version with nothing missing. |

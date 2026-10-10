@@ -17,8 +17,8 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
    keycloak-config-cli:
    - Every import and kcadm session signs in to the master realm as the
      automation client, `catena-automation` (`_master_login.yml`), a service
-     account holding the master realm's admin role, its secret
-     (`keycloak_automation_client_secret`) on stdin, never an argv. While that
+     account holding the master realm's admin role, with the secret
+     `keycloak_automation_client_secret`. While that
      client cannot sign in and read the master realm, the role creates it, or
      gives it the store's secret and the admin role, signing in with the
      admin's password once per address per attempt and stopping at a refusal,

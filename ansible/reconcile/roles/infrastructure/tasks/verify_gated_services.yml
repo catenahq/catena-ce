@@ -134,11 +134,12 @@
 # expected route set from the SAME app intent the route writer
 # (dashboard-sync / gate_routes) consumes, so an app whose *-auto-gate.yml
 # is missing or renamed still gets asserted (a probe that enumerates route
-# files goes green on exactly that case). Per routed app it asserts
-# the route file exists, every GATED host denies an anonymous request
-# (200 = bypass), unreachable hosts FAIL CLOSED (matching the static
-# probe), and stale route files are flagged. Probes fan out concurrently
-# inside the script, so wall-clock is ~one timeout, not 10s per host.
+# files goes green on exactly that case). Per app with a served address it
+# asserts the app's route file exists and the host of every gated address
+# denies an anonymous request (200 = bypass); unreachable hosts FAIL CLOSED
+# (matching the static probe), and stale route files are flagged. Probes
+# fan out concurrently inside the script, so wall-clock is ~one timeout,
+# not 10s per host.
 - name: "Verify gated client apps: intent-driven verifier"
   # Sources the dashboard-sync env file (PORTAINER_API_*, TRAEFIK_DYNAMIC_
   # DIR, AUTH_HOSTNAME, CLOUDFLARE_ZONE*) the writer itself runs with.
