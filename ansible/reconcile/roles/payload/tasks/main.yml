@@ -29,8 +29,9 @@
     msg: >-
       This converge names the catena-admin image {{ catena_admin_image }}
       without a digest, so nothing can check that its engines and the panel
-      are the bytes a registry published. Nothing was pulled, extracted or
-      run. Name the image by digest (repo:tag@sha256:...). An image built or
+      are the bytes a registry published.
+      Nothing was pulled, extracted or run.
+      Name the image by digest (repo:tag@sha256:...). An image built or
       loaded by hand on the server has no digest until it is pushed to a
       registry and pulled from there.
   when: catena_payload_image_digest | length == 0
