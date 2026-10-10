@@ -1,17 +1,18 @@
 ---
 # Post-deploy WordPress plugin curation + configuration: find the running
 # container, wait for the install wizard to finish, install and activate the
-# curated plugins with wp-cli, enable the redis-cache drop-in, and seed the
-# options of the plugins that need pre-configuration (once per site, step 5.5).
+# curated plugins with wp-cli, enable the redis-cache drop-in, seed the
+# options of the plugins that need pre-configuration (once per site, step 5.5),
+# and keep WP Mail SMTP's relay on the outgoing mail set in Settings (step 7).
 #
 # Readiness gate: `wp core is-installed` returns rc 0 only AFTER the in-browser
 # install wizard has provisioned wp_options / wp_users (the wp image
 # entrypoint only copies files). Until then the task is a no-op (skipped with a
 # debug message).
 #
-# Idempotent: every mutation gates on a `wp <foo> is-X` check first, and the
-# option seed runs once per site. Running this task twice in a row produces
-# zero `changed=` on the second run.
+# Idempotent: every mutation gates on a `wp <foo> is-X` check or an option diff
+# first, and each seed runs once per site. Running this task twice in a row
+# produces zero `changed=` on the second run.
 
 # ── Step 0: curated plugin slugs ─────────────────────────────────
 # Order is irrelevant -- each step gates independently. Adding a slug
@@ -54,7 +55,7 @@
 # no-op test_container_lookup_is_label_based exists to stop.
 #
 # ONE SITE: the stack named catena-wordpress, first container. The per-site
-# marker below is keyed for more, but nothing here iterates.
+# markers below are keyed for more, but nothing here iterates.
 - name: "WordPress plugins: find running wp container"
   ansible.builtin.command:
     argv: [/usr/local/bin/catena-container, catena-wordpress, wp]
@@ -249,24 +250,23 @@
     # ── Step 5.5: has this site already been seeded? ─────────────
     #
     # Steps 6 and 7 write plugin OPTIONS -- rows in wp_options that the
-    # WordPress admin UI also writes, so the merge order decides who owns a
-    # retuned value: combine lets the RIGHT-hand side win, and current-then-
-    # desired makes catena's value win every time -- an admin who retunes the
-    # NPP preload method or changes the sender address under WP Mail SMTP has it
-    # put back on the next converge, silently.
+    # WordPress admin UI also writes. What the site's admin owns is seeded once
+    # and then left: the NPP settings, and WP Mail SMTP's sender. Same rule as
+    # the Keycloak realm settings. A marker per seed makes each one
+    # unambiguous, and rm-ing a marker re-seeds from the converge, which is the
+    # documented recovery path. WP Mail SMTP's relay follows Settings on every
+    # converge instead (step 7).
     #
-    # Same rule as the Keycloak realm settings: seed once, then leave it. The
-    # marker makes the seed unambiguous, and rm-ing it re-seeds from the
-    # converge, which is the documented recovery path for both.
+    # One marker per seed, because the two are reached at different times: NPP
+    # on the first converge after the install wizard, the mail sender on the
+    # first converge with outgoing mail on, which can come later.
     #
-    # Per SITE, keyed on the container's stack, because one host can run more
-    # than one WordPress and each is seeded the first time this reaches it.
-    # Keyed on com.docker.stack.namespace -- the Portainer stack Name -- and NOT
-    # on the container name. A container name carries the swarm task id, which
-    # changes on every reschedule; a marker keyed on that would reset itself and
-    # re-seed catena's values over the admin's edits, which is the exact failure
-    # this marker exists to stop. The stack namespace is the same stable
-    # identifier the app intent keys every app on.
+    # Per SITE, keyed on com.docker.stack.namespace -- the Portainer stack
+    # Name, the stable identifier the app intent keys every app on -- because
+    # one host can run more than one WordPress and each is seeded the first
+    # time this reaches it. A container name carries the swarm task id, which
+    # changes on every reschedule, and a marker keyed on it would reset itself
+    # and re-seed catena's values over the admin's edits.
     - name: "WordPress plugins: resolve this site's stack name"
       ansible.builtin.command:
         argv:
@@ -278,32 +278,38 @@
       changed_when: false
       failed_when: false
 
-    - name: "WordPress plugins: resolve this site's option-seed marker"
+    - name: "WordPress plugins: resolve this site's seed markers"
       ansible.builtin.set_fact:
+        _wp_seed_marker: "/var/lib/catena/wordpress-options-bootstrapped-{{ _wp_site_key }}"
+        _wp_mail_seed_marker: "/var/lib/catena/wordpress-mail-bootstrapped-{{ _wp_site_key }}"
+      vars:
         # Falls back to the container name only when the label is missing (a
-        # plain `docker compose` deploy rather than a swarm stack). A per-run
-        # marker would be no marker at all, so a missing label is worth the
-        # weaker key rather than silently seeding every converge.
-        _wp_seed_marker: >-
-          /var/lib/catena/wordpress-options-bootstrapped-{{
-            (_wp_stack_name.stdout | default('') | trim)
-            | default(_wp_ct.stdout | regex_replace('^(wordpress-[0-9a-z]+).*$', '\1'), true)
-          }}
+        # plain `docker compose` deploy). A per-run marker would be no marker
+        # at all, so a missing label is worth the weaker key rather than
+        # silently seeding every converge.
+        _wp_site_key: >-
+          {{ (_wp_stack_name.stdout | default('') | trim)
+             | default(_wp_ct.stdout | regex_replace('^(wordpress-[0-9a-z]+).*$', '\1'), true) }}
 
     - name: "WordPress plugins: probe the option-seed marker"
       ansible.builtin.stat:
         path: "{{ _wp_seed_marker }}"
       register: _wp_seed_marker_stat
 
-    - name: "WordPress plugins: options already seeded on this site"
+    - name: "WordPress plugins: probe the mail-seed marker"
+      ansible.builtin.stat:
+        path: "{{ _wp_mail_seed_marker }}"
+      register: _wp_mail_seed_marker_stat
+
+    - name: "WordPress plugins: NPP settings already seeded on this site"
       ansible.builtin.debug:
         msg: >-
-          {{ _wp_seed_marker }} exists, so the NPP and WP Mail SMTP options are
-          this site's to change. Delete the marker and re-converge to re-seed
-          them from the values this role ships.
+          {{ _wp_seed_marker }} exists, so the NPP settings are this site's to
+          change. Delete the marker and re-converge to re-seed them from the
+          values this role ships.
       when: _wp_seed_marker_stat.stat.exists | default(false)
 
-    - name: "WordPress plugins: decide whether to seed the plugin options"
+    - name: "WordPress plugins: decide whether to seed the NPP settings"
       ansible.builtin.set_fact:
         _wp_seed_options: >-
           {{ (_wp_installed.rc == 0)
@@ -381,12 +387,23 @@
     # relay, or from a different sender, than its alerts, from the same stored
     # config, with nothing saying so.
     #
-    # Password is NOT stored in the wp_mail_smtp option. The plugin
-    # reads `defined('WPMS_SMTP_PASS') ? WPMS_SMTP_PASS : ...` so
-    # the WPMS_SMTP_PASS constant in WORDPRESS_CONFIG_EXTRA wins,
-    # keeping the password out of the WP database. The constant
-    # itself is set from the WPMS_SMTP_PASS env var (auto-healed
-    # via env_managed_keys from smtp_password).
+    # The wp_mail_smtp option holds two owners' values:
+    #   - the relay (mail.mailer, and smtp host, port, user, encryption,
+    #     autotls, auth) is Settings > Outgoing mail's, put back on every
+    #     converge with mail on, as the Keycloak realm's mail is. The password
+    #     beside it is Catena's (below), so a relay left from another provider
+    #     would pair that provider's host and user with the new password.
+    #   - the sender (mail.from_email, from_name, their force flags, and
+    #     return_path) is seeded once per site, on the first converge with mail
+    #     on, and is the site admin's from then on.
+    # With mail off nothing here writes, and the site keeps what it has.
+    #
+    # The password stays out of the option and the WP database: WP Mail SMTP
+    # reads the WPMS_SMTP_PASS constant in its place while WPMS_ON is defined
+    # true, and WORDPRESS_CONFIG_EXTRA (catena-templates
+    # blueprints/wordpress/docker-compose.yml) defines that constant from the
+    # WPMS_SMTP_PASS env var, auto-healed via env_managed_keys from
+    # smtp_password.
     - name: "WordPress plugins: derive consolidated SMTP config"
       ansible.builtin.set_fact:
         _wp_smtp_enabled: "{{ infrastructure_smtp.enabled }}"
@@ -399,24 +416,40 @@
     - name: "WordPress plugins: skip wp-mail-smtp wiring (no SMTP configured)"
       ansible.builtin.debug:
         msg: >-
-          wp-mail-smtp installed but unwired -- this server has no outgoing
-          mail configured. Set the provider and sender address under Settings >
-          Outgoing mail in the admin panel and re-run, or fill in Settings >
-          WP Mail SMTP inside the WordPress admin manually.
+          This server has no outgoing mail configured, so WP Mail SMTP keeps
+          the settings the site has. Set the provider and sender address under
+          Settings > Outgoing mail in the admin panel and the next converge
+          wires it, or fill in Settings > WP Mail SMTP inside the WordPress
+          admin.
       when:
         - _wp_installed.rc == 0
         - not (_wp_smtp_enabled | bool)
 
-    - name: "WordPress plugins: declare wp-mail-smtp desired option"
+    # _wp_mail_wire: the relay is written on this converge. _wp_mail_seed: the
+    # sender is too, once per site.
+    - name: "WordPress plugins: decide what to write to wp_mail_smtp"
       ansible.builtin.set_fact:
-        _wp_mail_smtp_desired:
+        _wp_mail_wire: "{{ (_wp_installed.rc == 0) and (_wp_smtp_enabled | default(false) | bool) }}"
+        _wp_mail_seed: >-
+          {{ (_wp_installed.rc == 0) and (_wp_smtp_enabled | default(false) | bool)
+             and not (_wp_mail_seed_marker_stat.stat.exists | default(false)) }}
+
+    - name: "WordPress plugins: WP Mail SMTP sender already seeded on this site"
+      ansible.builtin.debug:
+        msg: >-
+          {{ _wp_mail_seed_marker }} exists, so WP Mail SMTP's sender is this
+          site's to change, and its relay follows Settings > Outgoing mail.
+          Delete the marker and re-converge to re-seed the sender from
+          Settings.
+      when:
+        - _wp_mail_wire | bool
+        - not (_wp_mail_seed | bool)
+
+    - name: "WordPress plugins: declare wp-mail-smtp relay and sender"
+      ansible.builtin.set_fact:
+        _wp_mail_smtp_relay:
           mail:
-            from_email: "{{ _wp_smtp_from }}"
-            from_email_force: true
-            from_name: "{{ _wp_smtp_from }}"
-            from_name_force: false
             mailer: smtp
-            return_path: false
           smtp:
             host: "{{ _wp_smtp_host }}"
             port: "{{ _wp_smtp_port | int }}"
@@ -424,9 +457,14 @@
             autotls: true
             auth: true
             user: "{{ _wp_smtp_user }}"
-      when:
-        - _wp_seed_options | bool
-        - _wp_smtp_enabled | bool
+        _wp_mail_smtp_sender:
+          mail:
+            from_email: "{{ _wp_smtp_from }}"
+            from_email_force: true
+            from_name: "{{ _wp_smtp_from }}"
+            from_name_force: false
+            return_path: false
+      when: _wp_mail_wire | bool
 
     - name: "WordPress plugins: get current wp_mail_smtp option (defaults to {} if missing)"
       ansible.builtin.shell: |
@@ -436,23 +474,22 @@
         executable: /bin/bash
       register: _wp_mail_smtp_current
       changed_when: false
-      when:
-        - _wp_seed_options | bool
-        - _wp_smtp_enabled | bool
+      when: _wp_mail_wire | bool
 
-    # Desired first, current second, recursive: same inversion as the NPP
-    # option above. from_email_force is the one that made this visible -- an
-    # admin who changed the sender address in WP Mail SMTP had it overwritten
-    # AND forced on every converge.
-    - name: "WordPress plugins: seed wp_mail_smtp under whatever the site already has"
+    # Recursive (mail.*, smtp.*), and each combine lets its RIGHT-hand side
+    # win: the sender, on the run that seeds it, goes under whatever the site
+    # carries, so a sender the site already has is kept; the relay goes over
+    # it, so Settings' host, port and user replace the site's. Every other key
+    # in the option stays as the site has it.
+    - name: "WordPress plugins: seed the sender, put the relay back"
       ansible.builtin.set_fact:
         _wp_mail_smtp_merged: >-
-          {{ _wp_mail_smtp_desired | combine(_parsed if _parsed is mapping else {}, recursive=True) }}
+          {{ (_wp_mail_smtp_sender if (_wp_mail_seed | bool) else {})
+             | combine(_parsed if _parsed is mapping else {}, recursive=True)
+             | combine(_wp_mail_smtp_relay, recursive=True) }}
       vars:
         _parsed: "{{ _wp_mail_smtp_current.stdout | from_json }}"
-      when:
-        - _wp_seed_options | bool
-        - _wp_smtp_enabled | bool
+      when: _wp_mail_wire | bool
 
     - name: "WordPress plugins: update wp_mail_smtp option (only on diff)"
       ansible.builtin.command:
@@ -470,18 +507,27 @@
           - --format=json
       changed_when: true
       when:
-        - _wp_seed_options | bool
-        - _wp_smtp_enabled | bool
+        - _wp_mail_wire | bool
         - _wp_mail_smtp_merged != (_parsed if _parsed is mapping else {})
       vars:
         _parsed: "{{ _wp_mail_smtp_current.stdout | from_json }}"
       no_log: true # option contents are non-secret but option-update logs the JSON; keep terse
 
-    # Written LAST and only on a run that actually seeded, so an interrupted
-    # converge is retried by the next one rather than skipped forever. The
-    # plugin install/activate loops above are unaffected: they only flow
-    # forward, never deactivate, and they keep running on every converge.
-    - name: "WordPress plugins: mark this site's options as seeded"
+    # Each marker is written LAST and only on a run that actually seeded, so an
+    # interrupted converge is retried by the next one rather than skipped
+    # forever. The plugin install/activate loops above are unaffected: they
+    # only flow forward, never deactivate, and they keep running on every
+    # converge.
+    - name: "WordPress plugins: mark this site's WP Mail SMTP sender as seeded"
+      ansible.builtin.file:
+        path: "{{ _wp_mail_seed_marker }}"
+        state: touch
+        owner: root
+        group: root
+        mode: "0644"
+      when: _wp_mail_seed | bool
+
+    - name: "WordPress plugins: mark this site's NPP settings as seeded"
       ansible.builtin.file:
         path: "{{ _wp_seed_marker }}"
         state: touch

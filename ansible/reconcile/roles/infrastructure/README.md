@@ -65,7 +65,9 @@ Gated on the Portainer API key (`reconcile/roles/portainer` mints it):
 - The mail server chain when its template is deployed: the DNS-01 certificate,
   the postmaster mailbox, Roundcube and Dovecot OIDC, rspamd filtering, the
   mail DNS records and the mail canary timer. It waits for a Cloudflare token.
-- WordPress plugin curation once the site is installed.
+- WordPress plugin curation once the site is installed. WP Mail SMTP's relay
+  follows the outgoing mail set in Settings on every converge; its sender and
+  the NPP cache settings are seeded once per site and are then the site's.
 - A health gate on Portainer's local environment (`tasks/portainer_endpoint.yml`).
 - The public-URL probe of the gated services, and the intent-driven check that
   every gated client app denies an anonymous request.
