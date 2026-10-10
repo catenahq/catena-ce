@@ -641,6 +641,22 @@ config:
     residence: store
     panel: {group: alerts, section: config, kind: text, optional: true}
 
+  # ---- vulnerabilities (Catena Pro) ----
+  #
+  # Whether the CVE watch starts the emergency patch by itself for a
+  # vulnerability CISA lists as exploited that an application's service
+  # carries. No `var`: catena-admin's CVE watch reads it off the store on each
+  # run, and reads any value but "kev" as off. The field shows its first
+  # option, "off", while the store holds nothing.
+  - key: CVE_AUTO_PATCH
+    residence: store
+    panel:
+      group: vulnerabilities
+      section: config
+      kind: choice
+      optional: true
+      options: ["off", kev]
+
   # ---- who may sign in ----
   #
   # Whether every account must enrol a second factor. A choice rather than free
