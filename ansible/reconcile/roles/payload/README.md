@@ -43,9 +43,10 @@ exists.
 6. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
    Equal means the installed engines already came from this image and the role
    stops there -- so a re-converge changes nothing.
-7. Otherwise: `docker cp` the payload tree out of a throwaway container,
-   remove it, restore the directory's ownership, and run the image's own
-   `install-ee-payload.sh`.
+7. Otherwise: empties `catena_payload_stage_dir` and creates it root-owned
+   0700, `docker cp`s the payload tree into it out of a throwaway container,
+   removes the container, and runs the image's own `install-ee-payload.sh`
+   from there.
 8. Writes the image ID into the marker.
 
 Step 1 is the reason the two halves cannot drift apart. The engines and the
@@ -61,13 +62,23 @@ drop-ins and systemd units, and does NOT enable any unit. Enabling is the
 `catena-daily` engine's job, which keeps install and activate two separate
 observable steps.
 
-## Ownership
+## The stage directory
 
-The catena-admin container mirrors its embedded payload into
-`{{ catena_payload_dir }}` at startup, as its own nonroot uid. `docker cp`
-writes as root. The role captures the directory's ownership before the copy
-and restores it after, or the container's next startup sync fails silently and
-the host drifts onto stale engines.
+Root runs the installer, and the installer installs whatever the tree holds:
+binaries into `/usr/local/bin`, units into `/etc/systemd/system`, and dispatch
+drop-ins into `/etc/catena/admin-actions.d`, which the root dispatcher sources.
+So the tree comes out of the digest-checked image, as root, into a directory
+only root writes. The panel is built with no root and no docker socket so that
+a compromise of it does not become host root; a tree it could write would hand
+that back.
+
+The directory is emptied before every extract. The installer records each
+file it installs in the manifest its prune reads, so a file an earlier image
+left in the tree would be installed again and never withdrawn.
+
+The panel's self-update and its `install-payload` verb (catena-admin
+`payload/engines/stackupdate/selfupdate.go`) extract into the same directory
+the same way.
 
 ## Marker semantics
 
@@ -86,7 +97,7 @@ The marker holds an image ID, not a timestamp or a bare "installed" flag:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `catena_admin_image` | `CATENA_ADMIN_IMAGE` (catena-ce/ansible/playbooks/group_vars/all/main.yml) | the image the engines are extracted from, and the panel's |
-| `catena_payload_dir` | `/var/lib/catena/ee-payload` | extraction target (shared with the container's sync) |
+| `catena_payload_stage_dir` | `/var/lib/catena/ee-payload-root` | root-owned stage the tree is extracted into and the installer runs from |
 | `catena_payload_image_path` | `/usr/local/share/catena-ee` | payload tree inside the image |
 | `catena_payload_marker` | `/etc/catena/.payload-image` | image ID the installed engines came from |
 | `catena_payload_tree_root` | `{{ playbook_dir }}/../..` | the catena-ce tree this converge runs |

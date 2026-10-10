@@ -442,9 +442,9 @@ catena_admin_service_name: "catena-admin"
 # from the name and this port, long before reconcile/roles/catena-admin runs.
 catena_admin_internal_port: 8000
 
-# The distroless image's `USER nonroot:nonroot`. reconcile/roles/payload owns
-# /var/lib/catena/ee-payload for it and reconcile/roles/catena-admin chowns what
-# the container writes. Keep in lockstep with catena-admin's Dockerfile.
+# The distroless image's `USER nonroot:nonroot`. bootstrap/roles/catena_admin_host
+# owns the panel's SSH dir and state dir for it. Keep in lockstep with
+# catena-admin's Dockerfile.
 catena_container_uid: "65532"
 catena_container_gid: "65532"
 
@@ -521,8 +521,7 @@ catena_admin_stats_dir: "/var/lib/catena"
 #
 # A SUBDIRECTORY and not the parent itself, because the parent is bind-mounted
 # READ-ONLY into the panel: the lanes' own state is not the panel's to rewrite.
-# The panel's writable scope stays exactly its own directory, the same shape
-# /var/lib/catena/ee-payload already uses.
+# The panel's writable scope stays exactly its own directory.
 catena_admin_state_dir: "/var/lib/catena/admin"
 
 # Default theme rendered into the admin container's env. Inventory override

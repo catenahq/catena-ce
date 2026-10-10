@@ -98,8 +98,8 @@ catena_admin_update_monitor: "30s"
 catena_admin_update_max_failure_ratio: 0
 catena_admin_update_order: "stop-first"
 
-# Placement. It bind-mounts node-LOCAL paths (the audit chain, the synced
-# payload, the SSH runner key), so it must land on the node that has them,
+# Placement. It bind-mounts node-LOCAL paths (the audit chain, the SSH runner
+# key, the host lanes' reports), so it must land on the node that has them,
 # and it reaches the host dispatch, which is that node's.
 catena_admin_constraints:
   - "node.role==manager"
@@ -159,15 +159,6 @@ catena_admin_actions_source: "{{ role_path }}/templates/actions.yml.j2"
 # Go shell's Apps tab consumes (shell/apps).
 catena_admin_extra_actions: []
 catena_admin_extra_tiles: []
-
-# Host payload paths. reconcile/roles/payload fills this dir from the image and installs
-# its contents into /usr/local/bin, right after bootstrap/roles/docker. The catena-admin
-# container ALSO mirrors its embedded payload here at startup, which is what
-# keeps the panel's ee-install-engines action (defaults below) able to reinstall
-# the engines on demand without a converge. Both writers, one directory -- see
-# reconcile/roles/payload/README.md on the ownership dance that makes that safe.
-catena_admin_ee_payload_dir: "{{ catena_admin_stats_dir }}/ee-payload"
-catena_admin_ee_payload_installer: "{{ catena_admin_ee_payload_dir }}/install-ee-payload.sh"
 
 # The scheduling owner. Installed with the rest of the ungated payload; it
 # reads /etc/catena/config.json and is the only thing that enables a timer,
@@ -238,15 +229,12 @@ catena_admin_ee_reserved_actions:
   # re-run the install out of band after an image bump without a full converge.
   # Must match dailyplugin ee-install-engines ActionSpec.
   #
-  # It runs the ENGINE, not the installer script under
-  # {{ catena_admin_ee_payload_dir }}. That directory is chowned to the
-  # container's uid so the shell's startup mirror can write it, so a root
-  # dispatch pointed at a script inside it made the panel -- which is built
-  # with no root and no docker socket for exactly this reason -- the thing
-  # choosing what root executes. The verb does its own docker create + docker
-  # cp out of the running image into a root-owned 0700 stage dir, so the image
-  # is the trust root and the mirror is a convenience the container keeps for
-  # itself.
+  # It runs the ENGINE, which copies the tree out of the running image, as
+  # root, into the root-owned stage directory reconcile/roles/payload uses
+  # (catena_payload_stage_dir), and runs the installer from there: the image
+  # is the trust root, and nothing the panel can write is read back as root
+  # input. The panel is built with no root and no docker socket for exactly
+  # this reason.
   - name: ee-install-engines
     shell: "{{ catena_admin_stack_update_bin }} install-payload"
   # ee-install-engines is the ONLY entry in this table, and the rule that keeps

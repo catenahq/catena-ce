@@ -84,12 +84,20 @@ def test_the_panel_carries_no_labels():
     assert not any(a.startswith(("--container-label=", "--label=")) for a in argv)
 
 
-def test_the_payload_mount_stays_writable_inside_the_read_only_parent():
+def test_the_panel_writes_only_its_state_and_the_journal():
+    """The panel is built with no root and no docker socket so that a
+    compromise of it does not become host root, which holds only while root
+    reads nothing back from a place the panel can write. So that place stays
+    two paths: its own state directory and the journal socket it sends its
+    audit entries to. Everything else under /var/lib/catena, the trees root
+    installs and converges from included, it sees read-only."""
     argv = _plugin().catena_admin_service_argv(_spec())
-    assert ("--mount=type=bind,source=/var/lib/catena/ee-payload,"
-            "destination=/var/lib/catena/ee-payload") in argv
-    assert ("--mount=type=bind,source=/var/lib/catena,"
-            "destination=/var/lib/catena,readonly") in argv
+    mounts = [a.removeprefix("--mount=") for a in argv if a.startswith("--mount=")]
+    writable = sorted(m.split("source=", 1)[1].split(",", 1)[0]
+                      for m in mounts if not m.endswith(",readonly"))
+    assert writable == ["/run/systemd/journal/socket", "/var/lib/catena/admin"]
+    assert ("type=bind,source=/var/lib/catena,"
+            "destination=/var/lib/catena,readonly") in mounts
 
 
 def test_the_ssh_key_mount_is_read_only():

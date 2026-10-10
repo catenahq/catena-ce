@@ -84,9 +84,9 @@ def test_the_writable_scope_is_nested_inside_a_read_only_parent():
 
     /var/lib/catena holds the host lanes' state and is mounted read-only: the
     panel reads the backup stats and the gatus summary and must not be able to
-    rewrite them. Its own directory is nested inside that, read-write, the same
-    shape ee-payload uses. Docker sorts binds by destination depth, so the
-    nested one shadows the parent whatever order they are declared in.
+    rewrite them. Its own directory is nested inside that, read-write. Docker
+    sorts binds by destination depth, so the nested one shadows the parent
+    whatever order they are declared in.
     """
     argv = _argv()
     parent = "--mount=type=bind,source=/var/lib/catena,destination=/var/lib/catena"

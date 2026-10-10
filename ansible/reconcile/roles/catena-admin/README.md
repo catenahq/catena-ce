@@ -40,19 +40,21 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
   populated by catena-backup-run + catena-gatus-sync), and
   `/var/backups/catena-export/` (recovery artifacts, read-only). The
-  shell's writable bind is `/var/lib/catena/ee-payload`, where it mirrors
-  its embedded host payload (all engines -- `catena-cloudflared-sync`,
-  `catena-daily`, the lane scripts, units) at startup.
-- Does NOT install that payload. `reconcile/roles/payload` does, earlier in
-  the converge, straight out of the image -- two installers would race
-  over `/usr/local/bin` and the loser would be whichever image was
-  staler. It is ungated: even a plain Community host gets the engines
+  shell's one writable directory is its own state,
+  `/var/lib/catena/admin/`.
+- Does NOT install the host payload (all engines --
+  `catena-cloudflared-sync`, `catena-daily`, the lane scripts, units).
+  `reconcile/roles/payload` does, earlier in the converge, straight out of
+  the image -- two installers would race over `/usr/local/bin` and the
+  loser would be whichever image was staler. It is ungated: even a plain
+  Community host gets the engines
   (the Cloudflare tunnel engine especially, which
   `reconcile/roles/cloudflare_tunnel` dispatches). The license only gates which UI
   features the shell renders at runtime, never the install. The
-  `ee-install-engines` reserved action remains for out-of-band re-install
-  after an image bump, and it stays in this repo's table precisely
-  because it is the way back when a drop-in is broken.
+  `ee-install-engines` reserved action re-installs out of band after an
+  image bump, extracting from the running image as root, and it stays in
+  this repo's table precisely because it is the way back when a drop-in
+  is broken.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).

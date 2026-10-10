@@ -102,30 +102,10 @@ def test_ee_install_engines_dispatches_the_host_verb():
     assert "install-payload" in ee["ee-install-engines"]
 
 
-def test_no_root_dispatch_runs_out_of_the_container_writable_mirror():
-    """{{ catena_admin_ee_payload_dir }} is chowned to the container's uid so
-    the shell's startup mirror can write it. A root dispatch pointed at a
-    script inside it makes the panel -- built with no root and no docker socket
-    for exactly this reason -- the thing choosing what root executes.
-
-    The same property on the drop-in side is asserted by catena-admin
-    payload/actions.d/actions_test.go, against the files that carry those
-    commands now."""
-    d = panel_vars()
-    mirror = d["catena_admin_ee_payload_dir"]
-    for name, shell in _by_name(d["catena_admin_ee_reserved_actions"]).items():
-        assert "catena_admin_ee_payload_installer" not in shell, (
-            f"{name} runs the installer out of the mirror")
-        assert mirror not in shell, f"{name} reads root input from {mirror}"
-
-
-def test_deploy_no_longer_owns_the_payload_install():
-    """The install moved to reconcile/roles/payload, earlier in the converge.
-
-    Leaving a second installer here would reinstall the engines from the
-    container's mirrored copy after reconcile/roles/payload already installed them from
-    the image -- two writers racing over /usr/local/bin, and the loser is
-    whichever image is staler.
+def test_deploy_does_not_own_the_payload_install():
+    """reconcile/roles/payload installs the engines, earlier in the converge,
+    out of the image. A second installer here would be two writers racing over
+    /usr/local/bin, and the loser is whichever image is staler.
     """
     text = DEPLOY.read_text()
     assert "install the host engine payload" not in text
@@ -136,9 +116,3 @@ def test_payload_role_owns_the_install():
     text = (PAYLOAD_ROLE / "tasks" / "main.yml").read_text()
     assert "install-ee-payload.sh" in text
     assert "catena_payload_marker" in text
-
-
-def test_defaults_expose_payload_paths():
-    d = panel_vars()
-    assert d["catena_admin_ee_payload_dir"].endswith("/ee-payload")
-    assert d["catena_admin_ee_payload_installer"].endswith("install-ee-payload.sh")

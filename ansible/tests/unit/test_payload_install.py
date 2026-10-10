@@ -13,6 +13,7 @@ Run: uv run pytest tests/unit/test_payload_install.py
 """
 from __future__ import annotations
 
+import importlib.util
 import re
 from pathlib import Path
 
@@ -167,6 +168,8 @@ def test_reconverge_against_the_same_image_installs_nothing():
         if any(
             k in name
             for k in (
+                "empty the stage directory",
+                "create the stage directory",
                 "docker cp the payload tree",
                 "install the engines onto the host",
                 "record the image the engines came from",
@@ -190,13 +193,62 @@ def test_throwaway_container_is_removed_even_on_failure():
     raise AssertionError("container removal is not in an `always` block")
 
 
-def test_ownership_is_captured_before_the_copy_and_restored_after():
-    """docker cp writes as root; the container syncs here as its nonroot uid."""
-    names = [t.get("name", "") for t in _flatten(_tasks())]
-    capture = next(i for i, n in enumerate(names) if "capture the extraction" in n)
-    copy = next(i for i, n in enumerate(names) if "docker cp the payload tree" in n)
-    restore = next(i for i, n in enumerate(names) if "restore the extraction" in n)
-    assert capture < copy < restore
+# --- the tree root runs -----------------------------------------------------
+# Root runs install-ee-payload.sh out of the tree it extracts, and the installer
+# installs every file it finds there, dispatch drop-ins the root dispatcher
+# sources among them. So only root may write that tree, and an extract starts
+# from an empty one.
+_STAGE = "/var/lib/catena/ee-payload-root"
+_PANEL_SERVICE = ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
+
+
+def _panel_mounts() -> tuple:
+    spec = importlib.util.spec_from_file_location("catena_admin_service", _PANEL_SERVICE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod._MOUNTS
+
+
+def test_the_installer_runs_from_the_root_owned_stage() -> None:
+    flat = _flatten(_tasks())
+    assert _defaults()["catena_payload_stage_dir"] == _STAGE
+    create = flat[_index_of(flat, "create the stage directory")]["ansible.builtin.file"]
+    assert create == {"path": "{{ catena_payload_stage_dir }}", "state": "directory",
+                      "owner": "root", "group": "root", "mode": "0700"}
+    cp = flat[_index_of(flat, "docker cp the payload tree")]["ansible.builtin.command"]
+    assert cp["argv"][-1] == "{{ catena_payload_stage_dir }}/"
+    install = flat[_index_of(flat, "install the engines onto the host")]
+    assert install["ansible.builtin.command"]["argv"] == [
+        "bash", "{{ catena_payload_stage_dir }}/install-ee-payload.sh"]
+
+
+def test_the_stage_is_emptied_before_the_copy() -> None:
+    """The installer records every file it installs in the manifest its prune
+    reads, so a file an earlier image left in the tree would be installed
+    again and never withdrawn."""
+    flat = _flatten(_tasks())
+    empty = flat[_index_of(flat, "empty the stage directory")]["ansible.builtin.file"]
+    assert empty == {"path": "{{ catena_payload_stage_dir }}", "state": "absent"}
+    assert (_index_of(flat, "empty the stage directory")
+            < _index_of(flat, "create the stage directory")
+            < _index_of(flat, "docker cp the payload tree")
+            < _index_of(flat, "install the engines onto the host"))
+
+
+def test_the_panel_cannot_write_the_stage() -> None:
+    """The panel is built with no root and no docker socket so that a
+    compromise of it does not become host root. A tree it could write would be
+    the panel choosing what root installs: no directory its service mounts
+    writable may hold the stage, and the role creates nothing owned by the
+    panel's uid."""
+    for source, _destination, readonly in _panel_mounts():
+        if not readonly:
+            assert not (_STAGE + "/").startswith(source.rstrip("/") + "/"), (
+                f"the panel's service mounts {source} writable, and the stage "
+                f"root installs from is inside it")
+    text = TASKS.read_text()
+    assert "catena_container_uid" not in text
+    assert "catena_container_gid" not in text
 
 
 # --- the hand-off to cloudflare_tunnel --------------------------------------
@@ -252,6 +304,7 @@ def test_digest_mismatch_fails_before_anything_is_extracted_or_run() -> None:
     fail_at = _index_of(flat, "not the pinned one")
 
     for later in ("create a throwaway container",
+                  "empty the stage directory",
                   "docker cp the payload tree",
                   "install the engines onto the host"):
         assert fail_at < _index_of(flat, later), (
@@ -270,7 +323,8 @@ def test_a_tree_the_image_was_not_built_with_is_refused_before_anything_is_insta
     flat = _flatten(_tasks())
     refuse = _index_of(flat, "not one version -- refusing")
     assert _index_of(flat, "create a throwaway container") < refuse
-    for later in ("docker cp the payload tree",
+    for later in ("empty the stage directory",
+                  "docker cp the payload tree",
                   "install the engines onto the host",
                   "record the image the engines came from"):
         assert refuse < _index_of(flat, later), f"{later!r} runs before the refusal"
@@ -329,8 +383,8 @@ def test_an_image_without_a_digest_is_refused_before_anything_is_pulled_or_run()
     msg = refuse["ansible.builtin.fail"]["msg"]
     assert "repo:tag@sha256:" in msg
     assert "pushed to a registry and pulled" in msg
-    for later in ("ensure the extraction directory exists",
-                  "Payload: pull",
+    for later in ("Payload: pull",
+                  "empty the stage directory",
                   "not the pinned one",
                   "create a throwaway container",
                   "docker cp the payload tree",

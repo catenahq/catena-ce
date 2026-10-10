@@ -13,7 +13,7 @@
 # The argv is rendered by filter_plugins/catena_admin_service.py, which the
 # TEST BENCH imports too: the bench recreates this same container on a host a
 # scenario left without it, and the parts that must not drift between the
-# two are the eight mounts nobody re-reads.
+# two are the seven mounts nobody re-reads.
 #
 # Credentials arrive as SWARM SECRETS, not --env: `docker service create`
 # has no --env-file, so an --env value sits in the host process table for
@@ -105,7 +105,6 @@
         CATENA_ADMIN_DIRECT_ADDR: ":{{ catena_admin_direct_port }}"
         CATENA_ADMIN_LOCAL_USER: "{{ admin_email }}"
         CATENA_DEFAULT_THEME: "{{ catena_admin_default_theme }}"
-        CATENA_EE_PAYLOAD_DIR: "{{ catena_admin_ee_payload_dir }}"
         CATENA_ADMIN_STATE_DIR: "{{ catena_admin_state_dir }}"
         # The domain this server serves, compared against the domain a
         # licence token names so one key cannot unlock two servers.

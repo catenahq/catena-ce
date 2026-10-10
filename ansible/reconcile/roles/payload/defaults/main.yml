@@ -50,11 +50,11 @@ catena_payload_image_digest: >-
   {{ lookup('env', 'CATENA_PAYLOAD_IMAGE_DIGEST', default='')
      | default(catena_admin_image.partition('@')[2], true) }}
 
-# Where the image's payload tree is unpacked on the host. The catena-admin
-# container also mirrors its embedded payload here at startup, so both writers
-# agree on one location and the dir's ownership is preserved across an extract
-# (the container syncs as its nonroot uid; see tasks/main.yml).
-catena_payload_dir: "/var/lib/catena/ee-payload"
+# Where root unpacks the image's payload tree and runs its installer from:
+# emptied and created root-owned 0700 before every extract (tasks/main.yml).
+# The panel's self-update and install-payload verb use the same directory
+# (catena-admin payload/engines/stackupdate/selfupdate.go, payloadStageDir).
+catena_payload_stage_dir: "/var/lib/catena/ee-payload-root"
 
 # Path inside the image that holds the assembled payload (bin/, lib/, units/,
 # hooks/, install-ee-payload.sh). Set by the catena-admin image build.

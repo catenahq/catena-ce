@@ -262,23 +262,6 @@
     group: root
     mode: "0755"
 
-# The admin compose mounts {{ catena_admin_stats_dir }} (/var/lib/catena)
-# READ-ONLY and then bind-mounts the ee-payload subdir NESTED (rw) at
-# /var/lib/catena/ee-payload. Docker can only create that nested mountpoint
-# if the subdir already exists on the host -- a read-only parent makes the
-# mkdirat fail ("read-only file system") and the container never starts, so
-# Portainer settles the stack deploy in a failed state. Pre-create it here,
-# owned by the container's nonroot uid: the shell WRITES its embedded
-# Business host payload into this dir at startup (payload sync), and the
-# ee-install-engines host action installs from it.
-- name: "EE payload mountpoint for the admin container ({{ catena_admin_stats_dir }}/ee-payload)"
-  ansible.builtin.file:
-    path: "{{ catena_admin_stats_dir }}/ee-payload"
-    state: directory
-    owner: "{{ catena_admin_container_uid }}"
-    group: "{{ catena_admin_container_gid }}"
-    mode: "0755"
-
 # Admin state volume: the shell's own writable state, bind-mounted rw. The
 # audit hash chain and its per-host signing key live here, which is why the
 # ownership matters -- it must be the CONTAINER's uid (65532, from USER

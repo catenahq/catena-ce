@@ -21,7 +21,7 @@ which recreates the panel from its run's image on a host a scenario left
 without it. Both create the service directly against the local swarm,
 with no stack API between them to hold a shared compose file, so the only thing
 that can keep their argv identical is a renderer they both call. What MUST NOT
-drift is exactly what nobody reads: the eight mounts. So the mounts, the
+drift is exactly what nobody reads: the seven mounts. So the mounts, the
 publish mode and the host-gateway alias live HERE as product facts, and the
 spec carries only what is genuinely per-host.
 
@@ -58,19 +58,19 @@ import re
 
 # Bind mounts, in the order the compose declared them. `readonly` is the
 # whole security story of this list: the panel WRITES its audit hash chain
-# and the synced host payload, and reads everything else.
+# and journald entries, and reads everything else.
 #
-# TWO nested rw binds inside the read-only /var/lib/catena, which is one
+# ONE nested rw bind inside the read-only /var/lib/catena, which is one
 # directory for one tier of state with the panel's write scope carved out of
-# it. ee-payload is where the shell mirrors its embedded host payload at
-# startup, for the installer to read back from the host side; admin/ is the
-# panel's own state, chiefly its audit hash chain. Everything else under the
-# parent belongs to the host lanes and the panel only reads it.
+# it: admin/, the panel's own state, chiefly its audit hash chain. Everything
+# else under the parent belongs to the host lanes and the panel only reads it.
+# The trees root runs from are there too, where the panel cannot write them:
+# the payload's stage (reconcile/roles/payload catena_payload_stage_dir) and
+# the reconcile tree's (catena-admin payload/cmd/catena-converge).
 #
 # Docker sorts mounts by destination depth, so a nested rw bind shadows the ro
 # parent regardless of the order here.
 _MOUNTS = (
-    ("/var/lib/catena/ee-payload", "/var/lib/catena/ee-payload", False),
     ("/var/lib/catena/admin", "/var/lib/catena/admin", False),
     ("/etc/catena/admin-ssh", "/etc/catena/admin-ssh", True),
     ("/var/backups/catena-export", "/var/backups/catena-export", True),
