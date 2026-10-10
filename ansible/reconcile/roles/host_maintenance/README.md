@@ -5,8 +5,9 @@ change here reaches a host that converges itself: apt's settings, the host
 resolving its own name, the baseline packages, Debian's unattended-upgrades
 and its origins, needrestart's restart policy, the journal's storage, the NTP
 servers, the host mail agent kept off port 25, the settings the client changes
-in catena-admin > Settings, whether this host needs a reboot, and the hourly
-licence check. It runs right after `payload`.
+in catena-admin > Settings, whether this host needs a reboot, the hourly
+licence check and the error reports to Catena support. It runs right after
+`payload`.
 
 ## Packages, updates, journal, clock, mail agent
 
@@ -94,3 +95,14 @@ A converge that installs the payload fails when the timer is not on the host
 afterwards; a converge on a host whose payload is staged out of band
 (`CATENA_PAYLOAD_INSTALL=false`) says so and leaves the timer to the first
 converge after the payload lands.
+
+## The error reports
+
+`catena-error-report.timer` runs `catena-error-report run` every five minutes:
+while the store holds `ERROR_REPORTS_TO_SUPPORT=on`, which the administrator
+sets in catena-admin > Settings, it sends Catena support the problems of
+Catena's own checks whenever they change, and switched off it withdraws the
+server. Its unit runs only while the licence is active. The binary and both
+units ship in the catena-admin payload; this role enables the timer on every
+host, whatever its edition and whatever the switch says, and treats a missing
+timer as it treats the licence check's.

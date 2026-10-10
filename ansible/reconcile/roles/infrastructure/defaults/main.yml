@@ -136,10 +136,10 @@ healthchecks_host_localhost_port: 18000
 # the same box, so a tunnel or DNS failure silences the backup dead-man instead
 # of tripping it.
 #
-# Container-to-container pings do NOT use this -- Gatus and the Beszel shim
-# post to the network alias, which is already local. The one call that leaves
-# the host is the heartbeat lane's, to the OFFSITE_HEARTBEAT_URL the client
-# saves in Settings: a loopback ping cannot detect a host that is gone.
+# Gatus and the Beszel shim ping from their containers through the network
+# alias, which is already local. The one ping that leaves the host is the
+# heartbeat lane's, to the OFFSITE_HEARTBEAT_URL the client saves in Settings:
+# a loopback ping cannot detect a host that is gone.
 healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
 # Outgoing mail, from the one choice in Settings > Mail, resolved by the

@@ -634,12 +634,22 @@ config:
 
   # ---- alert delivery ----
   #
-  # The check at an outside monitoring service the heartbeat lane calls, the
-  # one signal that leaves the host: it reports a host that is gone. No `var`:
-  # catena-admin's catena-heartbeat reads it off the store on every run.
+  # The check at an outside monitoring service the heartbeat lane calls, which
+  # reports a host that is gone. No `var`: catena-admin's catena-heartbeat
+  # reads it off the store on every run.
   - key: OFFSITE_HEARTBEAT_URL
     residence: store
     panel: {group: alerts, section: config, kind: text, optional: true}
+
+  # ---- error reports to Catena support (Catena Pro) ----
+  #
+  # Whether this server sends Catena support a report when one of Catena's own
+  # checks fails or recovers: "on", and anything else, absent included, is off.
+  # No `var`: catena-admin's catena-error-report reads it off the store on
+  # every run. No `panel`: the settings page's error reports section writes it
+  # through its own form, which asks for consent first.
+  - key: ERROR_REPORTS_TO_SUPPORT
+    residence: store
 
   # ---- vulnerabilities (Catena Pro) ----
   #
