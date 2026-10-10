@@ -200,7 +200,7 @@ def test_init_creates_the_repository_where_the_destination_is_empty(
     binp, restic_log, rclone_log = _fake_tools(tmp_path, cat_rc=10)
     code, out = _init(rk, monkeypatch, capsys, store, binp)
     assert code == 0 and out == {"ok": True, "repository": "created"}
-    assert _calls(restic_log) == ["cat config", "init"]
+    assert _calls(restic_log) == ["cat config --no-lock", "init"]
     assert _calls(rclone_log) == ["https://ep lsf dest:bucket"]
 
 
@@ -249,7 +249,7 @@ def test_init_leaves_a_repository_the_password_opens_alone(
     binp, restic_log, rclone_log = _fake_tools(tmp_path, cat_rc=0)
     code, out = _init(rk, monkeypatch, capsys, store, binp)
     assert code == 0 and out == {"ok": True, "repository": "exists"}
-    assert _calls(restic_log) == ["cat config"]
+    assert _calls(restic_log) == ["cat config --no-lock"]
     assert not rclone_log.exists()
 
 
@@ -259,7 +259,7 @@ def test_init_refuses_a_repository_under_another_password(
     binp, restic_log, _ = _fake_tools(tmp_path, cat_rc=12)
     code, out = _init(rk, monkeypatch, capsys, store, binp)
     assert code == 1 and "Restore" in out["error"]
-    assert _calls(restic_log) == ["cat config"]
+    assert _calls(restic_log) == ["cat config --no-lock"]
 
 
 def test_init_needs_the_password(rk, tmp_path, monkeypatch, capsys):

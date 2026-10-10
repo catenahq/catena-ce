@@ -74,12 +74,13 @@ _WRONG_PASSWORD = 12
 
 
 def _cat_config(env: dict, password: str) -> int:
-    """`restic cat config` with `password`; its exit code."""
+    """`restic cat config` with `password`; its exit code. --no-lock: the
+    question writes nothing into the repository it asks."""
     pf = _write_secret_file(password)
     try:
         e = dict(env)
         e["RESTIC_PASSWORD_FILE"] = pf
-        return subprocess.run(["restic", "cat", "config"], env=e,
+        return subprocess.run(["restic", "cat", "config", "--no-lock"], env=e,
                               stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL).returncode
     finally:
