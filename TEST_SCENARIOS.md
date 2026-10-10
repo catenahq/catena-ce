@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 188 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 189 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -61,6 +61,7 @@ The 188 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ee_attest` | A signed monthly compliance attestation is produced from a host's own evidence and verifies against the published key. |
 | `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
 | `ee_ce_regression` | Community actions keep working on a host that has been licensed for Pro. |
+| `ee_compliance_panel` | The compliance panel of a Catena Business server lists every control of the registry in English and in French, shows each framework's controls alone, fills what the server measures from its own reports, and keeps the organization's attestations, controls, review timings and evidence files in a hash-chained record that a panel redeploy leaves in place, the backup covers and the export carries. |
 | `ee_daily_cycle` | The daily maintenance engine drives a full chain on a licensed host, stage by stage, to completion. |
 | `ee_entitlement_partial` | A Catena Pro key unlocks the Pro panels and nothing of Business, and the actions behind the Business panels are absent rather than merely hidden. |
 | `ee_identity_probe` | The identity posture probe reports how single sign-on is configured on a host and changes verdict when that configuration changes. |
