@@ -43,9 +43,9 @@
                       therefore one pin, so a converge moves them together
                       after any one of them is bumped.
     beszel-hc-shim    Its image is a python base image, not a product release.
-    clamav            Deployed through the Portainer API (it needs a
-                      materialized second network) and consumer-gated, so it may
-                      not exist on a given host.
+    clamav            Deployed with docker stack deploy only on a host where an
+                      app consumes it, so it may not exist on a given host; its
+                      pin moves with a catena-ce release.
 #}
 [
   {

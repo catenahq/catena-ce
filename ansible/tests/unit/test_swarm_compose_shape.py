@@ -21,6 +21,9 @@ The loopback publishes are 0.0.0.0 binds, held loopback-only by a
 `scope: loopback` declaration in the public-port registry -- see
 test_public_ports_loopback_scope.py.
 
+The app-level vps.* labels (route, access, health, names) are read off client
+apps alone, so on these stacks they deploy and nothing reads them.
+
 Run: uv run pytest tests/unit/test_swarm_compose_shape.py
 """
 from __future__ import annotations
@@ -86,6 +89,21 @@ def test_every_service_declares_a_restart_policy(path: Path):
         f"{path.name}: no deploy.restart_policy"
     )
     assert "delay:" in body, f"{path.name}: restart_policy with no delay"
+
+
+_APP_LABEL = re.compile(r"vps\.(?:auth|route|health|homepage)\.[\w.-]*|vps\.display-name")
+
+
+@pytest.mark.parametrize("path", SWARM_COMPOSE, ids=lambda p: p.name)
+def test_no_app_level_vps_label(path: Path):
+    """The app intent reads these labels off client-app stacks alone (catena-admin
+    payload/lib/portainer_api.py INFRA_STACKS lists these), and a gated tool's
+    gate is its reconcile/roles/oauth2_proxy oauth2_proxy_apps entry."""
+    found = _APP_LABEL.findall(_body(path))
+    assert not found, (
+        f"{path.name}: {found} -- nothing reads an app-level vps.* label on a "
+        f"Catena stack. A gate belongs in oauth2_proxy_apps."
+    )
 
 
 def test_clamav_is_a_swarm_stack_on_an_overlay():

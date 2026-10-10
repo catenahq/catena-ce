@@ -71,11 +71,6 @@ services:
       # so Traefik would then ask a public CA for a certificate for a name that
       # cannot have one, on every converge.
       - traefik.enable=false
-      # The posture its oauth2-proxy enforces, in the vps.auth.* vocabulary
-      # client apps use. The gate itself is the `gatus` entry of
-      # reconcile/roles/oauth2_proxy oauth2_proxy_apps.
-      - vps.auth.mode=private
-      - vps.auth.groups=staff
 
 volumes:
   gatus-data:

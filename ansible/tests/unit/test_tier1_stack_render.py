@@ -178,9 +178,9 @@ def test_container_labels_land_on_the_container_not_the_service() -> None:
     """The render is the oracle for what the tier1 engine applies, which
     sets container_labels with `--container-label`: compose `labels:`, the
     task's container spec. deploy.labels is the service object's own."""
-    out = render([_pg(container_labels={"vps.auth.mode": "private"})])
+    out = render([_pg(container_labels={"com.example.role": "database"})])
     svc = out["services"]["catena-postgres"]
-    assert svc["labels"] == {"vps.auth.mode": "private"}
+    assert svc["labels"] == {"com.example.role": "database"}
     assert "labels" not in svc["deploy"]
 
 

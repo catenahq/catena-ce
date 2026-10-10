@@ -83,11 +83,6 @@ services:
     labels:
       # FALSE on purpose -- see the note in gatus.compose.yml.j2.
       - traefik.enable=false
-      # Its gate's posture -- see the note in gatus.compose.yml.j2. The gate
-      # itself is the `beszel` entry of reconcile/roles/oauth2_proxy
-      # oauth2_proxy_apps.
-      - vps.auth.mode=admin-only
-      - vps.auth.groups=admin
 
 volumes:
   {{ beszel_hub_data_volume }}:

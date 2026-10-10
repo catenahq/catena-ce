@@ -124,9 +124,6 @@ services:
     labels:
       # FALSE on purpose -- see the note in gatus.compose.yml.j2.
       - traefik.enable=false
-      # Auth posture, pinned as in gatus.compose.yml.j2.
-      - vps.auth.mode=private
-      - vps.auth.groups=staff
 
 volumes:
   healthchecks-data:
