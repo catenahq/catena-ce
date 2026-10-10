@@ -29,9 +29,12 @@ the browser through Keycloak once, silently while the Keycloak session lasts.
 
 - `oauth2_proxy_client_secret` and each instance's cookie secret -- read
   from the on-box store into the instance's swarm secret.
-- `oauth2_proxy_cookie_name` / `oauth2_proxy_cookie_secret` -- the session
-  cookie the client apps' gates share across the domain; this role prefixes
-  its instances' cookie names with the name.
+- `oauth2_proxy_cookie_name` -- the prefix of every gate's cookie name,
+  `<name>_<slug>`, this role's instances and the client apps' gates alike.
+- `oauth2_proxy_cookie_secret` -- the primary domain's secret, whose length
+  this role checks, and from which each client app's gate derives its own
+  cookie secret (dashboard-sync, catena-admin
+  `payload/lib/clients_provisioner.py`).
 - `oauth2_proxy_apps` -- list of {slug, host_var, upstream_alias,
   upstream_port, allowed_groups, cookie_secret_var} per gated infra app,
   `cookie_secret_var` naming the store secret the instance signs its cookie

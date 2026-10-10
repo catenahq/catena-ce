@@ -32,10 +32,10 @@ oauth2_proxy_compose_name: "oauth2-proxy"
 oauth2_proxy_internal_port: 4180 # default oauth2-proxy listen port
 
 # --- Cookie name ---
-# The session cookie the client apps' gates share, set for the whole domain
-# (reconcile/roles/infrastructure templates/dashboard-sync.env.j2), so one
-# sign-in covers every client app. Each instance below names its own cookie
-# <this>_<slug>.
+# The prefix of every gate's session cookie: each instance below names its own
+# <this>_<slug>, and so does each client app's gate (catena-admin
+# payload/lib/clients_provisioner.py, from
+# reconcile/roles/infrastructure templates/dashboard-sync.env.j2).
 oauth2_proxy_cookie_name: "_oauth2_proxy"
 
 # Where each instance's credentials file is mounted, under /run/secrets/: a

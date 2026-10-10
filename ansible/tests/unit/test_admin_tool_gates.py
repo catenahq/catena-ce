@@ -2,8 +2,7 @@
 host, and reads its credentials from a swarm secret rather than its service
 environment.
 
-The client apps' gates share one session cookie for the whole domain, and a
-gate forwards the browser's cookies to the app behind it. So each gate this
+A gate forwards the browser's cookies to the app behind it. So each gate this
 role renders names its cookie after its slug, signs it with a secret of its
 own and sets no cookie domain: the browser sends it to that host alone, and a
 cookie minted anywhere else fails its signature check (oauth2-proxy signs the
@@ -39,7 +38,7 @@ add_all_plugin_dirs(str(ANSIBLE / "playbooks"))
 DEFAULTS = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
 APPS = DEFAULTS["oauth2_proxy_apps"]
 TARGET = DEFAULTS["oauth2_proxy_config_target"]
-CLIENT_COOKIE = DEFAULTS["oauth2_proxy_cookie_name"]
+COOKIE_PREFIX = DEFAULTS["oauth2_proxy_cookie_name"]
 
 # Shaped like the store's values, with the characters a JSON string escapes.
 CLIENT_SECRET = 'client+secret/with"quote\\=='
@@ -99,7 +98,7 @@ def _compose(secrets: dict) -> tuple[str, dict]:
         "oauth2_proxy_redeem_url": "http://keycloak-server:8080/token",
         "oauth2_proxy_jwks_url": "http://keycloak-server:8080/certs",
         "oauth2_proxy_client_id": "oauth2-proxy",
-        "oauth2_proxy_cookie_name": CLIENT_COOKIE,
+        "oauth2_proxy_cookie_name": COOKIE_PREFIX,
         "oauth2_proxy_client_secret": CLIENT_SECRET,
         "oauth2_proxy_cookie_secret": SHARED_COOKIE_SECRET,
         "cloudflare_zone": "acme.test",
@@ -124,10 +123,9 @@ def test_each_gate_names_a_cookie_of_its_own_and_sets_no_cookie_domain():
         assert "--cookie-domain" not in flags, (
             f"{app['slug']}'s gate sets a cookie domain, so every host under it "
             f"receives its session cookie")
-        assert flags["--cookie-name"] == [f"{CLIENT_COOKIE}_{app['slug']}"]
+        assert flags["--cookie-name"] == [f"{COOKIE_PREFIX}_{app['slug']}"]
         names += flags["--cookie-name"]
     assert len(set(names)) == len(APPS)
-    assert CLIENT_COOKIE not in names, "a gate reads the client apps' cookie"
 
 
 def test_each_gate_signs_its_cookie_with_a_secret_of_its_own():
