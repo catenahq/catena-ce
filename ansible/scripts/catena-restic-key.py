@@ -13,8 +13,14 @@ It is also the one place a repository is created. A backup never creates one:
 saving the destination in the panel asks for `init`, and so does generating the
 password for a destination saved before it.
 
+While the backups wait after a whole-server restore (the record catena-admin
+payload/engines/backuphold writes), the repository is not re-keyed, and a new
+destination saved in the panel gets a new password in place of the stored one
+(`generate` with `replace`).
+
 Request (JSON on stdin):
   {"op": "generate"}
+  {"op": "generate", "replace": true}
   {"op": "validate", "password": "<candidate>"}
   {"op": "rotate",   "new_password": "<new>"}
   {"op": "init"}
@@ -40,6 +46,7 @@ from pathlib import Path
 
 STORE_PATH = "/etc/catena/config.json"
 PASS_FILE = "/etc/catena/restic.pass"
+HELD_FILE = "/var/lib/catena/backup-held.json"
 
 
 def _load_store(path: str) -> dict:
@@ -110,15 +117,46 @@ def _save_store(store: dict, store_path: str) -> None:
     os.chmod(store_path, 0o600)
 
 
-def cmd_generate(store: dict, store_path: str) -> dict:
+def _held(path: str) -> dict | None:
+    """The record that the backups wait after a whole-server restore, or None
+    while they do not. A record that cannot be read holds them all the same."""
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        raw = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def cmd_generate(store: dict, store_path: str, replace: bool = False,
+                 held_file: str = HELD_FILE, pass_file: str = PASS_FILE) -> dict:
     """Mint the password when the store has none, and keep it.
 
     A repository that already holds backups under another password stays
     theirs: a new password would make every backup to it fail, and a server
-    continuing on an earlier server's repository is a restore of it."""
+    continuing on an earlier server's repository is a restore of it.
+
+    With `replace`, the password minted takes the stored one's place: only
+    while the backups wait after a restore, for a destination other than the
+    one the restore adopted, which holds no repository yet. The old password
+    may be known to whoever compromised the server before the restore."""
     if store["secrets"].get("backup_restic_password"):
-        return {"ok": False, "error": "a backup encryption password already "
-                "exists; validate or rotate it instead"}
+        if not replace:
+            return {"ok": False, "error": "a backup encryption password already "
+                    "exists; validate or rotate it instead"}
+        hold = _held(held_file)
+        if hold is None:
+            return {"ok": False, "error": "a new backup encryption password "
+                    "replaces the stored one only while the backups wait after "
+                    "a restore; rotate it instead"}
+        repo = store["config"].get("BACKUP_RESTIC_REPO", "")
+        if _location(repo) is None or \
+                _location(repo) == _location(str(hold.get("settings") or "")):
+            return {"ok": False, "error": "the backup destination is the one the "
+                    "restore brought back; a new password is made for a new "
+                    "destination only"}
     password = base64.b64encode(os.urandom(48)).decode("ascii")
     env = _restic_env(store)
     if env["RESTIC_REPOSITORY"]:
@@ -133,20 +171,20 @@ def cmd_generate(store: dict, store_path: str) -> dict:
                     f"(restic exit {rc}); check its address and keys"}
     store["secrets"]["backup_restic_password"] = password
     _save_store(store, store_path)
+    if replace:
+        Path(pass_file).write_text(password + "\n")
+        os.chmod(pass_file, 0o600)
     return {"ok": True, "password": password}
 
 
-def _rclone_location(env: dict) -> tuple[dict, str] | None:
-    """The repository's location as an rclone remote: the process env with a
-    DEST remote defined against its endpoint and keys, and the
-    dest:<bucket>[/<prefix>] path. None for anything but an
-    s3:[<scheme>://]<endpoint>/<bucket>[/<prefix>] repository, the grammar
-    catena-admin payload/engines/s3repo reads for the payload's own rclone
-    calls; a bare endpoint is https, as it is to restic."""
-    rest = env["RESTIC_REPOSITORY"]
-    if not rest.startswith("s3:"):
+def _location(repo: str) -> tuple[str, str, str] | None:
+    """An s3:[<scheme>://]<endpoint>/<bucket>[/<prefix>] repository as its
+    scheme, endpoint host and bucket path, the grammar catena-admin
+    payload/engines/s3repo reads; a bare endpoint is https, as it is to restic.
+    None for anything else."""
+    if not repo.startswith("s3:"):
         return None
-    rest = rest[len("s3:"):]
+    rest = repo[len("s3:"):]
     scheme = "https"
     for prefix in ("http://", "https://"):
         if rest.startswith(prefix):
@@ -155,6 +193,18 @@ def _rclone_location(env: dict) -> tuple[dict, str] | None:
     path = path.strip("/")
     if not host or not path:
         return None
+    return scheme, host, path
+
+
+def _rclone_location(env: dict) -> tuple[dict, str] | None:
+    """The repository's location as an rclone remote: the process env with a
+    DEST remote defined against its endpoint and keys, and the
+    dest:<bucket>[/<prefix>] path. None for anything _location does not
+    read."""
+    location = _location(env["RESTIC_REPOSITORY"])
+    if location is None:
+        return None
+    scheme, host, path = location
     renv = dict(env)
     renv.update({
         "RCLONE_CONFIG_DEST_TYPE": "s3",
@@ -247,7 +297,12 @@ def cmd_validate(store: dict, req: dict) -> dict:
     return {"ok": _opens(_restic_env(store), password)}
 
 
-def cmd_rotate(store: dict, req: dict, store_path: str, pass_file: str) -> dict:
+def cmd_rotate(store: dict, req: dict, store_path: str, pass_file: str,
+               held_file: str = HELD_FILE) -> dict:
+    if _held(held_file) is not None:
+        return {"ok": False, "error": "the backups wait after a restore of this "
+                "server, and nothing is written to the repository until the "
+                "destination is confirmed, or a new one saved, in Settings"}
     new_password = str(req.get("new_password") or "")
     if not new_password:
         return {"ok": False, "error": "no new password supplied"}
@@ -287,17 +342,19 @@ def cmd_rotate(store: dict, req: dict, store_path: str, pass_file: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     store_path = os.environ.get("CATENA_CONFIG_STORE", STORE_PATH)
     pass_file = os.environ.get("CATENA_RESTIC_PASS_FILE", PASS_FILE)
+    held_file = os.environ.get("CATENA_BACKUP_HELD_FILE", HELD_FILE)
     req = json.loads(sys.stdin.read() or "{}")
     if not isinstance(req, dict):
         raise SystemExit("expected a JSON object on stdin")
     store = _load_store(store_path)
     op = req.get("op")
     if op == "generate":
-        result = cmd_generate(store, store_path)
+        result = cmd_generate(store, store_path, req.get("replace") is True,
+                              held_file, pass_file)
     elif op == "validate":
         result = cmd_validate(store, req)
     elif op == "rotate":
-        result = cmd_rotate(store, req, store_path, pass_file)
+        result = cmd_rotate(store, req, store_path, pass_file, held_file)
     elif op == "init":
         result = cmd_init(store)
     else:

@@ -270,6 +270,70 @@ def test_init_needs_the_password(rk, tmp_path, monkeypatch, capsys):
     assert not restic_log.exists(), "restic ran with no password to open a repository with"
 
 
+def _hold(tmp_path, monkeypatch, settings="s3:ep/bucket"):
+    """The record that the backups wait after a restore whose adopted store
+    named `settings`."""
+    held = tmp_path / "backup-held.json"
+    held.write_text(json.dumps({"at": "2026-10-10T14:00:00Z", "settings": settings}))
+    monkeypatch.setenv("CATENA_BACKUP_HELD_FILE", str(held))
+    return held
+
+
+def test_rotate_refuses_while_the_backups_wait(rk, tmp_path, monkeypatch, capsys):
+    """The repository a restore brought back is written to only once an
+    administrator confirmed it: a re-key is a write."""
+    store = _store(tmp_path, backup_restic_password="old-pw")
+    _hold(tmp_path, monkeypatch)
+    monkeypatch.setenv("CATENA_RESTIC_PASS_FILE", str(tmp_path / "restic.pass"))
+    code, out, log = _run(rk, monkeypatch, capsys, store,
+                          {"op": "rotate", "new_password": "new-pw"}, tmp_path=tmp_path)
+    assert code == 1 and "wait" in out["error"]
+    assert not log.exists(), "restic ran while the backups wait"
+    assert json.loads(store.read_text())["secrets"]["backup_restic_password"] == "old-pw"
+
+
+def test_a_new_destination_saved_while_held_gets_a_new_password(
+        rk, tmp_path, monkeypatch, capsys):
+    """After a restore the old password may be known to whoever compromised the
+    server; a new destination is created under a new one, shown once."""
+    store = _store(tmp_path, backup_restic_password="old-pw")
+    doc = json.loads(store.read_text())
+    doc["config"]["BACKUP_RESTIC_REPO"] = "s3:https://ep/new-bucket"
+    store.write_text(json.dumps(doc))
+    _hold(tmp_path, monkeypatch, settings="s3:ep/bucket")
+    passfile = tmp_path / "restic.pass"
+    monkeypatch.setenv("CATENA_RESTIC_PASS_FILE", str(passfile))
+    code, out, log = _run(rk, monkeypatch, capsys, store,
+                          {"op": "generate", "replace": True}, rc=10, tmp_path=tmp_path)
+    assert code == 0 and out["ok"] and out["password"] != "old-pw"
+    assert json.loads(store.read_text())["secrets"]["backup_restic_password"] == out["password"]
+    assert passfile.read_text().strip() == out["password"]
+    assert "cat config" in log.read_text()
+
+
+def test_a_password_is_replaced_only_for_a_new_empty_destination_while_held(
+        rk, tmp_path, monkeypatch, capsys):
+    for name, held, repo, rc, words in (
+        ("no hold", False, "s3:ep/new-bucket", 10, "rotate"),
+        # The same bucket, spelled with the scheme restic assumes.
+        ("the adopted destination", True, "s3:https://ep/bucket", 10, "new destination"),
+        ("a destination holding a repository", True, "s3:ep/new-bucket", 12, "Restore"),
+    ):
+        store = _store(tmp_path, backup_restic_password="old-pw")
+        doc = json.loads(store.read_text())
+        doc["config"]["BACKUP_RESTIC_REPO"] = repo
+        store.write_text(json.dumps(doc))
+        if held:
+            _hold(tmp_path, monkeypatch)
+        else:
+            monkeypatch.setenv("CATENA_BACKUP_HELD_FILE", str(tmp_path / "absent.json"))
+        monkeypatch.setenv("CATENA_RESTIC_PASS_FILE", str(tmp_path / "restic.pass"))
+        code, out, _ = _run(rk, monkeypatch, capsys, store,
+                            {"op": "generate", "replace": True}, rc=rc, tmp_path=tmp_path)
+        assert code == 1 and words in out["error"], name
+        assert json.loads(store.read_text())["secrets"]["backup_restic_password"] == "old-pw", name
+
+
 def test_rotate_refuses_without_current_password(rk, tmp_path, monkeypatch, capsys):
     store = _store(tmp_path)  # no backup_restic_password on-box
     binp, _ = _fake_restic(tmp_path, rc=0)
