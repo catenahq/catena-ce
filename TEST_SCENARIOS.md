@@ -175,7 +175,7 @@ The 188 scenarios the maintainers' test bench carries, and the behaviour each on
 | `restic_check_subset_weekly` | The backup integrity check runs its cheap structural pass and its expensive data-reading pass on separate cadences. |
 | `restic_password_rotation_round_trip` | The backup repository password is rotated with an overlap where both keys open it, and the backup chain stays unbroken across the change. |
 | `rotate_all_secrets_sequencer` | Every secret a host holds is rotated in dependency order by one resumable sequence. |
-| `s3_backup_keys_rotation_round_trip` | The object-store credentials behind both the primary and the offsite backup buckets are rotated together without breaking either. |
+| `s3_backup_keys_rotation_round_trip` | The backup's object-store key pair is replaced in the panel's settings and the old pair revoked, and backups keep running on the new pair while neither secret ever shows on a panel page or in a server log. |
 | `s3_reconcile_orphan_cleanup` | A database row whose object-store file is missing is reported rather than passed over in silence. |
 | `scheduler_easyappointments` | The default appointment scheduler deploys from the catalogue and serves its public booking page. |
 | `security_scan` | A converged host is scanned from outside for exposed services and common web vulnerabilities, and the findings are held to the declared baseline. |
