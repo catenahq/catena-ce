@@ -164,6 +164,21 @@ def test_the_daily_env_does_not_carry_a_schedule():
     assert "DAILY_TIMER_ONCALENDAR" not in body
 
 
+def test_the_daily_env_does_not_choose_the_chains_steps():
+    # Which steps the chain runs is the Schedules page's, in the config store's
+    # nightly_steps, written by catena-schedule. A switch here would be a second
+    # writer, and the converge would put back a step the client left out.
+    body = _code(DAILY_ENV)
+    assert "nightly_steps" not in body.lower()
+    for line in body.splitlines():
+        key = line.split("=", 1)[0].strip()
+        for word in ("STEP", "SKIP", "ENABLE", "DISABLE"):
+            assert word not in key, (
+                f"{key} in daily.env reads as a step switch; the chain's steps "
+                "are catena-schedule's, from the config store"
+            )
+
+
 # --- the other lanes can start at all ----------------------------------------
 #
 # daily.env is not the only one. catena-stack-update-managed.service declares

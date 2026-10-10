@@ -199,6 +199,19 @@ catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('
 # (stack-update.env); both run on the host.
 catena_gatus_statuses_url: "http://127.0.0.1:{{ gatus_host_localhost_port }}/api/v1/endpoints/statuses"
 
+# The daily chain's own Healthchecks check, which catena-schedule (catena-admin
+# payload/engines/schedule) keeps on the daily lane's schedule: the chain pings
+# it when it starts, on a failed step, and when it completes. The loopback
+# publish, for the reason reconcile/roles/backup/defaults gives for the
+# backup's checks; ?create=1 provisions the check a first ping finds missing.
+daily_healthcheck_chain_url: >-
+  {{
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-daily?create=1'
+    if healthchecks_ping_key is defined else ''
+  }}
+
 # EE-reserved HOST dispatch entries. The Go shell renders Business action
 # BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only
 # under an active license, and dispatches each by NAME through the host
