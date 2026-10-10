@@ -63,11 +63,28 @@ echo "  client id:     $CLIENT_ID"
 echo "  discovery uri: $DISCOVERY"
 echo
 
-# Defensive: enable user_oidc. NC 33+ ships it enabled by default;
-# this is a no-op when it already is. Older / re-imaged installs may
-# need this.
+# user_oidc is an app store app: app:enable downloads its newest release
+# for this Nextcloud the first time, and each core upgrade moves it to the
+# newest again. The provider command below is written for the release the
+# template names in NEXTCLOUD_USER_OIDC_VERSION, so an installed release of
+# another major version, or an older one, is refused before it runs.
+want=$(get_env NEXTCLOUD_USER_OIDC_VERSION)
+if [ -z "$want" ]; then
+    echo "error: $ct names no NEXTCLOUD_USER_OIDC_VERSION; redeploy Nextcloud" \
+         "from the catalog, then run this action again." >&2
+    exit 2
+fi
 docker exec --user 33 "$ct" \
     php /var/www/html/occ app:enable user_oidc >/dev/null
+have=$(docker exec --user 33 "$ct" \
+    php /var/www/html/occ config:app:get user_oidc installed_version)
+# sort -C exits 0 when its input is already in version order: want <= have.
+if [ "${have%%.*}" != "${want%%.*}" ] \
+    || ! printf '%s\n%s\n' "$want" "$have" | sort -V -C; then
+    echo "error: user_oidc $have is installed; this action's provider command" \
+         "is written for user_oidc $want (the same major version, $want or newer)." >&2
+    exit 3
+fi
 
 # Idempotent provider upsert. The base command upserts; no --upsert
 # flag exists in user_oidc 8.x. Mappings read the claims the realm's
