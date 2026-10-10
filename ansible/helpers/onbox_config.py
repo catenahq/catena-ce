@@ -525,6 +525,14 @@ STORE_MAY_NOT_DECIDE: dict[str, str] = {
     # Who may open an SSH session at all.
     "ssh_allowed_users":
         "who may sign in to this host over SSH",
+    # What a server taking this one over signs in as, where sshd reads its
+    # key, and what it runs.
+    "catena_migrate_user":
+        "the account a server taking this one over authenticates as",
+    "catena_migrate_grant_file":
+        "the only file sshd reads the migration account's key from",
+    "catena_migrate_connect":
+        "the program the migration account's forced command runs",
 }
 
 

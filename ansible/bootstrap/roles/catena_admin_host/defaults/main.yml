@@ -17,6 +17,13 @@
 catena_admin_runner_user: "catena-admin-runner"
 catena_admin_runner_home: "/home/catena-admin-runner"
 
+# --- The migration account ---------------------------------------------
+# The home of catena_migrate_user (playbooks/group_vars/all/main.yml). Root's
+# and empty: sshd reads the account's key from an absolute path elsewhere, and
+# the account writes nowhere. Outside reconcile/roles/backup's
+# backup_product_paths, since it holds nothing to restore.
+catena_migrate_home: "/var/lib/catena-migrate"
+
 # Env vars the container may push into a root-run host action, for values
 # that must not appear in argv or the process table. Consumed TWICE by
 # tasks/main.yml -- sshd's AcceptEnv and the sudoers env_keep -- because the

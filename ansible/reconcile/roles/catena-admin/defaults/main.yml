@@ -122,10 +122,11 @@ catena_admin_desired:
 # catena_admin_service_name does: reconcile/roles/portainer builds the App Templates URL
 # out of the pair, and cannot see this role's defaults.
 
-# Native-login listener inside the container, published on the host (tailnet-
-# only) so the panel is reachable at http://<tailnet-ip>:<catena_admin_ui_port>
+# Native-login listener inside the container, published on the host as
+# catena_admin_ui_port and confined to this host by the public-ports registry
+# (lanes.yml fragment), so the panel is reachable through an SSH forward
 # without the Cloudflare/oauth2-proxy edge -- the same pattern as Portainer's
-# UI port. Firewalled by the public-ports registry (lanes.yml fragment).
+# UI port.
 catena_admin_direct_port: 8001
 
 # How long the converge waits for a newly-created service to report a Running
@@ -197,14 +198,6 @@ catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('
 # so does the health baseline the update lanes compare a bump against
 # (stack-update.env); both run on the host.
 catena_gatus_statuses_url: "http://127.0.0.1:{{ gatus_host_localhost_port }}/api/v1/endpoints/statuses"
-
-# The migration lane's PORT. A host process, not a container, because a
-# migration stops docker on this server and the endpoint that puts it back has
-# to still be answering afterwards -- so it listens on this host's tailnet
-# address only, and it answers nothing until someone on this server arms it.
-# Declared tailnet-only in the public-port registry (lanes.yml): defence in
-# depth behind the bind rather than instead of it.
-catena_migrate_lane_port: 9040
 
 # EE-reserved HOST dispatch entries. The Go shell renders Business action
 # BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only

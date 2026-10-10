@@ -8,11 +8,12 @@
 # NOT additive across sshd_config.d drop-ins (first-match wins), so the
 # full list lives here and is rendered by templates/sshd_hardening.conf.j2
 # into a single `AllowUsers` line in /etc/ssh/sshd_config.d/10-catena.conf.
-# Infrastructure-owned accounts (catena-admin-runner) default into the
-# list here because they're effectively always present on catena hosts;
-# a site using common WITHOUT catena-admin still ends up with a
+# Infrastructure-owned accounts (catena-admin-runner, catena-migrate) default
+# into the list here because they're effectively always present on catena
+# hosts; a site using common WITHOUT catena-admin still ends up with a
 # harmless no-op entry (sshd allows the name, user doesn't exist).
 ssh_allowed_users:
   - "{{ ops_user }}"
   - "{{ catena_panel_user }}"
   - "{{ catena_admin_runner_user | default('catena-admin-runner') }}"
+  - "{{ catena_migrate_user }}"

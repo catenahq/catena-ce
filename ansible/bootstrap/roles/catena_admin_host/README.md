@@ -7,9 +7,14 @@ The host-side half of the admin panel: the trust path its dispatch arrives over.
 - the forced command and the runner's `authorized_keys`
 - the SSH client config the panel's container uses
 - the bind-mount sources the panel's service needs before it can start
+- the migration account (`catena_migrate_user`) and its sshd drop-in,
+  `/etc/ssh/sshd_config.d/31-catena-migrate.conf`: a server taking this one
+  over signs in with the key of the open migration window, read from the one
+  file the migration lane writes while that window is open, and runs nothing
+  but the pipe to the lane's socket
 
 The host lanes' configuration (`daily.env`, `stack-update.env`,
-`managed-services.json`) and the panel's port declarations are
+`managed-services.json`) and the panel's UI port declaration are
 `reconcile/roles/catena-admin/tasks/lanes.yml`, so a host that converges itself
 keeps them current.
 
@@ -27,7 +32,9 @@ Here: everything read only by `tasks/main.yml` or one of its templates.
 In `playbooks/group_vars/all/main.yml`: the panel's hostname, subdomain, UI
 port, state dir, stats dir and default theme. Both halves read those, and
 `reconcile/roles/oauth2_proxy` resolves `catena_admin_hostname` by NAME at a point where
-neither role's defaults are reliably in scope. A role default is only dependable
+neither role's defaults are reliably in scope. The migration account's name,
+grant file and forced command are there too, because `bootstrap/roles/common`
+puts the account in `AllowUsers` and validates it. A role default is only dependable
 once that role has run, so a value two roles either side of the boundary share
 belongs to the product.
 

@@ -29,16 +29,14 @@ def test_the_three_loopback_ports_declare_the_dnat_bind():
             f"{name}: bind=host claims ufw INPUT can enforce this port")
 
 
-def test_the_two_ui_ports_are_host_only_and_the_lane_declares_tailnet():
+def test_the_two_ui_ports_are_host_only():
     """The panel and Portainer answer this host only: an administrator reaches
     them through an SSH forward that lands on the loopback, and the panel's
-    direct login is a password over plain HTTP. The migration lane binds the
-    tailnet address and means `tailnet` literally."""
+    direct login is a password over plain HTTP."""
     portainer = (ROLES / "portainer" / "tasks" / "main.yml").read_text(encoding="utf-8")
     assert '"scope": "loopback", "bind": "docker", "owner": "portainer"' in portainer
     admin = (ROLES / "catena-admin" / "tasks" / "lanes.yml").read_text(encoding="utf-8")
     assert '"port": catena_admin_ui_port | int,\n           "scope": "loopback"' in admin
-    assert '"port": catena_migrate_lane_port | int,\n           "scope": "tailnet"' in admin
 
 
 def test_validate_asserts_the_unapplied_count():

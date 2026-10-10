@@ -37,6 +37,15 @@ ops_ssh_public_keys: []
 # through (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). A product constant:
 # the installer's access page and the keyset banner print it.
 catena_panel_user: panel
+# The account a server taking this one over signs in as, the one file sshd
+# reads its key from, and the one command it runs: a pipe to the migration
+# lane's socket. The lane (catena-admin payload/engines/migratelane) writes
+# that file only while a migration window is open. Product constants that
+# bootstrap/roles/common (AllowUsers) and bootstrap/roles/catena_admin_host
+# (the account and its sshd rules) both read.
+catena_migrate_user: catena-migrate
+catena_migrate_grant_file: /run/catena-migrate-lane/authorized_keys
+catena_migrate_connect: /usr/local/bin/catena-migrate-lane connect
 
 # --- The access plane ---
 # How this host is reached for administration, and therefore whether public

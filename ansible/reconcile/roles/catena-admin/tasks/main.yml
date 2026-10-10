@@ -2,7 +2,7 @@
 # Orchestrator for reconcile/roles/catena-admin.
 #
 #   lanes.yml   -- the host lanes' configuration (daily.env, stack-update.env,
-#                  managed-services.json) and the panel's port declarations.
+#                  managed-services.json) and the panel's UI port declaration.
 #   catalog.yml -- merges the source-of-truth action catalog with
 #                  per-inventory extras, renders the allow-list +
 #                  dispatch table on the host.
@@ -15,7 +15,7 @@
 # boundary.yml says why), which runs immediately before this role in
 # converge.yml.
 
-- name: Catena-admin host lanes' configuration + port declarations
+- name: Catena-admin host lanes' configuration + UI port declaration
   ansible.builtin.import_tasks: lanes.yml
   tags: [catena_admin, catena_admin_lanes]
 

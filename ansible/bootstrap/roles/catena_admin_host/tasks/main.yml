@@ -134,6 +134,74 @@
 # They are still THIS repo's files. Delivery follows the rule the engines
 # already follow: whoever runs a command ships it.
 
+# --- The migration account --------------------------------------------
+# What a server taking this one over signs in as. Its only key is the open
+# migration window's: the migration lane (catena-admin
+# payload/engines/migratelane) writes {{ catena_migrate_grant_file }} while a
+# window is open and removes it when the window closes, so with no window no
+# key opens the account. Its only command is the pipe to the lane's socket.
+#
+# /bin/sh rather than nologin: sshd runs ForceCommand through the account's
+# login shell (`<shell> -c <command>`), and nologin refuses every command.
+# Password `*` for the reason the runner account's task gives.
+- name: "Migration: system account ({{ catena_migrate_user }})"
+  ansible.builtin.user:
+    name: "{{ catena_migrate_user }}"
+    system: true
+    shell: /bin/sh
+    home: "{{ catena_migrate_home }}"
+    create_home: false
+    password: "*"
+    state: present
+
+- name: "Migration: the account's home, root-owned ({{ catena_migrate_home }})"
+  ansible.builtin.file:
+    path: "{{ catena_migrate_home }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# A Match block's keywords override the global config for the account.
+# AuthorizedKeysFile is absolute, so no file under the home is read, and
+# AuthorizedKeysCommand none keeps a key command a provider image configures
+# from vouching for the account. The client-alive pair keeps a call that runs
+# for hours open through a NAT's idle timer and drops a dead peer after two
+# minutes.
+- name: "sshd: the migration account's rules"
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/31-catena-migrate.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      # The account a server taking this one over signs in as. Its only key
+      # is the open migration window's and its only command is the pipe to
+      # the migration lane's socket.
+      Match User {{ catena_migrate_user }}
+          AuthorizedKeysFile {{ catena_migrate_grant_file }}
+          AuthorizedKeysCommand none
+          ForceCommand {{ catena_migrate_connect }}
+          PermitTTY no
+          AllowTcpForwarding no
+          AllowStreamLocalForwarding no
+          AllowAgentForwarding no
+          X11Forwarding no
+          PermitTunnel no
+          PermitUserRC no
+          ClientAliveInterval 30
+          ClientAliveCountMax 4
+      Match all
+  notify: reload sshd
+
+# The whole config, drop-ins included, so a rule sshd would refuse fails the
+# run here, before the reload, while the config sshd last loaded still serves.
+- name: "sshd: the config parses (sshd -t)"
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -t]
+  changed_when: false
+
 # --- SSH keypair for the catena-admin container ----------------------
 # Generated on the VPS so the private key never leaves the host. We
 # bind-mount the dir read-only into the admin container; the container

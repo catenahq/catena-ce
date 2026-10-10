@@ -50,7 +50,9 @@ bootstrap_roles:
   - name: catena_admin_host
     why: >-
       The trust path the panel's dispatch arrives over: the runner account, the
-      sudoers drop-in, the forced command and its authorized_keys. A reconcile
+      sudoers drop-in, the forced command and its authorized_keys. And the one
+      a server taking this one over arrives through: the migration account
+      and its sshd rules. A reconcile
       that could rewrite the way in could rewrite what a reconcile is, which is
       question one in its purest form.
   - name: ansible_runtime
