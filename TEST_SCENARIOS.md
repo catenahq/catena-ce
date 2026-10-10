@@ -57,7 +57,7 @@ The 174 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ee_entitlement_partial` | A Catena Pro key unlocks the Pro panels and nothing of Business, and the actions behind the Business panels are absent rather than merely hidden. |
 | `ee_identity_probe` | The identity posture probe reports how single sign-on is configured on a host and changes verdict when that configuration changes. |
 | `ee_lapse` | A host whose key Polar stops granting locks its licensed features once, tells its admin once, and keeps everything Community working. |
-| `ee_multidomain` | A second, unrelated domain is attached to a licensed host, both domains are served through the one tunnel, and a gated app on each domain sends its visitors to its own domain's sign-on, with cookies scoped to that domain. |
+| `ee_multidomain` | A second, unrelated domain is attached to a licensed host, both domains are served through the one tunnel, a gated app on each domain sends its visitors to its own domain's sign-on with cookies scoped to that domain, and a person signs in through the second domain's own sign-on. |
 | `ee_named_buttons` | Each licensed maintenance button dispatches its own distinct action rather than sharing one. |
 | `erpnext_failed_migrate_rolls_back` | When an ERPNext update's database migration fails, the previous version and its database are put back and the site keeps serving. |
 | `erpnext_update_migrates` | An ERPNext update moves every ERPNext service to the new version in one step and migrates the database, and the site comes back serving. |
