@@ -73,8 +73,7 @@
       converge. The Cloudflare tunnel cannot be brought up, and reconcile/roles/keycloak
       and reconcile/roles/oauth2_proxy are about to wait on an edge that will never
       answer. Check the "Payload:" tasks above for why the extract from
-      {{ catena_payload_image | default('the catena-admin image') }} did not
-      land.
+      {{ catena_admin_image }} did not land.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool

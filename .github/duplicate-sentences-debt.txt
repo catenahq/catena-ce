@@ -6,7 +6,7 @@
 
 A host whose payload is staged out of band (CATENA_PAYLOAD_INSTALL=false) must be staged BEFORE the converge that brings the control plane up.
 Check the "Payload:" tasks above for why the extract did not land.
-Check the "Payload:" tasks above for why the extract from {{ catena_payload_image | default('the catena-admin image') }} did not land.
+Check the "Payload:" tasks above for why the extract from {{ catena_admin_image }} did not land.
 Either way the role is **Reconcile**: it can run on the host, unattended, from the image, on a timer.
 If this is wrong, is anything left that can fix it?
 It deploys automatically on the converge after a consumer first comes up.

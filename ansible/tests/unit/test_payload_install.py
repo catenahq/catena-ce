@@ -13,6 +13,7 @@ Run: uv run pytest tests/unit/test_payload_install.py
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import jinja2
@@ -92,59 +93,26 @@ def test_payload_precedes_the_roles_that_wait_on_the_edge():
 
 
 # --- what it installs from --------------------------------------------------
-def test_image_defaults_to_the_catena_admin_image():
-    d = _defaults()
-    assert "catena_admin_image" in d["catena_payload_image"]
+_DOCKER_STEPS = ("already on this host", "Payload: pull", "resolve the image ID",
+                 "resolve the image's repo digest", "create a throwaway container")
 
 
-def test_the_engines_follow_the_running_shell():
-    """One version input per host: the service spec, which
-    reconcile/roles/catena-admin reconciles to catena_admin_image later in the
-    converge. Following it leaves the engines no second answer to disagree
-    with the shell the host runs.
-    """
+def test_the_engines_come_from_the_image_the_converge_names():
+    """One version input: catena_admin_image, which reconcile/roles/catena-admin
+    reconciles the panel's service to later in the converge. Every docker call
+    that reads the image names it, and the role has no image of its own, no
+    environment override for it and no read of the running service to
+    disagree with it."""
     flat = _flatten(_tasks())
-    inspect = flat[_index_of(flat, "what image is the catena-admin service")]
-    argv = inspect["ansible.builtin.command"]["argv"]
-    assert "service" in argv and "inspect" in argv
-    assert any("ContainerSpec.Image" in str(a) for a in argv)
-    assert inspect.get("failed_when") is False, (
-        "no such service is the normal first-converge answer, not an error")
-
-    follow = flat[_index_of(flat, "the engines follow the shell")]
-    assert (follow["ansible.builtin.set_fact"]["catena_payload_image"]
-            == "{{ _payload_service_image.stdout | trim }}")
-
-
-def test_following_the_shell_happens_before_the_image_is_resolved():
-    """Resolving the ID, gating the digest or pulling before the source is
-    settled would all act on the fallback."""
-    flat = _flatten(_tasks())
-    follow = _index_of(flat, "the engines follow the shell")
-    for later in ("pull", "resolve the image ID", "not the pinned one",
-                  "docker cp the payload tree"):
-        assert follow < _index_of(flat, later), f"{later!r} runs first"
-
-
-def test_an_explicit_image_override_still_wins():
-    """install-host.sh points CATENA_PAYLOAD_IMAGE at the release it installs.
-    A service-derived value that overrode it would install the engines of the
-    release being replaced under the new release's tree.
-    """
-    flat = _flatten(_tasks())
-    follow = flat[_index_of(flat, "the engines follow the shell")]
-    conds = " ".join(str(c) for c in _as_list(follow.get("when")))
-    assert "CATENA_PAYLOAD_IMAGE" in conds
-    assert "length == 0" in conds
-
-
-def test_having_no_service_to_follow_says_so_out_loud():
-    """Silence here reads as "followed the shell" on a host where nothing was
-    followed."""
-    flat = _flatten(_tasks())
-    notice = flat[_index_of(flat, "nothing to follow")]
-    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
-    assert "_payload_from_service" in conds
+    for step in _DOCKER_STEPS:
+        argv = flat[_index_of(flat, step)]["ansible.builtin.command"]["argv"]
+        assert argv[-1] == "{{ catena_admin_image }}", (step, argv)
+    assert "catena_payload_image" not in _defaults()
+    for text in (TASKS.read_text(), DEFAULTS.read_text()):
+        assert not re.search(r"CATENA_PAYLOAD_IMAGE(?!_DIGEST)", text)
+    for task in flat:
+        argv = (task.get("ansible.builtin.command") or {}).get("argv") or []
+        assert not ("service" in argv and "inspect" in argv), task.get("name")
 
 
 def test_extraction_reads_the_image_payload_path():
@@ -169,7 +137,7 @@ def test_a_digest_pinned_image_already_here_is_not_pulled_again():
     flat = _flatten(_tasks())
     present = flat[_index_of(flat, "digest-pinned image already on this host")]
     conds = " ".join(str(c) for c in _as_list(present.get("when")))
-    assert "'@sha256:' in catena_payload_image" in conds
+    assert "'@sha256:' in catena_admin_image" in conds
     assert present.get("failed_when") is False
     pull = flat[_index_of(flat, "Payload: pull")]
     assert "(_payload_present.rc | default(1)) != 0" in _as_list(pull.get("when"))

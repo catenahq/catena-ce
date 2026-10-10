@@ -12,52 +12,11 @@
     catena_payload_engines_expected: "{{ catena_payload_install | bool }}"
 
 # ─── which image the engines come from ───────────────────────────────────
-# The shell's, whenever there is a shell. Asking swarm instead of resolving the
-# floor a second time is what makes drift unrepresentable rather than merely
-# detectable: "which image do the engines come from" stops being a separate
-# question from "which image does the shell come from", so the two cannot
-# answer differently.
-#
-# reconcile/roles/catena-admin reconciles the service to catena_admin_image
-# later in this converge. On a host's own converge that is the image the
-# service already runs, so following the service and following
-# catena_admin_image name the same image.
-#
-# The spec's image carries a digest whenever whoever set it named one: the
-# converge creates the service from catena_admin_image, and the panel's update
-# rolls it to the digest its pull resolved. Following it is then byte-exact
-# rather than tag-exact.
-- name: "Payload: what image is the catena-admin service running"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - inspect
-      - "{{ catena_admin_service_name }}"
-      - "--format={{ '{{ .Spec.TaskTemplate.ContainerSpec.Image }}' }}"
-  register: _payload_service_image
-  changed_when: false
-  # "no such service" is the normal first-converge answer, not an error: this
-  # role runs before reconcile/roles/catena-admin, which creates the service.
-  failed_when: false
-
-- name: "Payload: the engines follow the shell"
-  ansible.builtin.set_fact:
-    catena_payload_image: "{{ _payload_service_image.stdout | trim }}"
-    _payload_from_service: true
-  when:
-    - lookup('env', 'CATENA_PAYLOAD_IMAGE') | default('', true) | length == 0
-    - _payload_service_image.rc | default(1) == 0
-    - (_payload_service_image.stdout | default('') | trim) | length > 0
-
-- name: "Payload: nothing to follow -- using the resolved image"
-  ansible.builtin.debug:
-    msg: >-
-      The engines come from {{ catena_payload_image }}. Either this host has no
-      {{ catena_admin_service_name }} service yet -- reconcile/roles/catena-admin creates
-      it later in this converge, from this same image -- or
-      CATENA_PAYLOAD_IMAGE named one explicitly.
-  when: not (_payload_from_service | default(false))
+# catena_admin_image, the image this converge was started with:
+# install-host.sh names the release it installs, and catena-admin's
+# catena-converge the image the panel runs, by digest.
+# reconcile/roles/catena-admin reconciles the panel's service to the same
+# image later in this converge, so the engines and the shell have one input.
 
 # Refused, before anything is pulled, copied out or run. The engines run as
 # root, and without a digest nothing holds them, or the panel, to the bytes a
@@ -69,19 +28,18 @@
   ansible.builtin.fail:
     msg: >-
       This converge names the catena-admin image {{ catena_admin_image }}
-      without a digest, so nothing can check that the engines in
-      {{ catena_payload_image }} and the panel are the bytes a registry
-      published. Nothing was pulled, extracted or run. Name the image by
-      digest (repo:tag@sha256:...). An image built or loaded by hand on the
-      server has no digest until it is pushed to a registry and pulled from
-      there.
+      without a digest, so nothing can check that its engines and the panel
+      are the bytes a registry published. Nothing was pulled, extracted or
+      run. Name the image by digest (repo:tag@sha256:...). An image built or
+      loaded by hand on the server has no digest until it is pushed to a
+      registry and pulled from there.
   when: catena_payload_image_digest | length == 0
 
 - name: "Payload: install skipped -- engines are staged out of band"
   ansible.builtin.debug:
     msg: >-
       CATENA_PAYLOAD_INSTALL=false: not extracting engines from
-      {{ catena_payload_image }}. Whatever put /usr/local/bin/catena-* on this
+      {{ catena_admin_image }}. Whatever put /usr/local/bin/catena-* on this
       host owns them for this converge.
   when: not (catena_payload_install | bool)
 
@@ -123,10 +81,10 @@
       register: _payload_dir_before
 
     # A digest names the same bytes wherever they come from, so an image
-    # addressed by one and already on this host needs no registry. The image
-    # the panel service runs always is, which keeps the host's own converge
-    # running while the registry does not answer. A tag can move, so a
-    # reference without a digest is always pulled.
+    # addressed by one and already on this host needs no registry. The host's
+    # own converge names the image the panel runs, which always is, so that
+    # converge keeps running while the registry does not answer. A tag can
+    # move, so a reference without a digest is always pulled.
     - name: "Payload: is the digest-pinned image already on this host"
       ansible.builtin.command:
         argv:
@@ -134,20 +92,20 @@
           - image
           - inspect
           - "--format={{ '{{ .Id }}' }}"
-          - "{{ catena_payload_image }}"
+          - "{{ catena_admin_image }}"
       register: _payload_present
       changed_when: false
       failed_when: false
       when:
         - catena_payload_pull | bool
-        - "'@sha256:' in catena_payload_image"
+        - "'@sha256:' in catena_admin_image"
 
-    - name: "Payload: pull {{ catena_payload_image }}"
+    - name: "Payload: pull {{ catena_admin_image }}"
       ansible.builtin.command:
         argv:
           - docker
           - pull
-          - "{{ catena_payload_image }}"
+          - "{{ catena_admin_image }}"
       register: _payload_pull
       changed_when: "'Downloaded newer image' in _payload_pull.stdout"
       when:
@@ -161,7 +119,7 @@
           - image
           - inspect
           - "--format={{ '{{ .Id }}' }}"
-          - "{{ catena_payload_image }}"
+          - "{{ catena_admin_image }}"
       register: _payload_image_id
       changed_when: false
 
@@ -176,14 +134,14 @@
           - image
           - inspect
           - "--format={{ '{{ join .RepoDigests \",\" }}' }}"
-          - "{{ catena_payload_image }}"
+          - "{{ catena_admin_image }}"
       register: _payload_repo_digests
       changed_when: false
 
     - name: "Payload: the image is not the pinned one -- refusing to extract"
       ansible.builtin.fail:
         msg: >-
-          {{ catena_payload_image }} resolved to
+          {{ catena_admin_image }} resolved to
           {{ _payload_repo_digests.stdout | default('') | trim | default('no repo digest', true) }}
           but this deployment pins {{ catena_payload_image_digest }}. Refusing
           to extract or root-execute the payload.
@@ -193,7 +151,7 @@
     - name: "Payload: image digest matches the pin"
       ansible.builtin.debug:
         msg: >-
-          {{ catena_payload_image }} carries {{ catena_payload_image_digest }},
+          {{ catena_admin_image }} carries {{ catena_payload_image_digest }},
           the digest this converge pins: digest check passed.
 
     - name: "Payload: read the image, then remove what was created to read it"
@@ -203,7 +161,7 @@
             argv:
               - docker
               - create
-              - "{{ catena_payload_image }}"
+              - "{{ catena_admin_image }}"
           register: _payload_cid
           changed_when: false
 
@@ -247,7 +205,7 @@
             msg: >-
               This converge runs catena-ce
               {{ _payload_tree.describe | default('(unknown)', true) }},
-              and {{ catena_payload_image }} was built with catena-ce
+              and {{ catena_admin_image }} was built with catena-ce
               {{ _payload_record.describe | default('(unknown)', true) }}.
               Their contents differ, so its engines would run under another
               version's configuration. Nothing was installed. Converge with the

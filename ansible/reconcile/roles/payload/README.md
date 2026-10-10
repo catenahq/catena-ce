@@ -25,10 +25,8 @@ exists.
 
 ## What it does
 
-1. Asks swarm which image the `catena-admin` service runs and installs the
-   engines from that. Falls back to `catena_payload_image` only when there is
-   no service to follow -- a first converge, or an explicit
-   `CATENA_PAYLOAD_IMAGE`.
+1. Installs the engines from `catena_admin_image`, the image the converge
+   was started with.
 2. Refuses the converge, before anything is pulled, copied out or run, when
    `catena_payload_image_digest` is empty: the converge named the image
    without a digest (see below).
@@ -51,10 +49,12 @@ exists.
 8. Writes the image ID into the marker.
 
 Step 1 is the reason the two halves cannot drift apart. The engines and the
-shell come out of one image because there is one place the version is decided:
-the service spec. `reconcile/roles/catena-admin` reconciles the service to
-`catena_admin_image`, the image the converge was started with, several roles
-after this one; following the spec leaves one input.
+shell come out of one image because the converge has one input for it:
+`catena_admin_image` (`CATENA_ADMIN_IMAGE`). install-host.sh sets it to the
+release it installs and catena-admin's `catena-converge` to the image the panel
+runs, by digest. This role installs the engines from it, and
+`reconcile/roles/catena-admin` reconciles the panel's service to the same image
+several roles later.
 
 `install-ee-payload.sh` installs binaries, python lib modules, dispatch
 drop-ins and systemd units, and does NOT enable any unit. Enabling is the
@@ -85,8 +85,7 @@ The marker holds an image ID, not a timestamp or a bare "installed" flag:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `catena_payload_image` | `{{ catena_admin_image }}` | fallback image, used only when no `catena-admin` service exists to follow |
-| `catena_admin_service_name` | `catena-admin` (catena-ce/ansible/playbooks/group_vars/all/main.yml) | the service whose image the engines follow |
+| `catena_admin_image` | `CATENA_ADMIN_IMAGE` (catena-ce/ansible/playbooks/group_vars/all/main.yml) | the image the engines are extracted from, and the panel's |
 | `catena_payload_dir` | `/var/lib/catena/ee-payload` | extraction target (shared with the container's sync) |
 | `catena_payload_image_path` | `/usr/local/share/catena-ee` | payload tree inside the image |
 | `catena_payload_marker` | `/etc/catena/.payload-image` | image ID the installed engines came from |

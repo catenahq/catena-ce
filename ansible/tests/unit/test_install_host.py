@@ -87,8 +87,11 @@ def test_a_scoped_converge_records_no_version():
 
 
 def test_the_image_reaches_the_converge_for_the_panel_and_the_engines():
+    """One variable: reconcile/roles/payload and reconcile/roles/catena-admin
+    both read catena_admin_image."""
     text = SCRIPT.read_text()
-    assert 'export CATENA_ADMIN_IMAGE="$image" CATENA_PAYLOAD_IMAGE="$image"' in text
+    assert 'export CATENA_ADMIN_IMAGE="$image"\n' in text
+    assert "CATENA_PAYLOAD_IMAGE=" not in text
 
 
 def test_the_starter_holds_nothing_version_specific():

@@ -40,12 +40,6 @@ RESOLVED_ELSEWHERE = {
     # another release than the tree.
     "catena_admin_image":
         "CATENA_ADMIN_IMAGE verbatim, set by install-host.sh and catena-converge",
-    # The bootstrap fallback only. On a host that has a catena-admin service,
-    # reconcile/roles/payload follows the SERVICE's image instead, so the engines and the
-    # shell cannot resolve to different versions. Resolving the pin a second
-    # time here is what made them able to.
-    "catena_payload_image":
-        "bootstrap fallback; steady state follows the catena-admin service",
 }
 
 
@@ -191,9 +185,9 @@ def test_the_engines_and_the_shell_come_from_one_image():
     shared = yaml.safe_load(SHARED_VARS.read_text())
     assert "catena_admin_image" in shared
     assert "catena_admin_service_name" in shared, (
-        "reconcile/roles/payload reads it to find the service whose image the "
-        "engines follow; reconcile/roles/catena-admin's defaults are not in "
-        "scope there")
+        "reconcile/roles/portainer names the panel's service before "
+        "reconcile/roles/catena-admin runs, so catena-admin's defaults are not "
+        "in scope there")
     admin = yaml.safe_load(
         (_role_dir("catena-admin") / "defaults" / "main.yml").read_text())
     assert "catena_admin_service_name" not in admin, (
@@ -201,11 +195,11 @@ def test_the_engines_and_the_shell_come_from_one_image():
         "coincidence of spelling -- the defect the image already had")
     payload = yaml.safe_load(
         (_role_dir("payload") / "defaults" / "main.yml").read_text())
-    assert "catena_admin_image" in str(payload["catena_payload_image"])
-    assert "ghcr.io" not in str(payload["catena_payload_image"]), (
-        "reconcile/roles/payload is carrying its own copy of the image reference again; "
-        "that copy is what it actually used, because catena-admin's defaults "
-        "are not in scope there")
+    own = [k for k in payload if _IMAGE_VAR.match(str(k))]
+    assert not own, (
+        f"reconcile/roles/payload declares an image of its own ({own}); it "
+        "extracts the engines from catena_admin_image, the image the panel's "
+        "service is reconciled to")
 
 
 def test_the_converge_publishes_the_pins_before_any_role_reads_them():

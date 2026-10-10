@@ -123,7 +123,7 @@ PY
 chmod 0600 "$work/vars.json"
 
 export ANSIBLE_CONFIG="$ansible_dir/ansible.cfg"
-export CATENA_ADMIN_IMAGE="$image" CATENA_PAYLOAD_IMAGE="$image"
+export CATENA_ADMIN_IMAGE="$image"
 export PYTHONUNBUFFERED=1
 # sudo can keep the login's HOME, where Ansible would leave root-owned files.
 export HOME=/root

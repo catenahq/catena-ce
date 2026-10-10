@@ -13,27 +13,15 @@
 # Cloudflare token with no tunnel at all, and the keycloak and oauth2_proxy
 # validation probes then fail against an edge nobody brought up.
 
-# Image the payload is extracted from. The SAME variable reconcile/roles/catena-admin
-# runs the shell from, declared in playbooks/group_vars/all/main.yml because the
-# two roles sit far apart in the play: extracting the engines from one image
-# while running the shell from another is how a host ends up with an engine
-# and a panel that disagree about the config schema.
-#
-# `catena_admin_image` is CATENA_ADMIN_IMAGE, the image the running tree came
+# The image the payload is extracted from is `catena_admin_image`, the SAME
+# variable reconcile/roles/catena-admin runs the shell from, declared in
+# playbooks/group_vars/all/main.yml because the two roles sit far apart in the
+# play: extracting the engines from one image while running the shell from
+# another is how a host ends up with an engine and a panel that disagree about
+# the config schema. It is CATENA_ADMIN_IMAGE, the image the running tree came
 # from: install-host.sh sets it to the release it installs, and catena-admin's
 # catena-converge to the image the panel runs, so the tree, the engines and the
 # shell are one image; the panel's self-update moves it.
-#
-# CATENA_PAYLOAD_IMAGE names the image to extract from outright: the install
-# sets it to the image it installs.
-#
-# tasks/main.yml replaces this value with the image the catena-admin swarm
-# service runs whenever that service exists and CATENA_PAYLOAD_IMAGE is unset,
-# because "which image do the engines come from" and "which image does the
-# shell come from" must be one question. This value answers the bootstrap case
-# alone: no service yet, so nothing to follow.
-catena_payload_image: >-
-  {{ lookup('env', 'CATENA_PAYLOAD_IMAGE') | default(catena_admin_image, true) }}
 
 # Immutable digest the image must resolve to before anything is extracted from
 # it. The payload is root-executed (install-ee-payload.sh puts Go binaries into

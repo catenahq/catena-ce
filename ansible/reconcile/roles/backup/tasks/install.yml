@@ -199,8 +199,7 @@
       converge, so catena-backup.service would point at nothing and every
       scheduled backup would fail silently at the unit level. Check
       the "Payload:" tasks above for why the extract from
-      {{ catena_payload_image | default('the catena-admin image') }} did not
-      land.
+      {{ catena_admin_image }} did not land.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool

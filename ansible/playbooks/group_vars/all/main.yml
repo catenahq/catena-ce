@@ -141,8 +141,9 @@ acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
 
 # --- Infrastructure subdomains ---
 # Public-facing hostnames. Each is routed to its own oauth2-proxy instance,
-# which authenticates against Keycloak and proxies to the app behind it. SSO
-# works across them via a session cookie scoped to .<zone>.
+# which authenticates against Keycloak and proxies to the app behind it, and
+# keeps a session cookie of its own on its host. The Keycloak session signs the
+# browser in to the next one without a prompt.
 # Store keys, set in catena-admin > Settings; the literal is the name a host
 # with nothing stored uses.
 infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('gatus', true) }}"
@@ -434,7 +435,7 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # The swarm service's name, and its DNS name on catena-network, which
 # reconcile/roles/oauth2_proxy upstreams to: renaming it 502s every
 # authenticated dash.<zone> request. reconcile/roles/catena-admin creates the
-# service; reconcile/roles/payload asks swarm which image it runs.
+# service.
 catena_admin_service_name: "catena-admin"
 
 # What the shell binds. reconcile/roles/portainer builds the App Templates URL

@@ -44,8 +44,7 @@
       created or reconciled. The engine ships in the catena-admin host payload
       and reconcile/roles/payload installs it right after bootstrap/roles/docker -- check the
       "Payload:" tasks above for why the extract from
-      {{ catena_payload_image | default('the catena-admin image') }} did not
-      land. A host whose payload is staged out of band
+      {{ catena_admin_image }} did not land. A host whose payload is staged out of band
       (CATENA_PAYLOAD_INSTALL=false) must be staged BEFORE the converge that
       brings the control plane up.
   when: not (_t1_bin.stat.exists | default(false))
