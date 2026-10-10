@@ -46,6 +46,11 @@
     swarm_secrets: "{{ _ca_secrets }}"
   when: catena_admin_deploy_from_converge | bool
 
+# The served secondary domains, catena_secondary_zones, whose sign-in hosts
+# catena_hostnames in the env below names.
+- name: "Catena-admin: the served domains"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/served_zones.yml"
+
 # ─── the service spec ────────────────────────────────────────────────────
 # One dict feeding create AND reconcile, so a fresh host and a converged one
 # cannot end up with different services. The plain env holds no credential:
@@ -150,6 +155,10 @@
         # Apps grid the panel derives from Portainer. This is what lets the panel
         # add the console tile itself. Host fact, like the four above.
         INFRA_PORTAINER_HOSTNAME: "{{ portainer_admin_hostname }}"
+        # Every address Catena answers on, a JSON list, which the Check tab
+        # holds as Catena's (catena-admin shell/appcheck OwnHosts), as
+        # dashboard-sync's app checker does.
+        CATENA_HOSTNAMES: "{{ catena_hostnames | to_json }}"
         # The hub's CLUSTER-internal address, not the public hostname above.
         # Same reason KEYCLOAK_ADMIN_BASE is internal: the public name is behind
         # oauth2-proxy, so a server-side read there meets the SSO gate instead of

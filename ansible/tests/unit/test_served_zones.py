@@ -7,7 +7,10 @@ and reconcile/roles/infrastructure's dashboard-sync env, whose CLOUDFLARE_ZONES
 and per-domain cookie secrets catena-admin payload/lib/clients_provisioner.py
 islands each gated app's oauth2-proxy on. Each consumer imports the reader
 right before it renders. Whatever the domains, the same env sends
-dashboard-sync's Keycloak calls to catena-admin on the host's loopback.
+dashboard-sync's Keycloak calls to catena-admin on the host's loopback. Every
+domain's sign-in host is one of the addresses Catena itself answers on
+(catena_hostnames), the list dashboard-sync's env and the panel's both carry,
+which reconcile/roles/catena-admin reads the projection for too.
 
 The renders go through ansible-core's own templating, with the reader's
 set_fact expression evaluated as written, so a test here fails the way a
@@ -36,6 +39,8 @@ KC_DEPLOY = ANSIBLE / "reconcile" / "roles" / "keycloak" / "tasks" / "deploy.yml
 KC_COMPOSE = ANSIBLE / "reconcile" / "roles" / "keycloak" / "templates" / "keycloak.compose.yml.j2"
 SYNC_TASKS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "dashboard_sync.yml"
 SYNC_ENV = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "templates" / "dashboard-sync.env.j2"
+GATES = ANSIBLE / "reconcile" / "roles" / "oauth2_proxy" / "defaults" / "main.yml"
+PANEL_DEPLOY = ANSIBLE / "reconcile" / "roles" / "catena-admin" / "tasks" / "deploy.yml"
 _IMPORT = "{{ playbook_dir }}/tasks/served_zones.yml"
 
 # The filter the reader calls lives beside the playbooks.
@@ -108,13 +113,37 @@ def _secondaries(registered: dict) -> list[str]:
     })
 
 
+def _hostnames(zone: str) -> dict:
+    """Each of Catena's own hostname variables, a name of its own on `zone`."""
+    return {
+        "keycloak_hostname": f"auth.{zone}",
+        "coturn_hostname": f"turn.{zone}",
+        "catena_admin_hostname": f"dash.{zone}",
+        "infrastructure_gatus_hostname": f"gatus.{zone}",
+        "healthchecks_hostname": f"healthchecks.{zone}",
+        "portainer_admin_hostname": f"portainer.{zone}",
+        "beszel_hostname": f"beszel.{zone}",
+    }
+
+
+def _catena_hostnames(zone: str, secondaries: list[str]) -> list[str]:
+    """catena_hostnames, as playbooks/group_vars/all/main.yml computes it."""
+    return _render(_shared()["catena_hostnames"], {
+        **_hostnames(zone),
+        "keycloak_subdomain": "auth",
+        "catena_secondary_zones": secondaries,
+        "oauth2_proxy_apps": yaml.safe_load(GATES.read_text())["oauth2_proxy_apps"],
+    })
+
+
 def _sync_env(zone: str, secondaries: list[str], secrets: dict | None = None) -> str:
     return _render(SYNC_ENV.read_text(), {
         "ansible_managed": "managed",
         "portainer_api_base_onbox": "http://127.0.0.1:9000/api",
         "portainer_api_key": "ptr-key",
         "traefik_dynamic_dir": "/etc/catena/traefik/dynamic",
-        "keycloak_hostname": f"auth.{zone}",
+        **_hostnames(zone),
+        "catena_hostnames": _catena_hostnames(zone, secondaries),
         "gatus_compose_name": "gatus",
         "healthchecks_compose_name": "healthchecks",
         "keycloak_compose_name": "keycloak",
@@ -259,12 +288,31 @@ def test_no_marketplace_token_means_no_managed_env_url():
     assert _env_value(rendered, "CATENA_MARKETPLACE_TOKEN") == ""
 
 
+def test_catena_hostnames_is_every_address_catena_answers_on():
+    """Each served domain's sign-in host, the TURN relay and the host of every
+    gated tool, the panel's among them. dashboard-sync routes no client app on
+    one (catena-admin payload/lib/app_intent.py), and the app checker holds them
+    as Catena's on each app's tile and in the panel's Check tab, so
+    dashboard-sync and the panel are each given the one list."""
+    hosts = _catena_hostnames(PRIMARY, [SECOND])
+    names = _hostnames(PRIMARY)
+    assert sorted(hosts) == sorted([*names.values(), f"auth.{SECOND}"])
+    gates = yaml.safe_load(GATES.read_text())["oauth2_proxy_apps"]
+    assert {names[g["host_var"]] for g in gates} <= set(hosts)
+    synced = json.loads(_env_value(_sync_env(PRIMARY, [SECOND]), "CATENA_HOSTNAMES"))
+    tasks = _tasks(PANEL_DEPLOY)
+    env = tasks[_index(tasks, "build the service spec")]["ansible.builtin.set_fact"]["_ca_spec"]["env"]
+    panel = json.loads(_render(env["CATENA_HOSTNAMES"], {"catena_hostnames": hosts}))
+    assert synced == panel == hosts
+
+
 @pytest.mark.parametrize("path, render", [
     (KC_DEPLOY, "deploy as a swarm stack"),
     (SYNC_TASKS, "env file"),
-], ids=["keycloak", "dashboard-sync"])
+    (PANEL_DEPLOY, "build the service spec"),
+], ids=["keycloak", "dashboard-sync", "panel"])
 def test_each_consumer_reads_the_projection_right_before_it_renders(path, render):
-    """A converge scoped with --tags to either role still reads the
+    """A converge scoped with --tags to any one of their roles still reads the
     projection."""
     tasks = _tasks(path)
     reader = next(i for i, t in enumerate(tasks)

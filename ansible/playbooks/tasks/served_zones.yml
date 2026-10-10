@@ -3,7 +3,9 @@
 # for the two renders that give each attached domain its own sign-on island:
 # reconcile/roles/keycloak routes an auth.<zone> host per domain, and
 # reconcile/roles/infrastructure hands dashboard-sync the domains its per-app
-# oauth2-proxies are islanded on.
+# oauth2-proxies are islanded on. catena_hostnames
+# (playbooks/group_vars/all/main.yml) names each of those auth.<zone> hosts for
+# dashboard-sync and for the panel (reconcile/roles/catena-admin).
 #
 # Read from the projection the Cloudflare tunnel engine writes after a
 # SUCCESSFUL converge (reconcile/roles/cloudflare_tunnel runs before both
@@ -17,7 +19,7 @@
 # staleness bound (playbooks/filter_plugins/catena_served_zones.py).
 #
 # Each consumer imports this right before it renders, so a converge scoped with
-# --tags to either role still reads the projection.
+# --tags to any one of their roles still reads the projection.
 - name: "Served domains: read the zone projection"
   ansible.builtin.slurp:
     src: "{{ catena_zone_projection_path }}"

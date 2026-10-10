@@ -488,6 +488,22 @@ catena_admin_image: "{{ lookup('env', 'CATENA_ADMIN_IMAGE') }}"
 catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"
+
+# The addresses Catena itself answers on: the sign-in host of every served
+# domain (reconcile/roles/keycloak routes each one), the TURN relay, and the
+# host of every tool behind a gate of reconcile/roles/oauth2_proxy
+# (oauth2_proxy_apps), the panel's among them. dashboard-sync routes no client
+# app on one (catena-admin payload/lib/app_intent.py) and the app checker holds
+# them as Catena's, on each app's tile and in the panel's Check tab. Given to
+# dashboard-sync (reconcile/roles/infrastructure) and to the panel
+# (reconcile/roles/catena-admin) as CATENA_HOSTNAMES, after each reads
+# playbooks/tasks/served_zones.yml for catena_secondary_zones.
+catena_hostnames: >-
+  {{ ([keycloak_hostname, coturn_hostname]
+      + (catena_secondary_zones | map('regex_replace', '^', keycloak_subdomain ~ '.') | list)
+      + query('vars', *(oauth2_proxy_apps | map(attribute='host_var'))))
+     | unique | list }}
+
 # Host dir where the payload lanes write the JSON reports the panel reads
 # (backup-stats.json from catena-backup-run, gatus-summary.json from
 # catena-gatus-sync, the rest named in catena-admin shell/stats).
