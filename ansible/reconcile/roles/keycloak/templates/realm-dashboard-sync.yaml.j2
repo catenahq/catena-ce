@@ -11,7 +11,8 @@
 #     keeps in step with the app's labels and deletes with the app. It changes
 #     or deletes only the clients it marked (catena.managed-by=dashboard-sync)
 #     and binds each entry to one of the sign-in flows realm-vps.yaml.j2
-#     declares (catena-admin payload/lib/oidc_clients.py).
+#     declares, with the client scope named after that flow as a default
+#     scope (catena-admin payload/lib/oidc_clients.py).
 #
 # Scope: a confidential client with serviceAccountsEnabled and a SINGLE
 # realm-management role -- `manage-clients`, the least privilege for both

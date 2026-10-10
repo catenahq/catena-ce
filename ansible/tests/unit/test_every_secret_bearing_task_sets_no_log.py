@@ -15,8 +15,9 @@ reconcile/roles/keycloak/tasks/_config_cli_import.yml does.
 
 A task's or a block's `environment` rides the module's `/bin/sh -c` command
 line, which -vvv and `ps` show whatever no_log says, so it holds no secret. A
-secret goes in on stdin, as test_keycloak_logins_read_the_password_on_stdin.py
-and test_seeds_read_credentials_on_stdin.py require of theirs, or through a
+secret goes in on stdin, as
+test_master_realm_sign_ins_use_the_automation_client.py and
+test_seeds_read_credentials_on_stdin.py require of theirs, or through a
 helper that reads it on the host, as reconcile/roles/backup runs restic under
 catena-restic-env.
 

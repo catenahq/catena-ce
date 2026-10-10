@@ -181,53 +181,172 @@
     - _keycloak_realm_health.rc == 0
     - "'200' in (_keycloak_realm_health.stdout | default(''))"
 
-# --- An admin email change moves the admin, and adds none ---
-#
-# The realm seed keys the realm admin on its username, admin_email.
-# keycloak-config-cli finds a user by username (then by email, first and last
-# name together), creates one it does not find, and deletes none
-# (UserImportService, keycloak-config-cli v6.5.1): re-seeded under a new email,
-# the seed would add a second admin. Every import and kcadm session also signs
-# in to the master realm as admin_email, and the step that refills an empty
-# /admin finds this realm's account by it. So before either import, the
-# admin's two accounts take the new email, by id, which keeps their passwords
-# and second factors (Keycloak keys both on the user id):
-#   - the master realm's, whose username the admin API changes only while the
-#     realm allows username edits, so that is allowed for the one update;
-#   - this realm's, whose username follows its email
-#     (registrationEmailAsUsername), unless the new email already holds an
-#     account here, which is left for an administrator to settle.
-# The email the last import ran under is recorded beside the bootstrap markers.
-# The admin password reaches kcadm through its KC_CLI_PASSWORD, read from this
-# task's stdin, never an argv.
+# The email the last import ran under, recorded beside the bootstrap markers:
+# the automation client's first sign-in and an admin email change read it.
 - name: "Keycloak realm: the admin email the last import ran under"
   ansible.builtin.slurp:
     src: "{{ keycloak_admin_email_record }}"
   register: _kc_admin_email_record
   failed_when: false
 
+- name: "Keycloak realm: keep the admin email the last import ran under"
+  ansible.builtin.set_fact:
+    _kc_recorded_admin_email: >-
+      {{ (_kc_admin_email_record.content | default('') | b64decode) | trim }}
+
+# --- The automation client ---
+#
+# Every realm import and kcadm session of the converge signs in to the master
+# realm as the automation client (_master_login.yml): the master admin carries a
+# second factor (below), which a kcadm sign-in cannot answer. The client's
+# service account holds the master realm's admin role: the converge manages the
+# master realm's own settings and its admin's account as well as this realm,
+# and a credential that may change the master admin's account reaches every
+# realm through it, so no narrower set of roles would narrow what it can reach.
+#
+# The client is ready once it signs in and reads the master realm, which takes
+# an admin role (RealmAdminResource getRealm, Keycloak 26.6.7). Otherwise it is
+# created, or given the store's secret and the role, on an admin-password
+# sign-in as admin_email, then as the email the last import ran under when that
+# differs (an email change not yet moved). That works while the master admin
+# has no second factor, which is asked for only once the client exists: the
+# converge that first meets a host, fresh or upgraded, makes it, and a restore
+# brings it back with the database that holds it. The secret and the password
+# reach kcadm as KC_CLI_CLIENT_SECRET and KC_CLI_PASSWORD, read from this
+# task's stdin, and the client's representation on kcadm's stdin, never an
+# argv.
+#
+# A refused password counts toward the master realm's lockout: 30 failures by
+# Keycloak's default failureFactor, which the lockout step below leaves as it
+# finds it, and two within a second lock the account for a minute
+# (DefaultBruteForceProtector, Keycloak 26.6.7). So an attempt tries each
+# address once, and an attempt in which Keycloak is ready (/health/ready) and
+# refuses them all exits 3, which ends the retries: they wait out a Keycloak
+# still starting or rescheduled, which refuses no password.
+- name: "Keycloak realm: the automation client exists"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    IFS= read -r KC_CLI_CLIENT_SECRET
+    IFS= read -r KC_CLI_PASSWORD
+    export KC_CLI_CLIENT_SECRET KC_CLI_PASSWORD
+    client={{ keycloak_automation_client_id | quote }}
+    server=http://localhost:{{ keycloak_internal_port }}
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1) || true
+    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
+    kc() { docker exec -e KC_CLI_CLIENT_SECRET -e KC_CLI_PASSWORD "$ct" /opt/keycloak/bin/kcadm.sh "$@"; }
+    ready() { docker exec "$ct" bash -c 'exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} && printf "GET {{ keycloak_health_path }} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && head -1 <&3 | grep -q 200'; }
+    acts() {
+      kc config credentials --server "$server" --realm master --client "$client" \
+        && kc get realms/master --fields realm >/dev/null
+    }
+    if acts; then
+      exit 0
+    fi
+    admin=
+    for user in {{ [admin_email, _kc_recorded_admin_email] | select | unique | map('quote') | join(' ') }}; do
+      if kc config credentials --server "$server" --realm master --user "$user"; then
+        admin=$user
+        break
+      fi
+    done
+    if [ -z "$admin" ]; then
+      if ready; then
+        echo "$client cannot manage the master realm, and the admin's password does not sign in to it" >&2
+        exit 3
+      fi
+      echo "keycloak is not ready" >&2
+      exit 1
+    fi
+    rep=$(printf '{"clientId":"%s","name":"Catena automation","description":"%s","enabled":true,"publicClient":false,"clientAuthenticatorType":"client-secret","serviceAccountsEnabled":true,"standardFlowEnabled":false,"implicitFlowEnabled":false,"directAccessGrantsEnabled":false,"secret":"%s"}' \
+      "$client" "Signs the converge and its realm imports in to the master realm." "$KC_CLI_CLIENT_SECRET")
+    id=$(kc get clients -r master -q "clientId=$client" --fields id --format csv --noquotes)
+    if [ -z "$id" ]; then
+      printf '%s' "$rep" | docker exec -i "$ct" /opt/keycloak/bin/kcadm.sh create clients -r master -f -
+      echo "created: $client"
+    else
+      printf '%s' "$rep" | docker exec -i "$ct" /opt/keycloak/bin/kcadm.sh update "clients/$id" -r master -m -f -
+      echo "secret reset: $client"
+    fi
+    kc add-roles -r master --uusername "service-account-$client" --rolename admin
+    acts
+  args:
+    executable: /bin/bash
+    stdin: "{{ keycloak_automation_client_secret }}\n{{ admin_password }}"
+  register: _kc_automation_client
+  changed_when: >-
+    'created:' in _kc_automation_client.stdout
+    or 'secret reset:' in _kc_automation_client.stdout
+  # Reported by the task below, which no_log here would leave unexplained.
+  # Retries that run out fail the task whatever failed_when says, so the error
+  # is ignored here and that task stops the converge.
+  ignore_errors: true
+  retries: 15
+  delay: 4
+  until: _kc_automation_client.rc in [0, 3]
+  no_log: true
+
+# The last attempt's stderr: kcadm's errors, which name the sign-ins it tried
+# and how each was refused, and the script's own, neither carrying a
+# credential.
+- name: "Keycloak realm: stop when the automation client cannot be made"
+  ansible.builtin.fail:
+    msg:
+      - "The converge cannot manage Keycloak (rc={{ _kc_automation_client.rc }}): {{ _kc_automation_client_failure }}"
+      - "{{ (_kc_automation_client.stderr_lines | default([]))[-20:] }}"
+  vars:
+    _kc_automation_client_failure: >-
+      {{ ("the automation client " ~ keycloak_automation_client_id
+          ~ " cannot manage Keycloak's master realm, and the master admin's password does not sign in to it."
+          ~ " The client must exist in the master realm with keycloak_automation_client_secret from"
+          ~ " /etc/catena/config.json as its secret, and its service account must hold the master realm's admin role.")
+         if _kc_automation_client.rc == 3
+         else "the automation client step ran out of retries, Keycloak not ready or the client not made; its last attempt's errors follow." }}
+  when: _kc_automation_client.rc != 0
+
+# The session the admin move and the realm list run on. Its `always` is the
+# one the realm seed's import below explains.
+- name: "Keycloak realm: sign kcadm in to the master realm"
+  ansible.builtin.include_tasks:
+    file: _master_login.yml
+    apply:
+      tags: [always]
+
+# --- An admin email change moves the admin, and adds none ---
+#
+# The realm seed keys the realm admin on its username, admin_email.
+# keycloak-config-cli finds a user by username (then by email, first and last
+# name together), creates one it does not find, and deletes none
+# (UserImportService, keycloak-config-cli v6.5.1): re-seeded under a new email,
+# the seed would add a second admin. The step that refills an empty /admin
+# finds this realm's account by admin_email, and the master realm's second
+# factor is asked of the master account named by it. So before either import,
+# on the automation client's session, the admin's two accounts take the new
+# email, by id, which keeps their passwords and second factors (Keycloak keys
+# both on the user id):
+#   - the master realm's, whose username the admin API changes only while the
+#     realm allows username edits, so that is allowed for the one update;
+#   - this realm's, whose username follows its email
+#     (registrationEmailAsUsername).
+# In either realm, a new email that already holds an account is left for an
+# administrator to settle.
 - name: "Keycloak realm: move the admin's accounts to a changed admin email"
   ansible.builtin.shell: |
     set -euo pipefail
-    IFS= read -r KC_CLI_PASSWORD
-    export KC_CLI_PASSWORD
     old={{ _kc_recorded_admin_email | quote }}
     new={{ admin_email | quote }}
     realm={{ keycloak_realm | quote }}
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
-    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
-    kc() { docker exec -e KC_CLI_PASSWORD "$ct" /opt/keycloak/bin/kcadm.sh "$@"; }
-    login() { kc config credentials --server http://localhost:{{ keycloak_internal_port }} --realm master --user "$1"; }
+    kc() { docker exec {{ _kc_master_login.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
     user_id() { kc get users -r "$1" -q "username=$2" -q exact=true --fields id --format csv --noquotes; }
-    if ! login "$new" 2>/dev/null; then
-      login "$old"
+    old_id=$(user_id master "$old")
+    new_id=$(user_id master "$new")
+    if [ -n "$old_id" ] && [ -z "$new_id" ]; then
       allowed=$(kc get realms/master --fields editUsernameAllowed --format csv --noquotes)
-      id=$(user_id master "$old")
       kc update realms/master -s editUsernameAllowed=true
-      kc update "users/$id" -r master -s "username=$new"
+      kc update "users/$old_id" -r master -s "username=$new"
       kc update realms/master -s "editUsernameAllowed=$allowed"
-      login "$new"
       echo "moved: master"
+    elif [ -n "$old_id" ]; then
+      echo "both $old and $new hold an account in master: neither was moved" >&2
     fi
     old_id=$(user_id "$realm" "$old")
     new_id=$(user_id "$realm" "$new")
@@ -239,16 +358,8 @@
     fi
   args:
     executable: /bin/bash
-    stdin: "{{ admin_password }}"
-  vars:
-    _kc_recorded_admin_email: >-
-      {{ (_kc_admin_email_record.content | default('') | b64decode) | trim }}
   register: _kc_admin_move
   changed_when: "'moved:' in _kc_admin_move.stdout"
-  retries: 15
-  delay: 4
-  until: _kc_admin_move.rc == 0
-  no_log: true
   when:
     - _kc_recorded_admin_email | length > 0
     - _kc_recorded_admin_email != admin_email
@@ -260,24 +371,21 @@
 # task rather than reading as a missing realm, which would re-seed the admin's
 # password.
 - name: "Keycloak realm: list the realms Keycloak holds"
-  ansible.builtin.shell: |
-    set -euo pipefail
-    IFS= read -r KC_CLI_PASSWORD
-    export KC_CLI_PASSWORD
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
-    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
-    kc() { docker exec -e KC_CLI_PASSWORD "$ct" /opt/keycloak/bin/kcadm.sh "$@"; }
-    kc config credentials --server http://localhost:{{ keycloak_internal_port }} --realm master --user {{ admin_email | quote }}
-    kc get realms --fields realm --format csv --noquotes
-  args:
-    executable: /bin/bash
-    stdin: "{{ admin_password }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _kc_master_login.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - realms
+      - --fields
+      - realm
+      - --format
+      - csv
+      - --noquotes
   register: _kc_realms
   changed_when: false
-  retries: 15
-  delay: 4
-  until: _kc_realms.rc == 0
-  no_log: true
 
 # The seed, imported alone, and deleted whether the import succeeded or not.
 # The markers are written only once it has.
@@ -410,34 +518,16 @@
   delay: 4
   until: _keycloak_realm_server_ct.stdout | length > 0
 
+# Retried and re-resolving the container each attempt (_master_login.yml): the
+# sign-in is the first use of the name above, so a reschedule landing between
+# the two would put the whole cleanup back where it started, and a server still
+# finishing its own startup is waited out. `always` for the reason the realm
+# seed's import gives.
 - name: "Keycloak realm: kcadm login to master (for temp-admin cleanup)"
-  # RETRIED, and re-resolving the container each attempt: the login is the
-  # first use of the name above, so a reschedule landing between the two
-  # would put the whole cleanup back where it started. `until` on rc means a
-  # server still finishing its own startup is waited out rather than reported
-  # as a bad password -- which is what no_log turns this failure into. The
-  # password reaches kcadm as KC_CLI_PASSWORD, read from stdin, never an argv.
-  ansible.builtin.shell: |
-    set -o pipefail
-    IFS= read -r KC_CLI_PASSWORD
-    export KC_CLI_PASSWORD
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
-      | head -n1)
-    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
-    docker exec -e KC_CLI_PASSWORD "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
-      --server "http://localhost:{{ keycloak_internal_port }}" \
-      --realm master \
-      --user {{ admin_email | quote }}
-  args:
-    executable: /bin/bash
-    stdin: "{{ admin_password }}"
-  register: _keycloak_master_login
-  changed_when: false
-  retries: 15
-  delay: 4
-  until: _keycloak_master_login.rc == 0
-  no_log: true
+  ansible.builtin.include_tasks:
+    file: _master_login.yml
+    apply:
+      tags: [always]
 
 - name: "Keycloak realm: look up bootstrap admin user-id in master"
   ansible.builtin.command:
@@ -571,6 +661,47 @@
           - /tmp/master-profile-restored.json
       changed_when: true
 
+# The master realm's sign-in at auth.<zone>/admin: repeated wrong passwords
+# lock an account out as they do in this realm, a pause that grows with each
+# failure up to 15 minutes (bruteForceProtected; the numbers are the ones
+# Keycloak gives every realm it creates, which this realm's seed repeats:
+# RealmManager setupRealmDefaults, Keycloak 26.6.7), and the master admin, while
+# holding no one-time code, is asked to set one up at their next sign-in
+# (CONFIGURE_TOTP), after which the master realm's browser flow asks for it at
+# every sign-in. Only the switch and the missing second factor are put back:
+# numbers tuned in the master realm stay. The role README says how a lockout or
+# a lost second factor is lifted from the server.
+- name: "Keycloak realm: the master realm locks out wrong passwords and asks its admin for a second factor"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    admin={{ admin_email | quote }}
+    if [ "$(kc get realms/master --fields bruteForceProtected --format csv --noquotes)" != true ]; then
+      kc update realms/master -s bruteForceProtected=true
+      echo "locks out: master"
+    fi
+    id=$(kc get users -r master -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
+    if [ -z "$id" ]; then
+      echo "the master realm has no account $admin to ask for a second factor" >&2
+      exit 0
+    fi
+    held=$(kc get "users/$id/credentials" -r master --fields type --format csv --noquotes)
+    if grep -qxF otp <<<"$held"; then
+      exit 0
+    fi
+    asked=$(kc get "users/$id" -r master --fields requiredActions --format csv --noquotes)
+    if grep -qxF CONFIGURE_TOTP <<<"${asked//,/$'\n'}"; then
+      exit 0
+    fi
+    kc update "users/$id" -r master -s 'requiredActions+=CONFIGURE_TOTP'
+    echo "asks for a second factor: $admin"
+  args:
+    executable: /bin/bash
+  register: _keycloak_master_posture
+  changed_when: >-
+    'locks out:' in _keycloak_master_posture.stdout
+    or 'asks for a second factor:' in _keycloak_master_posture.stdout
+
 # The tier roles the sign-in flows of realm-vps.yaml.j2 check, each held
 # through its group. keycloak-config-cli makes a declared role's composites and
 # a declared group's role mappings exact, so the realm file declares neither and
@@ -670,6 +801,33 @@
     executable: /bin/bash
   register: _keycloak_admin_rejoin
   changed_when: "'joined:' in _keycloak_admin_rejoin.stdout"
+
+# A sign-in through an external identity provider finishes in Keycloak's broker
+# flows and never returns to the application's sign-in flow, so its tier check
+# does not run (IdentityBrokerService, Keycloak 26.6.7). The post-broker-login
+# flow realm-vps.yaml.j2 declares runs it, and a provider runs that flow only
+# when it names it; the realm has no default for it. So each provider that
+# names none is bound to it, adding only: a provider bound to another flow by
+# hand keeps it. A provider linked to an organization is left out, since this
+# update would unlink it (IdentityProviderResource strips the organization).
+- name: "Keycloak realm: every identity provider runs the tier check after a brokered sign-in"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    flow=catena-post-broker-login
+    providers=$(kc get identity-provider/instances -r "$realm" -q realmOnly=true --fields alias,postBrokerLoginFlowAlias --format csv --noquotes)
+    while IFS=, read -r alias bound; do
+      if [ -z "$alias" ] || [ -n "$bound" ]; then
+        continue
+      fi
+      kc update "identity-provider/instances/$alias" -r "$realm" -s "postBrokerLoginFlowAlias=$flow"
+      echo "bound: $alias"
+    done <<<"$providers"
+  args:
+    executable: /bin/bash
+  register: _keycloak_post_broker_binding
+  changed_when: "'bound:' in _keycloak_post_broker_binding.stdout"
 
 # The whole realm, for its switch and its sign-in page name. `--fields` would
 # print the attributes map with its values dropped.

@@ -40,7 +40,7 @@ BOOTSTRAP = ROLE / "tasks" / "realm_bootstrap.yml"
 
 add_all_plugin_dirs(str(ANSIBLE / "playbooks"))
 
-PASSWORD = "Adm1n-pass_word"
+CT = "keycloak_server.1.abc"
 LIST = "list the realms Keycloak holds"
 SEED = "seed the admin password and the realm settings"
 NOTICE = "the realm is switched off, and stays off"
@@ -50,14 +50,8 @@ FAKE_DOCKER = textwrap.dedent('''\
     import json, os, sys
     state = json.load(open(os.environ["FAKE_KC_STATE"]))
     args = sys.argv[1:]
-    if args[0] == "ps":
-        print("keycloak_server.1.abc")
-        sys.exit(0)
-    assert args[:4] == ["exec", "-e", "KC_CLI_PASSWORD", "keycloak_server.1.abc"], args
-    kc = args[5:]
-    if kc[:2] == ["config", "credentials"]:
-        assert kc[kc.index("--realm") + 1] == "master", kc
-        sys.exit(0 if os.environ.get("KC_CLI_PASSWORD") == state["password"] else 1)
+    assert args[:3] == ["exec", "keycloak_server.1.abc", "/opt/keycloak/bin/kcadm.sh"], args
+    kc = args[3:]
     if kc[:2] == ["get", "realms"]:
         if state["down"]:
             sys.exit("HTTP request error: Connection refused")
@@ -163,7 +157,8 @@ def test_the_realms_are_listed_after_the_admin_move_and_before_the_seed():
     assert move < _index(tasks, LIST) < _index(tasks, SEED)
 
 
-def _list(tmp_path: Path, realms=("master", "vps"), down=False, password=PASSWORD):
+def _list(tmp_path: Path, realms=("master", "vps"), down=False):
+    """The listing, run on the session the sign-in before it opened."""
     task = _task(LIST)
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -171,13 +166,11 @@ def _list(tmp_path: Path, realms=("master", "vps"), down=False, password=PASSWOR
     docker.write_text(FAKE_DOCKER)
     docker.chmod(docker.stat().st_mode | stat.S_IEXEC)
     state = tmp_path / "state.json"
-    state.write_text(json.dumps({"password": PASSWORD, "realms": list(realms), "down": down}))
-    variables = {"keycloak_compose_name": "keycloak", "keycloak_server_service": "server",
-                 "keycloak_internal_port": 8080, "admin_email": "admin@acme.test"}
-    script = Templar(loader=DataLoader(), variables=variables).template(
-        trust_as_template(task["ansible.builtin.shell"]))
+    state.write_text(json.dumps({"realms": list(realms), "down": down}))
+    templar = Templar(loader=DataLoader(), variables={"_kc_master_login": {"stdout": CT}})
+    argv = [templar.template(trust_as_template(a)) for a in task["ansible.builtin.command"]["argv"]]
     return subprocess.run(
-        ["bash", "-c", script], input=password + "\n", text=True, capture_output=True,
+        [str(docker), *argv[1:]], text=True, capture_output=True,
         env={"PATH": f"{bindir}:/usr/bin:/bin", "FAKE_KC_STATE": str(state)})
 
 
@@ -187,11 +180,11 @@ def test_the_listing_names_each_realm_on_a_line(tmp_path):
     assert proc.stdout.splitlines() == ["master", "vps"]
 
 
-@pytest.mark.parametrize("kwargs", [{"down": True}, {"password": "wrong"}], ids=["down", "login"])
-def test_a_failed_listing_fails_rather_than_reading_as_a_missing_realm(tmp_path, kwargs):
-    assert _list(tmp_path, **kwargs).returncode != 0
+def test_a_failed_listing_fails_rather_than_reading_as_a_missing_realm(tmp_path):
+    assert _list(tmp_path, down=True).returncode != 0
     task = _task(LIST)
-    assert task["until"] == "_kc_realms.rc == 0" and "failed_when" not in task
+    assert task["ansible.builtin.command"]["argv"][0] == "docker"
+    assert "failed_when" not in task
 
 
 # --- the converge completes on a switched-off realm and says so ----------------
@@ -199,7 +192,7 @@ def test_a_failed_listing_fails_rather_than_reading_as_a_missing_realm(tmp_path,
 def test_every_kcadm_session_signs_in_to_the_master_realm():
     logins = [(name, re.findall(r"--realm\s+(\S+)", text))
               for name, _, text in _commands() if "config credentials" in text]
-    assert len(logins) >= 4, logins
+    assert len(logins) >= 2, logins
     for name, realms in logins:
         assert realms and set(realms) == {"master"}, name
 

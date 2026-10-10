@@ -159,6 +159,11 @@ smtp_from: "{{ _smtp.sender }}"
 # both values, so nothing can accept a setting that changes nothing.
 smtp_use_starttls: true
 
+# The master realm's service account every realm import and kcadm session of
+# the converge signs in with (tasks/_master_login.yml), holding the master
+# realm's admin role. Its secret is keycloak_automation_client_secret.
+keycloak_automation_client_id: "catena-automation"
+
 # The catena-admin panel's realm service account (users + groups). The panel
 # reads the id from its own env default, so this is the converge's copy of a
 # product constant and the two must agree -- ops automation/audit/panel_env.py

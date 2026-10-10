@@ -24,46 +24,12 @@
 - name: "Keycloak groups: migrate administrators/client-staff -> admin/staff"
   when: not (_kc_group_migration_marker.stat.exists | default(false))
   block:
-    - name: "Keycloak groups: find running server container"
-      ansible.builtin.shell: |
-        set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
-          | head -n1
-      args:
-        executable: /bin/bash
-      register: _kc_group_server_ct
-      changed_when: false
-      retries: 30
-      delay: 4
-      until: _kc_group_server_ct.stdout | length > 0
-
-    # The password reaches kcadm as KC_CLI_PASSWORD, read from stdin by the
-    # bash wrapper, never an argv.
+    # The session the steps below run on, in the container it names.
     - name: "Keycloak groups: kcadm login to master"
-      ansible.builtin.command:
-        argv:
-          - bash
-          - -c
-          - 'IFS= read -r KC_CLI_PASSWORD; export KC_CLI_PASSWORD; exec "$@"'
-          - kcadm-login
-          - docker
-          - exec
-          - -e
-          - KC_CLI_PASSWORD
-          - "{{ _kc_group_server_ct.stdout }}"
-          - /opt/keycloak/bin/kcadm.sh
-          - config
-          - credentials
-          - --server
-          - "http://localhost:{{ keycloak_internal_port }}"
-          - --realm
-          - master
-          - --user
-          - "{{ admin_email }}"
-        stdin: "{{ admin_password }}"
-      changed_when: false
-      no_log: true
+      ansible.builtin.include_tasks:
+        file: _master_login.yml
+        apply:
+          tags: [always]
 
     - name: "Keycloak groups: migrate each old group into its new tier"
       ansible.builtin.include_tasks: _migrate_one_group.yml
@@ -74,7 +40,7 @@
         loop_var: _grp
         label: "{{ _grp.old }} -> {{ _grp.new }}"
       vars:
-        kc_ct: "{{ _kc_group_server_ct.stdout }}"
+        kc_ct: "{{ _kc_master_login.stdout }}"
 
     - name: "Keycloak groups: mark migration complete"
       ansible.builtin.file:

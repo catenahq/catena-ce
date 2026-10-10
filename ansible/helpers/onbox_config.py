@@ -286,7 +286,12 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "catena_marketplace_token": mint_url_safe,
     # SSO service credentials.
     "keycloak_db_password": mint_strong_password,
-    # Signs the session cookie the client apps' gates share.
+    # The master realm's automation client (reconcile/roles/keycloak): every
+    # realm import and kcadm session the converge makes signs in with it, so
+    # the master admin's own password can carry a second factor.
+    "keycloak_automation_client_secret": mint_strong_password,
+    # The primary domain's secret each client app's gate derives its own cookie
+    # secret from (catena-admin payload/lib/clients_provisioner.py).
     "oauth2_proxy_cookie_secret": mint_oauth2_proxy_cookie_secret,
     # One per admin tool's gate, each signing a cookie for that tool's host
     # alone (reconcile/roles/oauth2_proxy oauth2_proxy_apps cookie_secret_var),

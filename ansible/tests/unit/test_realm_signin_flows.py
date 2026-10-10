@@ -142,9 +142,11 @@ def test_every_sub_flow_is_declared_once():
     realm = _realm()
     aliases = [f["alias"] for f in realm["authenticationFlows"]]
     assert len(aliases) == len(set(aliases))
+    top = {f["alias"] for f in realm["authenticationFlows"] if f["topLevel"]}
+    assert top == set(ADMITTED) | {"catena-post-broker-login"}
     referenced = [e["flowAlias"] for f in realm["authenticationFlows"]
                   for e in f["authenticationExecutions"] if e.get("authenticatorFlow")]
-    assert sorted(referenced) == sorted(a for a in aliases if a not in ADMITTED)
+    assert sorted(referenced) == sorted(a for a in aliases if a not in top)
 
 
 def test_the_converge_reads_both_flow_ids_and_fails_without_them():

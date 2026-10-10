@@ -50,7 +50,7 @@
 
   pre_tasks:
     # Load the on-box config store so the validate checks that read its
-    # secrets (the Keycloak admin login smoke test) see them. See
+    # secrets (the Keycloak sign-in of the mail smoke test) see them. See
     # tasks/load_onbox_config.yml.
     - name: "Load on-box config store"
       ansible.builtin.include_tasks: tasks/load_onbox_config.yml
@@ -73,7 +73,7 @@
 #
 # Uses kcadm.sh (the Keycloak Admin REST CLI shipped in the
 # server image) to:
-#   1. authenticate as the master-realm admin,
+#   1. sign in to the master realm as the converge's automation client,
 #   2. trigger sendverifyemail against the bootstrap admin user in the
 #      `vps` realm.
 # Keycloak's worker reads the realm-level smtpServer config (rendered
@@ -165,26 +165,12 @@
         - _smtp_enabled | bool
         - (_keycloak_server_ct.stdout | default('') | length) > 0
 
-    - name: "Keycloak: kcadm login as master-realm admin"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ _keycloak_server_ct.stdout }}"
-          - /opt/keycloak/bin/kcadm.sh
-          - config
-          - credentials
-          - --server
-          - "http://localhost:8080"
-          - --realm
-          - master
-          - --user
-          - "{{ _bootstrap_email }}"
-          - --password
-          - "{{ admin_password }}"
-      register: _kc_login
-      changed_when: false
-      no_log: true
+    # The converge's own sign-in: the master realm's automation client, its
+    # secret on stdin (reconcile/roles/keycloak/tasks/_master_login.yml).
+    - name: "Keycloak: kcadm login to master as the automation client"
+      ansible.builtin.include_role:
+        name: keycloak
+        tasks_from: _master_login
       when:
         - _smtp_enabled | bool
         - (_keycloak_server_ct.stdout | default('') | length) > 0
@@ -216,7 +202,7 @@
       when:
         - _smtp_enabled | bool
         - (_keycloak_server_ct.stdout | default('') | length) > 0
-        - _kc_login is succeeded
+        - _kc_master_login is succeeded
 
     - name: "Keycloak: parse admin user-id"
       ansible.builtin.set_fact:
@@ -245,7 +231,7 @@
       when:
         - _smtp_enabled | bool
         - (_keycloak_server_ct.stdout | default('') | length) > 0
-        - _kc_login is succeeded
+        - _kc_master_login is succeeded
         - (_kc_admin_user_id | default('') | length) > 0
       # kcadm update on send-verify-email returns 0 if the realm has
       # SMTP wired AND the worker accepts the dispatch. A real SMTP

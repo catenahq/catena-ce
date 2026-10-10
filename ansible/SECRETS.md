@@ -106,6 +106,7 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `catena_admin_gate_secret`
 - `catena_marketplace_token`
 - `keycloak_db_password`
+- `keycloak_automation_client_secret`, the master realm client the converge signs in with
 - `oauth2_proxy_cookie_secret`, the client apps' gates
 - `oauth2_proxy_cookie_secret_<zone>`, one per domain in `CLOUDFLARE_ZONES`
 - `catena_admin_gate_cookie_secret`, the panel's gate

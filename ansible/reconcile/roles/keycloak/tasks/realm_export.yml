@@ -53,50 +53,24 @@
       hasn't been deployed yet). The next converge will pick this up.
   when: (_kc_export_server_ct.stdout | default('') | length) == 0
 
-- name: "Keycloak realm export: assert credentials are present pre-kcadm"
+- name: "Keycloak realm export: assert the automation client's secret is present pre-kcadm"
   ansible.builtin.assert:
     that:
-      - admin_email is string and admin_email | length > 0
-      - admin_password is string and admin_password | length > 0
+      - keycloak_automation_client_secret is string and keycloak_automation_client_secret | length > 0
     fail_msg: >-
-      Master-realm credentials missing before kcadm login
-      (admin_email_len={{ admin_email | default('') | length }},
-       admin_password_len={{ admin_password | default('') | length }}).
-      Likely cause: these keys are absent from the on-box config store.
-      Inspect /etc/catena/config.json.
+      The master-realm automation client's secret is missing before the kcadm
+      sign-in. Likely cause: keycloak_automation_client_secret is absent from
+      the on-box config store. Inspect /etc/catena/config.json.
   when: (_kc_export_server_ct.stdout | default('') | length) > 0
 
-- name: "Keycloak realm export: kcadm.sh login as master-realm admin"
-  # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py).
-  ansible.builtin.shell: |
-    set -o pipefail
-    IFS= read -r KC_CLI_PASSWORD
-    export KC_CLI_PASSWORD
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
-    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
-    docker exec -e KC_CLI_PASSWORD "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
-      --server {{ ("http://localhost:" ~ keycloak_internal_port) | quote }} \
-      --realm master \
-      --user {{ admin_email | quote }}
-  args:
-    executable: /bin/bash
-    stdin: "{{ admin_password }}"
-  register: _kc_export_login
-  changed_when: false
-  # no_log: true keeps the task's stdin out of the log. The failure path
-  # surfaces rc + stderr, so a credential rejected after a rotation is told
-  # apart from a network or container error without keeping the secret in the
-  # log.
-  no_log: true
-  failed_when: false
-  # Keycloak intermittently returns [unknown_error] on the master-realm
-  # token endpoint between two back-to-back kcadm logins (see the
-  # warning surface below). Retry to absorb the transient; the realm-
-  # export artifact is non-critical drift-catch, so we degrade to
-  # warn-and-skip if every retry still fails.
-  retries: 5
-  delay: 4
-  until: (_kc_export_login.rc | default(1)) == 0
+# A failed sign-in is left to the warning below (kc_master_login_optional).
+- name: "Keycloak realm export: kcadm login to master as the automation client"
+  ansible.builtin.include_tasks:
+    file: _master_login.yml
+    apply:
+      tags: [always]
+  vars:
+    kc_master_login_optional: true
   when: (_kc_export_server_ct.stdout | default('') | length) > 0
 
 - name: "Keycloak realm export: warn on kcadm login failure (drift-catch is non-critical)"
@@ -108,28 +82,28 @@
   # diagnose without reading logs, but do not fail the play.
   ansible.builtin.debug:
     msg: >-
-      WARN: kcadm.sh login (master realm, user {{ admin_email }}) failed
-      rc={{ _kc_export_login.rc }} after retries.
-      stderr (last 500 chars): {{ (_kc_export_login.stderr | default('') )[-500:] }}
-      stdout (last 200 chars): {{ (_kc_export_login.stdout | default('') )[-200:] }}
+      WARN: kcadm.sh login (master realm, client {{ keycloak_automation_client_id }}) failed
+      rc={{ _kc_master_login.rc }} after retries.
+      stderr (last 500 chars): {{ (_kc_master_login.stderr | default('') )[-500:] }}
+      stdout (last 200 chars): {{ (_kc_master_login.stdout | default('') )[-200:] }}
       Container: {{ _kc_export_server_ct.stdout }}.
       Skipping JSON export this converge -- the next converge retries.
       Likely causes:
       (1) Keycloak transient on the master token endpoint,
-      (2) master admin password drift between the on-box store and the
-          Keycloak DB,
+      (2) the automation client's secret differs between the on-box store and
+          the Keycloak DB,
       (3) docker exec connectivity (container restarted mid-task).
   when:
     - (_kc_export_server_ct.stdout | default('') | length) > 0
-    - _kc_export_login is defined
-    - (_kc_export_login.rc | default(0)) != 0
+    - _kc_master_login is defined
+    - (_kc_master_login.rc | default(0)) != 0
 
 - name: "Keycloak realm export: dump realm JSON via kcadm.sh"
   ansible.builtin.command:
     argv:
       - docker
       - exec
-      - "{{ _kc_export_server_ct.stdout }}"
+      - "{{ _kc_master_login.stdout }}"
       - /opt/keycloak/bin/kcadm.sh
       - get
       - "realms/{{ keycloak_realm }}"
@@ -145,7 +119,7 @@
   failed_when: false
   when:
     - (_kc_export_server_ct.stdout | default('') | length) > 0
-    - (_kc_export_login.rc | default(1)) == 0
+    - (_kc_master_login.rc | default(1)) == 0
 
 - name: "Keycloak realm export: warn on dump failure (drift-catch is non-critical)"
   ansible.builtin.debug:
@@ -185,7 +159,7 @@
     argv:
       - docker
       - exec
-      - "{{ _kc_export_server_ct.stdout }}"
+      - "{{ _kc_master_login.stdout }}"
       - /opt/keycloak/bin/kcadm.sh
       - get
       - clients
@@ -198,7 +172,7 @@
   failed_when: false
   when:
     - (_kc_export_server_ct.stdout | default('') | length) > 0
-    - (_kc_export_login.rc | default(1)) == 0
+    - (_kc_master_login.rc | default(1)) == 0
 
 - name: "Keycloak realm export: write clients JSON"
   ansible.builtin.copy:

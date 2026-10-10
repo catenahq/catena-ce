@@ -22,13 +22,16 @@
 - name: "Keycloak realm: keycloak-config-cli import-update-merge ({{ kc_import_dir }})"
   ansible.builtin.command:
     argv:
-      # KEYCLOAK_PASSWORD is read from this task's stdin by the bash wrapper
-      # and forwarded to the container by name, never spelled out on an argv,
-      # which `ps` shows every local user. A task `environment:` would not do:
-      # Ansible prefixes it to the module's own `/bin/sh -c` command line.
+      # The import signs in to the master realm as the automation client with
+      # the client-credentials grant (KeycloakConfigProperties grant-type,
+      # client-id and client-secret, keycloak-config-cli 6.5.1). Its secret,
+      # KEYCLOAK_CLIENTSECRET, is read from this task's stdin by the bash
+      # wrapper and forwarded to the container by name, never spelled out on an
+      # argv, which `ps` shows every local user. A task `environment:` would not
+      # do: Ansible prefixes it to the module's own `/bin/sh -c` command line.
       - bash
       - -c
-      - 'IFS= read -r KEYCLOAK_PASSWORD; export KEYCLOAK_PASSWORD; exec "$@"'
+      - 'IFS= read -r KEYCLOAK_CLIENTSECRET; export KEYCLOAK_CLIENTSECRET; exec "$@"'
       - kc-import
       - docker
       - run
@@ -38,9 +41,11 @@
       - -e
       - "KEYCLOAK_URL=http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}"
       - -e
-      - "KEYCLOAK_USER={{ admin_email }}"
+      - "KEYCLOAK_GRANTTYPE=client_credentials"
       - -e
-      - KEYCLOAK_PASSWORD
+      - "KEYCLOAK_CLIENTID={{ keycloak_automation_client_id }}"
+      - -e
+      - KEYCLOAK_CLIENTSECRET
       - -e
       - "KEYCLOAK_AVAILABILITYCHECK_ENABLED=true"
       # Short per-attempt wait: kc-config-cli resolves keycloak-server via
@@ -152,7 +157,7 @@
       - -v
       - "{{ kc_import_dir }}:/config:ro"
       - "{{ keycloak_config_cli_image }}"
-    stdin: "{{ admin_password }}"
+    stdin: "{{ keycloak_automation_client_secret }}"
   register: _keycloak_realm_import
   # Tool reports its own changed/no-op state on stdout. Treat as
   # `changed_when` true if a file it imports was re-rendered OR the
@@ -167,8 +172,8 @@
   # `failed_when: false` so the play doesn't abort BEFORE we get a
   # chance to surface stdout/stderr through the debug + fail pair
   # below. no_log: true on THIS task suppresses Ansible's default
-  # task-result log (which echoes the module's stdin and would leak
-  # admin_password); the registered variable still carries
+  # task-result log (which echoes the module's stdin and would leak the
+  # client secret); the registered variable still carries
   # the stdout/stderr that the debug task explicitly emits next.
   failed_when: false
   # Retry the whole run on any failure: each attempt is a FRESH container
@@ -188,8 +193,8 @@
   no_log: true
 
 # Surface stdout + stderr from the kc-config-cli run. Restricted to
-# the two fields that are SAFE to log -- the stdin (which holds
-# admin_password) lives on the task definition above, not in
+# the two fields that are SAFE to log -- the stdin (which holds the
+# client secret) lives on the task definition above, not in
 # _keycloak_realm_import.* fields. Without this, no_log: true on the
 # parent task blackholes the actual error message, across the dozens of
 # realm YAMLs that just rendered.
