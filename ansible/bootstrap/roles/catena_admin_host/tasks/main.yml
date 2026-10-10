@@ -7,12 +7,17 @@
 
 # SSH dispatch passes several values as env vars so the reserved-action shells
 # read them without exposing them in argv/$SSH_ORIGINAL_COMMAND/the process
-# table. The container's paramiko client calls
-# channel.set_environment_variable(NAME, ...); sshd rejects each var unless it
-# is whitelisted via AcceptEnv. Match-User scope so the rule only applies to
+# table. The panel's SSH runner (catena-admin shell/actions/dispatcher.go)
+# sets each with session.Setenv; sshd rejects each var unless it is
+# whitelisted via AcceptEnv. Match-User scope so the rule only applies to
 # the runner account and does not leak to operator-shell sessions.
 #   - X_FORWARDED_EMAIL       -- the clicking admin's email, for audit-trail
 #                                actions (e.g. managed-update-pause).
+#   - CATENA_DISPATCH_PAYLOAD -- the payload of every dispatched request: a
+#                                settings write, a restore keyset, a move's
+#                                pairing code. The forced command below hands
+#                                sudo the action name alone, and the dispatcher
+#                                reads this as $PAYLOAD.
 #   - CATENA_CF_CANDIDATE_TOKEN -- a candidate Cloudflare token the Settings
 #                                panel validates via cloudflared-check BEFORE
 #                                persist; piped to the engine on stdin.
@@ -42,10 +47,10 @@
     mode: "0644"
     content: |
       # {{ ansible_managed }}
-      # Allow the catena-admin container's paramiko client to forward the
-      # clicking admin's email, a candidate Cloudflare token, and a candidate
-      # S3 backup endpoint to the host dispatcher via env vars. Scoped to the
-      # runner account; does not affect operator shells.
+      # Allow the catena-admin panel's SSH runner to forward the clicking
+      # admin's email, each request's payload, a candidate Cloudflare token,
+      # and a candidate S3 backup endpoint to the host dispatcher via env
+      # vars. Scoped to the runner account; does not affect operator shells.
       Match User {{ catena_admin_runner_user }}
           AcceptEnv {{ catena_admin_dispatch_env_passthrough | join(' ') }}
       Match all
@@ -182,6 +187,10 @@
     # client's requested command (e.g. `foo; rm -rf /`) cannot smuggle
     # extra commands past sudo. The dispatcher matches arg $1 against
     # its allow-list and rejects anything unknown.
+    #
+    # That arg is the action name alone, because sudo logs it: a request's
+    # payload rides CATENA_DISPATCH_PAYLOAD, and the dispatcher refuses an
+    # arg carrying anything after the name.
     _runner_options: >-
       no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty
     _runner_command: >-

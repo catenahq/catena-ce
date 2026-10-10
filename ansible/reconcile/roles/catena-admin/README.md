@@ -4,38 +4,32 @@ Host-side setup AND container deploy for the per-VPS admin panel -- the
 catena-admin Go shell. This role prepares everything the container
 expects to find on the host, then creates the container itself as a
 TIER-1 SWARM SERVICE, with the argv rendered by
-[../../playbooks/filter_plugins/catena_admin_service.py](../../playbooks/filter_plugins/catena_admin_service.py).
+[../../../playbooks/filter_plugins/catena_admin_service.py](../../../playbooks/filter_plugins/catena_admin_service.py).
 
 ## What this role does
 
-- Creates the `catena-admin-runner` system user with a forced-command
-  SSH key. The admin container SSHes into this account to dispatch
-  actions on the host; the forced command pins every connection to the
-  dispatcher.
-- Installs the dispatcher script
-  (`/usr/local/sbin/catena-admin-runner`) and the bash dispatch table
-  (`/etc/catena/admin-actions`) rendered from the canonical action
-  catalog at [templates/actions.yml.j2](templates/actions.yml.j2)
-  merged with per-inventory `catena_admin_extra_actions`.
+- Renders the bash dispatch table (`/etc/catena/admin-actions`) that the
+  dispatcher (`/usr/local/sbin/catena-admin-runner`) sources, from the
+  canonical action catalog at [templates/actions.yml.j2](templates/actions.yml.j2)
+  merged with per-inventory `catena_admin_extra_actions`. The runner
+  account, its forced-command SSH key and the dispatcher itself are
+  [../../../bootstrap/roles/catena_admin_host](../../../bootstrap/roles/catena_admin_host/README.md).
 - Creates `/etc/catena/admin-actions.d/`, root-owned, and reads nothing
   from it. The dispatcher offers a name this table does not carry to the
-  drop-ins there before refusing it, which is how the thirty-six actions
-  that ship in the panel image are reachable without being authorized
+  drop-ins there before refusing it, which is how the actions that
+  ship in the panel image are reachable without being authorized
   from here. Each runs a binary the payload installs at a path the
   payload chose, so this repo would have been holding an authorization
   record for names it does not own -- and a one-line change to any of
   them would have needed a converge against a live client. The one action
   still authorized here is declared, with its reason, in
-  [../../tests/unit/test_converge_dispatch_table.py](../../tests/unit/test_converge_dispatch_table.py).
+  [../../../tests/unit/test_converge_dispatch_table.py](../../../tests/unit/test_converge_dispatch_table.py).
 - Renders the catalog the Go shell reads at runtime
   (`/etc/catena/admin-actions.yml`) from the same source, plus the
   parallel YAML allow-list at `/etc/catena/admin-allowed.yaml`
   (documentation + audit artifact).
-- Generates an ed25519 keypair under `/etc/catena/admin-ssh/`
-  (chowned for the container's uid 1000) and seeds known_hosts via
-  ssh-keyscan.
-- Creates the bind-mount targets the service
-  ([../../playbooks/filter_plugins/catena_admin_service.py](../../playbooks/filter_plugins/catena_admin_service.py))
+- Deploys against the bind-mount targets the service
+  ([../../../playbooks/filter_plugins/catena_admin_service.py](../../../playbooks/filter_plugins/catena_admin_service.py))
   expects: `/etc/catena/admin-ssh/`, `/etc/catena/admin-actions.yml`,
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
   populated by catena-backup-run + catena-gatus-sync), and

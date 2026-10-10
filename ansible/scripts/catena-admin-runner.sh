@@ -3,14 +3,16 @@
 # runner user's ssh key is allowed to run (enforced by authorized_keys'
 # command= stanza).
 #
-# Managed by Ansible (reconcile/roles/catena-admin). Do not edit by hand.
+# Managed by Ansible (bootstrap/roles/catena_admin_host). Do not edit by hand.
 #
-# $1 is $SSH_ORIGINAL_COMMAND, which for arg-less actions is just
-# the action name, and for password-arg actions is "<name> <payload>"
-# as one arg. The action name is split off and the remainder exposed
-# as $PAYLOAD (an env var, not an argv element, so it stays out of
-# `ps aux`). Actions that don't reference $PAYLOAD behave identically
-# to arg-less wiring.
+# $1 is $SSH_ORIGINAL_COMMAND, which is the action name and nothing else.
+# sudo logs the command line it runs, and the process table shows it, so a
+# request's payload rides the CATENA_DISPATCH_PAYLOAD environment variable
+# instead (sshd AcceptEnv and the sudoers env_keep pass it, both rendered from
+# catena_admin_dispatch_env_passthrough) and is exposed as $PAYLOAD. A command
+# line carrying anything after the name is refused before any action runs, and
+# the refusal names the action alone. Actions that don't reference $PAYLOAD
+# behave identically to arg-less wiring.
 #
 # Anything not in the dispatch table exits non-zero with no stdout.
 # The dispatcher itself is root-owned 0755 so the runner user can exec
@@ -19,16 +21,18 @@
 # the exact dispatcher path.
 #
 # The dispatch table itself lives in /etc/catena/admin-actions
-# (rendered from admin-actions.j2 by the role). Splitting the data
+# (rendered from admin-actions.j2 by reconcile/roles/catena-admin). Splitting the data
 # out keeps this file plain bash so the no-Jinja-in-executables CI
 # guard passes -- only the data file carries Jinja, and it has no
 # script extension.
 set -euo pipefail
 
-_input="${1:-}"
-action="${_input%% *}"      # first whitespace-delimited token
-PAYLOAD="${_input#"$action"}"
-PAYLOAD="${PAYLOAD# }"      # strip one leading space if any
+action="${1:-}"
+if [ "$#" -gt 1 ] || [[ "$action" == *[[:space:]]* ]]; then
+    echo "catena-admin-runner: refusing '${action%%[[:space:]]*}': a request's payload rides CATENA_DISPATCH_PAYLOAD, never the command line" >&2
+    exit 2
+fi
+PAYLOAD="${CATENA_DISPATCH_PAYLOAD:-}"
 export PAYLOAD
 
 ACTIONS_FILE="${CATENA_ADMIN_ACTIONS_FILE:-/etc/catena/admin-actions}"

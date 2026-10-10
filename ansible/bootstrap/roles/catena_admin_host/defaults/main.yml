@@ -22,9 +22,12 @@ catena_admin_runner_home: "/home/catena-admin-runner"
 # tasks/main.yml -- sshd's AcceptEnv and the sudoers env_keep -- because the
 # dispatch crosses both, and a name missing from either arrives as an empty
 # string rather than an error. Names must match what the panel sends
-# (catena-admin shell/web/cloudflared.go + shell/web/backupendpoint.go).
+# (catena-admin shell/actions/dispatcher.go, shell/web/cloudflared.go and
+# shell/web/backupendpoint.go). CATENA_DISPATCH_PAYLOAD is every request's
+# payload, which scripts/catena-admin-runner.sh reads as $PAYLOAD.
 catena_admin_dispatch_env_passthrough:
   - X_FORWARDED_EMAIL
+  - CATENA_DISPATCH_PAYLOAD
   - CATENA_CF_CANDIDATE_TOKEN
   - CATENA_BACKUP_CANDIDATE_REPO
   - CATENA_BACKUP_CANDIDATE_ACCESS_KEY

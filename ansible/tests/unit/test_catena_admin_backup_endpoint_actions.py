@@ -64,6 +64,7 @@ def test_the_passthrough_list_stays_minimal():
     passthrough = panel_vars()["catena_admin_dispatch_env_passthrough"]
     assert set(passthrough) == {
         "X_FORWARDED_EMAIL",
+        "CATENA_DISPATCH_PAYLOAD",
         "CATENA_CF_CANDIDATE_TOKEN",
         *CANDIDATE_ENV_VARS,
     }
