@@ -25,7 +25,7 @@ keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
 # different bytes over time; a build tag names one image, and the update
 # engine orders builds of one version by their build time. Phase Two tracks
 # Keycloak 26.6.x (one minor behind stock 26.7).
-keycloak_image_tag: "26.6.7.1790010472"
+keycloak_image_tag: "26.8.0.1790930320"
 keycloak_image: >-
   {{ ('quay.io/phasetwo/phasetwo-keycloak:' ~ keycloak_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
