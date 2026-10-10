@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 185 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 188 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -34,6 +34,7 @@ The 185 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_validate` | A converged Community host validates itself end to end using only the shipped installer. |
 | `cf_tunnel_regenerate_round_trip` | Rotating the public tunnel mints a new one, repoints the public name at it, revokes the old one, and rolls the connector onto the new credential. |
 | `clamd_reload_on_a_small_host` | On a server with less than 8 GB of memory, a signature reload of the shared antivirus scanner keeps memory flat, and mail that arrives during the reload is still delivered. |
+| `client_container_raw_network` | A container one of the client applications runs on the server cannot take over the network address of one of the server's own services on the private network they share, nor put a forged packet onto that network for such a service to answer, whatever low-level network access the container engine grants a container by default. |
 | `cloudflare_api_rotation_round_trip` | The edge-provider API credential is rotated on the planned cycle and the host keeps serving across the change. |
 | `concurrent_backup_lock_contention` | Two maintenance jobs contending for the host lock run one after the other instead of at the same time. |
 | `container_delete_recreated` | A container deleted out from under the orchestrator, and a whole service deleted with it, are scheduled again and come back serving. |
@@ -141,6 +142,7 @@ The 185 scenarios the maintainers' test bench carries, and the behaviour each on
 | `migrate_preseed_no_split_brain` | The bulk pre-copy leg of a migration starts nothing on the destination, so two hosts can never serve at once. |
 | `mirror_skips_on_bad_verify_hot` | The offsite copy refuses to run when the backup it would copy failed verification. |
 | `mixed_template_negative_restore` | A restore whose verification fails names the application that failed, rather than reporting a generic error or a silent partial success. |
+| `monthly_report_renders` | The monthly report of a Catena Business server shows, in English and in French, the backups, restore tests, updates, vulnerabilities, availability and alerts the server recorded for last month and for the current one, and names as not shown a figure the server does not keep. |
 | `nextcloud_failed_migrate_rolls_back` | When a Nextcloud update's migration fails, the previous version, its code, configuration and add-ons, and its database are put back, and the instance starts on the previous version. |
 | `nextcloud_update_migrates` | A Nextcloud patch update runs the migration steps once the upgraded application answers, and the new version stays in place. |
 | `nextcloud_versions_retention_applied` | The file-version retention configured for the file-sync application reaches the running container instead of stopping at the catalogue. |
@@ -152,6 +154,7 @@ The 185 scenarios the maintainers' test bench carries, and the behaviour each on
 | `payload_action_dispatches_without_converge` | An administrative action can arrive with a new image and dispatch immediately, without waiting for a converge to render it. |
 | `payload_prune_respects_ce` | Installing the licensed payload deletes what it withdraws and leaves everything owned by the public installer in place. |
 | `pg_major_version_cross_restore` | A snapshot captured on one major database version replays cleanly onto a host running a newer one. |
+| `pinned_service_update` | A service its template keeps off the automatic updates moves only when an administrator of a Catena Pro server confirms the version the nightly check names, keeps its data and its exemption, and goes back to its previous version and data when the server's health falls after the move; without a licence nothing offers or makes the move. |
 | `pitr_fuse_round_trip` | A single application is recovered to a point in time by browsing the backup repository as a file system. |
 | `polar_api_version_current` | The Polar API version the licence check pins still answers in Polar's sandbox, and a newer version Polar publishes is reported as a warning to move the pin before the pinned one is removed. |
 | `polar_sandbox_smoke` | Polar's sandbox grants a licence key to one server's hardware, confirms it there, and refuses the same key to a second server while the first holds its only seat. |
