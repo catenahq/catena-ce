@@ -30,8 +30,11 @@ the catena-admin image payload, installed by `reconcile/roles/payload` right aft
 `catena-backup.service`/`.timer` and `catena-restic-check-subset.service`/`.timer`.
 A fix to any of them reaches a host by bumping the image, the same way every
 host engine already does. `restic` and `rclone` themselves ship in the same
-payload, pinned by digest in the catena-admin `Dockerfile`, and
-`catena-backup-run` creates the repository the first time it finds none.
+payload, pinned by digest in the catena-admin `Dockerfile`.
+
+The repository is created when the destination is saved in catena-admin >
+Settings > Backup (`../../../scripts/catena-restic-key.py`, op `init`), never
+by a backup: `catena-backup-run` stops when it finds no repository.
 
 `install.yml` fails loudly when a converge that installs the payload
 leaves the wrapper absent, because the payload's units would then point at
@@ -111,6 +114,5 @@ timer, writes a timer OnCalendar drop-in, or renders
 ## Idempotency
 
 - All file/systemd resources converge.
-- The wrapper initializes a repository only where restic reports none
-  (exit 10), and stops on a wrong password (exit 12) rather than
-  initializing over an intact repository.
+- The wrapper stops where restic reports no repository (exit 10) and on a
+  wrong password (exit 12); it never initializes one.

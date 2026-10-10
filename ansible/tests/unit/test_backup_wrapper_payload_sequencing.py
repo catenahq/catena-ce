@@ -225,25 +225,24 @@ def test_validate_skips_the_restic_probe_until_backup_is_configured():
         assert "_bk_configured" in str(_find(name, VALIDATE)["when"])
 
 
-def test_validate_accepts_no_repository_only_while_the_first_backup_waits():
-    """The converge queues the first backup behind its own lock, and that run
-    creates the repository, so the validate inside the converge finds none:
-    restic's 10 with the unit activating passes, anything else fails."""
+def test_validate_fails_on_a_destination_with_no_repository():
+    """Saving the destination creates the repository and a backup never does,
+    so no queued backup is coming to create one: restic's 10 fails validate
+    like any other answer but 0, and the message says how to get one."""
     import jinja2
 
     task = _find("restic cat config exited 0", VALIDATE)
-    assert "_bk_first_backup_pending | bool" in str(task["ansible.builtin.assert"]["that"])
-    expr = jinja2.Environment().from_string(task["vars"]["_bk_first_backup_pending"])
+    assert task["ansible.builtin.assert"]["that"] == ["_bk_restic_cat.rc == 0"]
+    msg = jinja2.Environment().from_string(task["ansible.builtin.assert"]["fail_msg"])
 
-    def pending(rc: int, unit: dict) -> str:
-        return expr.render(_bk_restic_cat={"rc": rc}, _bk_unit_state=unit).strip()
+    def say(rc: int) -> str:
+        return msg.render(_bk_restic_cat={"rc": rc, "stderr": "Fatal: boom"})
 
-    assert pending(10, {"stdout": "activating"}) == "True"
-    assert pending(10, {"stdout": "inactive"}) == "False"
-    assert pending(1, {"stdout": "activating"}) == "False"
-    assert pending(10, {"skipped": True}) == "False"
-    probe = _find("first backup waiting on the converge's lock", VALIDATE)
-    assert "_bk_restic_cat.rc == 10" in str(probe["when"])
+    assert "Saving a backup destination" in say(10) and "creates one" in say(10)
+    assert "offsite" not in say(10)
+    assert "rc=1" in say(1) and "Fatal: boom" in say(1)
+    names = [t.get("name") or "" for t in _tasks(VALIDATE)]
+    assert not any("first backup" in n for n in names), names
 
 
 def test_the_role_writes_no_unit_and_no_host_script():

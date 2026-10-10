@@ -1,7 +1,8 @@
 """Unit tests for scripts/catena-restic-key.py -- the backup-password
-generate/validate/rotate helper. restic is stubbed (a fake on PATH) so no real
-repo is touched; we assert the request routing, the store read, and the
-persistence on generate and rotate."""
+generate/validate/rotate helper and the repository init. restic and rclone are
+stubbed (fakes on PATH) so no real repo is touched; we assert the request
+routing, the store read, the persistence on generate and rotate, and when init
+creates a repository."""
 from __future__ import annotations
 
 import importlib.util
@@ -152,6 +153,121 @@ def test_a_write_keeps_the_keys_other_writers_own(rk, tmp_path, monkeypatch, cap
     after = json.loads(store.read_text())
     assert after["schedules"] == {"backup": "weekly"}
     assert after["image_pins"] == {"repo": "ref"}
+
+
+def _fake_tools(tmp_path, cat_rc, lsf_out="", lsf_rc=0):
+    """`restic` answering `cat config` with cat_rc and everything else with 0,
+    and `rclone` answering `lsf` with lsf_out and lsf_rc. Each logs its argv,
+    rclone with the endpoint its remote was given."""
+    binp = tmp_path / "bin"
+    binp.mkdir(exist_ok=True)
+    restic_log, rclone_log = tmp_path / "restic.log", tmp_path / "rclone.log"
+    (binp / "restic").write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> "{restic_log}"\n'
+        f'[ "$1 $2" = "cat config" ] && exit {cat_rc}\n'
+        "exit 0\n"
+    )
+    (binp / "rclone").write_text(
+        "#!/bin/sh\n"
+        f'printf "%s %s\\n" "$RCLONE_CONFIG_DEST_ENDPOINT" "$*" >> "{rclone_log}"\n'
+        f"printf '%s' '{lsf_out}'\n"
+        f"exit {lsf_rc}\n"
+    )
+    for tool in ("restic", "rclone"):
+        (binp / tool).chmod(0o755)
+    return binp, restic_log, rclone_log
+
+
+def _init(rk, monkeypatch, capsys, store, binp):
+    monkeypatch.setenv("PATH", f"{binp}:{os.environ['PATH']}")
+    monkeypatch.setenv("CATENA_CONFIG_STORE", str(store))
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"op":"init"}'))
+    code = rk.main()
+    return code, json.loads(capsys.readouterr().out)
+
+
+def _calls(log):
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def test_init_creates_the_repository_where_the_destination_is_empty(
+        rk, tmp_path, monkeypatch, capsys):
+    """Saving the destination is what creates its repository, with the stored
+    password; the location is listed first, as an rclone remote on the same
+    endpoint and keys."""
+    store = _store(tmp_path, backup_restic_password="pw")
+    binp, restic_log, rclone_log = _fake_tools(tmp_path, cat_rc=10)
+    code, out = _init(rk, monkeypatch, capsys, store, binp)
+    assert code == 0 and out == {"ok": True, "repository": "created"}
+    assert _calls(restic_log) == ["cat config", "init"]
+    assert _calls(rclone_log) == ["https://ep lsf dest:bucket"]
+
+
+def test_init_lists_the_prefix_on_the_endpoint_the_repository_names(
+        rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="pw")
+    doc = json.loads(store.read_text())
+    doc["config"]["BACKUP_RESTIC_REPO"] = "s3:http://10.0.0.9:9000/bucket/host-a"
+    store.write_text(json.dumps(doc))
+    binp, _, rclone_log = _fake_tools(tmp_path, cat_rc=10)
+    code, out = _init(rk, monkeypatch, capsys, store, binp)
+    assert code == 0 and out["repository"] == "created"
+    assert _calls(rclone_log) == ["http://10.0.0.9:9000 lsf dest:bucket/host-a"]
+
+
+def test_init_creates_the_repository_in_a_bucket_that_does_not_exist_yet(
+        rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="pw")
+    binp, restic_log, _ = _fake_tools(tmp_path, cat_rc=10, lsf_rc=3)
+    code, out = _init(rk, monkeypatch, capsys, store, binp)
+    assert code == 0 and out["repository"] == "created"
+    assert "init" in _calls(restic_log)
+
+
+def test_init_refuses_a_destination_holding_other_files(rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="pw")
+    binp, restic_log, _ = _fake_tools(tmp_path, cat_rc=10, lsf_out="urn:oid:42")
+    code, out = _init(rk, monkeypatch, capsys, store, binp)
+    assert code == 1 and "not a restic repository" in out["error"]
+    assert "init" not in _calls(restic_log)
+
+
+def test_init_refuses_a_destination_it_cannot_list(rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="pw")
+    binp, restic_log, _ = _fake_tools(tmp_path, cat_rc=10, lsf_rc=1)
+    code, out = _init(rk, monkeypatch, capsys, store, binp)
+    assert code == 1 and "could not list" in out["error"]
+    assert "init" not in _calls(restic_log)
+
+
+def test_init_leaves_a_repository_the_password_opens_alone(
+        rk, tmp_path, monkeypatch, capsys):
+    """A re-save of the destination: the repository is there, and stays as it
+    is."""
+    store = _store(tmp_path, backup_restic_password="pw")
+    binp, restic_log, rclone_log = _fake_tools(tmp_path, cat_rc=0)
+    code, out = _init(rk, monkeypatch, capsys, store, binp)
+    assert code == 0 and out == {"ok": True, "repository": "exists"}
+    assert _calls(restic_log) == ["cat config"]
+    assert not rclone_log.exists()
+
+
+def test_init_refuses_a_repository_under_another_password(
+        rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="pw")
+    binp, restic_log, _ = _fake_tools(tmp_path, cat_rc=12)
+    code, out = _init(rk, monkeypatch, capsys, store, binp)
+    assert code == 1 and "Restore" in out["error"]
+    assert _calls(restic_log) == ["cat config"]
+
+
+def test_init_needs_the_password(rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path)
+    binp, restic_log, _ = _fake_tools(tmp_path, cat_rc=10)
+    code, out = _init(rk, monkeypatch, capsys, store, binp)
+    assert code == 1 and "generate" in out["error"]
+    assert not restic_log.exists(), "restic ran with no password to open a repository with"
 
 
 def test_rotate_refuses_without_current_password(rk, tmp_path, monkeypatch, capsys):

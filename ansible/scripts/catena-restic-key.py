@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """catena-restic-key -- generate, validate or rotate the restic repository
-password.
+password, and create the repository at the saved destination.
 
 Driven by catena-admin over the host dispatcher (as root): the admin container
 base64-decodes a request into $PAYLOAD, the reserved action pipes it here on
@@ -9,16 +9,22 @@ no converge mints it: this is the ONLY on-box path that writes it, so a
 generation or a re-key is a deliberate action in the UI, not a passive
 settings save.
 
+It is also the one place a repository is created. A backup never creates one:
+saving the destination in the panel asks for `init`, and so does generating the
+password for a destination saved before it.
+
 Request (JSON on stdin):
   {"op": "generate"}
   {"op": "validate", "password": "<candidate>"}
   {"op": "rotate",   "new_password": "<new>"}
+  {"op": "init"}
 
-Reads the repo + S3 creds (and, for rotate, the CURRENT password) from the
-on-box store /etc/catena/config.json. Prints a JSON result on stdout:
+Reads the repo + S3 creds (and, for rotate and init, the CURRENT password) from
+the on-box store /etc/catena/config.json. Prints a JSON result on stdout:
   generate -> {"ok": true, "password": "<new>"} once, for the client to save
   validate -> {"ok": true|false}
   rotate   -> {"ok": true} on success (store + /etc/catena/restic.pass updated)
+  init     -> {"ok": true, "repository": "created"|"exists"}
 
 stdlib only (runs on the minimal host python); no PyYAML.
 """
@@ -129,6 +135,108 @@ def cmd_generate(store: dict, store_path: str) -> dict:
     return {"ok": True, "password": password}
 
 
+def _rclone_location(env: dict) -> tuple[dict, str] | None:
+    """The repository's location as an rclone remote: the process env with a
+    DEST remote defined against its endpoint and keys, and the
+    dest:<bucket>[/<prefix>] path. None for anything but an
+    s3:[<scheme>://]<endpoint>/<bucket>[/<prefix>] repository, the grammar
+    catena-admin payload/engines/s3repo reads for the payload's own rclone
+    calls; a bare endpoint is https, as it is to restic."""
+    rest = env["RESTIC_REPOSITORY"]
+    if not rest.startswith("s3:"):
+        return None
+    rest = rest[len("s3:"):]
+    scheme = "https"
+    for prefix in ("http://", "https://"):
+        if rest.startswith(prefix):
+            scheme, rest = prefix[:-len("://")], rest[len(prefix):]
+    host, _, path = rest.partition("/")
+    path = path.strip("/")
+    if not host or not path:
+        return None
+    renv = dict(env)
+    renv.update({
+        "RCLONE_CONFIG_DEST_TYPE": "s3",
+        "RCLONE_CONFIG_DEST_PROVIDER": "Other",
+        "RCLONE_CONFIG_DEST_ENDPOINT": f"{scheme}://{host}",
+        "RCLONE_CONFIG_DEST_ACCESS_KEY_ID": env["AWS_ACCESS_KEY_ID"],
+        "RCLONE_CONFIG_DEST_SECRET_ACCESS_KEY": env["AWS_SECRET_ACCESS_KEY"],
+    })
+    return renv, "dest:" + path
+
+
+# rclone's exit code for a directory it does not find: on S3, a bucket that
+# does not exist yet, which `restic init` creates.
+_RCLONE_DIR_NOT_FOUND = 3
+
+
+def _location_holds_anything(env: dict) -> bool | None:
+    """Whether the repository's location holds any object, or None when it
+    could not be listed. The first entry answers, so a bucket holding an
+    application's millions of objects is not listed whole."""
+    location = _rclone_location(env)
+    if location is None:
+        return None
+    renv, path = location
+    with subprocess.Popen(["rclone", "lsf", path], env=renv, text=True,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL) as proc:
+        if proc.stdout.readline().strip():
+            proc.kill()
+            return True
+        rc = proc.wait()
+    if rc in (0, _RCLONE_DIR_NOT_FOUND):
+        return False
+    return None
+
+
+def cmd_init(store: dict) -> dict:
+    """Create the repository at the saved destination when it holds none.
+
+    A repository the stored password opens is left as it is. A destination
+    holding anything else is refused: another password's repository is a
+    restore waiting to happen, and a repository created beside other files
+    shares its location with whatever deletes or replaces them."""
+    env = _restic_env(store)
+    password = store["secrets"].get("backup_restic_password", "")
+    if not (env["RESTIC_REPOSITORY"] and env["AWS_ACCESS_KEY_ID"]
+            and env["AWS_SECRET_ACCESS_KEY"]):
+        return {"ok": False, "error": "no backup destination is saved"}
+    if not password:
+        return {"ok": False, "error": "no backup encryption password is "
+                "stored yet; generate it on the Settings page"}
+    rc = _cat_config(env, password)
+    if rc == 0:
+        return {"ok": True, "repository": "exists"}
+    if rc == _WRONG_PASSWORD:
+        return {"ok": False, "error": "the destination holds a repository "
+                "encrypted under another password. Restore this server from "
+                "it on the Restore page, or point Settings at an empty bucket"}
+    if rc != _NO_REPOSITORY:
+        return {"ok": False, "error": f"could not read the destination "
+                f"(restic exit {rc}); check its address and keys"}
+    holds = _location_holds_anything(env)
+    if holds is None:
+        return {"ok": False, "error": "could not list the destination, so "
+                "nothing was created there; check its address and keys"}
+    if holds:
+        return {"ok": False, "error": "the destination holds files that are "
+                "not a restic repository. Point Settings at an empty bucket, "
+                "or at a prefix nothing else uses"}
+    pf = _write_secret_file(password)
+    try:
+        e = dict(env)
+        e["RESTIC_PASSWORD_FILE"] = pf
+        r = subprocess.run(["restic", "init"], env=e,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    finally:
+        os.unlink(pf)
+    if r.returncode != 0:
+        return {"ok": False, "error": "restic init failed: "
+                + r.stderr.decode("utf-8", "replace")[:200]}
+    return {"ok": True, "repository": "created"}
+
+
 def cmd_validate(store: dict, req: dict) -> dict:
     password = str(req.get("password") or "")
     if not password:
@@ -189,6 +297,8 @@ def main(argv: list[str] | None = None) -> int:
         result = cmd_validate(store, req)
     elif op == "rotate":
         result = cmd_rotate(store, req, store_path, pass_file)
+    elif op == "init":
+        result = cmd_init(store)
     else:
         raise SystemExit(f"unknown op {op!r}")
     print(json.dumps(result))

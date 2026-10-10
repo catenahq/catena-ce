@@ -2,9 +2,9 @@
 
 catena-admin payload/cmd/catena-recovery runs reconcile.yml with
 --skip-tags edge,first_backup. After a restore from the offsite copy the
-adopted store names a repository location that stays empty until the admin
-puts the repository back from the copy, and a first backup that converge
-queued would create a new repository there, which the put-back refuses.
+adopted store names a repository location that holds no repository until an
+admin saves a backup destination, and a first backup that converge queued
+would only fail there: a backup never creates a repository.
 
 So `first_backup` must reach every task that starts the backup unit, and the
 snapshot probe the queue reads: skipped alone, the probe leaves the queue
