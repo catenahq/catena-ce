@@ -18,7 +18,6 @@ from ansible_tree import command_text, walk_tasks
 ANSIBLE = Path(__file__).resolve().parents[2]
 INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
 VALIDATE = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "validate.yml"
-VERIFY = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "verify.yml"
 # The "is the payload expected here" decision all five callers share.
 SHARED = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "_payload_expected.yml"
 
@@ -52,6 +51,14 @@ def _when(task: dict) -> str:
     if isinstance(when, list):
         return " ".join(str(c) for c in when)
     return str(when)
+
+
+def test_every_converge_runs_the_install_tasks():
+    """main.yml is the role's one entry and includes install.yml with no
+    condition, so no variable can turn a converge's backup configuration off."""
+    tasks = _tasks(INSTALL.with_name("main.yml"))
+    assert [t.get("ansible.builtin.include_tasks") for t in tasks] == ["install.yml"]
+    assert "when" not in tasks[0]
 
 
 def test_a_converge_that_owns_the_payload_fails_on_a_missing_wrapper():
@@ -102,7 +109,7 @@ def test_every_restic_call_runs_under_the_entrypoint():
     how, at backup_restic_env_script). The entrypoint ships in the payload with
     the wrapper, so the converge's snapshot probe waits for the wrapper too."""
     calls = []
-    for path in (INSTALL, VALIDATE, VERIFY):
+    for path in (INSTALL, VALIDATE):
         for task in walk_tasks(yaml.safe_load(path.read_text())):
             text = command_text(task).strip()
             if re.search(r"(^|\s)restic\s", text):
@@ -110,7 +117,7 @@ def test_every_restic_call_runs_under_the_entrypoint():
                 assert text.startswith("{{ backup_restic_env_script }}"), (
                     f"{path.name}: {task['name']!r} runs restic outside catena-restic-env")
                 assert "environment" not in task, task["name"]
-    assert len(calls) == 3, calls
+    assert len(calls) == 2, calls
     assert "_backup_wrapper_present" in _when(_find("Check whether any snapshots exist"))
 
 

@@ -1,20 +1,19 @@
 # backup
 
-Dispatcher for the host's backup pipeline. Writes the configuration
-the payload's backup lane reads, takes the first snapshot, and
-provides a one-shot verification task. Restores run in the
+Writes the configuration the payload's backup lane reads and takes
+the first snapshot. Verifying a backup and restoring it run in the
 `catena-recovery` host binary, driven from the panel.
 
-## Modes (tasks_from)
+## Tasks
 
-- `main.yml` (default) -- write the backup configuration, register the
+- `main.yml` -- write the backup configuration, register the
   Healthchecks ping, and purge any apt restic or rclone. Whether the
   payload's `catena-backup.timer` runs, and when, is `catena-schedule apply`
   reading /etc/catena/config.json, and it enables no lane without an active
   licence.
-- `verify.yml` -- run a dry-restore against the latest snapshot
-  into a scratch dir; verify file count and size; emit alert on
-  drift.
+- `validate.yml` -- the role's checks, which `playbooks/validate.yml` runs:
+  the configuration files, the payload's scripts and units, and the
+  repository answering.
 
 ## Where the scripts come from
 

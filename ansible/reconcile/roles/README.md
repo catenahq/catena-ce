@@ -19,7 +19,7 @@ generated from the leading comment of each role's `tasks/main.yml`.
 
 | Role | What it does |
 | --- | --- |
-| `backup` | Dispatcher -- backup_mode picks which subfile to run. install (default, converge.yml path) -- configuration and the initial snapshot; the units and scripts ship in the catena-admin payload verify (verify-backup.yml) -- dry-restore + assert |
+| `backup` | Configuration and the initial snapshot; the units and scripts ship in the catena-admin payload. |
 | `catena-admin` | Orchestrator for reconcile/roles/catena-admin. |
 | `cloudflare_tunnel` | Cloudflare tunnel converge -- unconditional dispatch to the host engine. |
 | `cloudflare_tunnel_regenerate` | Regenerate the Cloudflare tunnel for this host. |
