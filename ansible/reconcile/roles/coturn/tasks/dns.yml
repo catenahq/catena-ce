@@ -34,6 +34,7 @@
       retries: 5
       delay: 6
       until: _coturn_dns_zones.status == 200
+      no_log: true
 
     - name: "coturn DNS: assert the zone is visible to this token"
       ansible.builtin.assert:
@@ -61,6 +62,7 @@
   retries: 5
   delay: 6
   until: _coturn_dns_existing.status == 200
+  no_log: true
 
 - name: "coturn DNS: create A record (gray-cloud) if absent"
   ansible.builtin.uri:
@@ -80,6 +82,7 @@
   when: _coturn_dns_existing.json.result | length == 0
   delegate_to: localhost
   become: false
+  no_log: true
 
 # A Cloudflare PUT REPLACES the record, so the comment has to be re-sent: a
 # record that ever drifts would otherwise come back with the ownership marker
@@ -107,3 +110,4 @@
       or _coturn_dns_existing.json.result[0].proxied | default(false)
   delegate_to: localhost
   become: false
+  no_log: true

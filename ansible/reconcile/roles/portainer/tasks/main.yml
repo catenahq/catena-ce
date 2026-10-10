@@ -202,6 +202,7 @@
   # bomb the converge -- the mint condition below only fires on missing key
   # or an explicit 401/403.
   failed_when: false
+  no_log: true
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10
@@ -317,6 +318,7 @@
     return_content: true
   register: _pt_endpoints
   failed_when: false
+  no_log: true
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10
@@ -333,6 +335,7 @@
       # 1 = local Docker environment via the mounted /var/run/docker.sock.
       EndpointCreationType: "1"
     status_code: [200, 201]
+  no_log: true
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10
@@ -366,6 +369,7 @@
     return_content: true
   register: _pt_settings
   failed_when: false
+  no_log: true
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10
@@ -383,6 +387,7 @@
     # every other setting to its zero value.
     body: "{{ _pt_settings.json | combine({'TemplatesURL': portainer_templates_url}) }}"
     status_code: 200
+  no_log: true
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10

@@ -314,17 +314,23 @@
 # of a migrate, lock left behind by a prior aborted run) doesn't make
 # us mis-classify the repo as empty and trigger a redundant first-
 # backup attempt that would itself fail on the same lock.
+#
+# restic runs under backup_restic_env_script (../defaults/main.yml says why),
+# which ships in the payload with the wrapper, hence the same gate as the first
+# backup below.
 - name: Check whether any snapshots exist
   # `--latest 1`: restic has no `--last` flag, and a probe that exits non-zero
   # on every run would queue the first backup below on every converge.
   ansible.builtin.shell:
-    cmd: restic snapshots --no-lock --latest 1 --json | grep -q '"time"'
-  environment: "{{ backup_restic_env }}"
+    cmd: >-
+      {{ backup_restic_env_script }} restic snapshots --no-lock --latest 1 --json
+      | grep -q '"time"'
   register: _restic_has_snapshot
   changed_when: false
   failed_when: false
-  no_log: true
-  when: _backup_configured | bool
+  when:
+    - _backup_configured | bool
+    - _backup_wrapper_present | default(false)
 
 # Queued, not waited for: the backup unit takes /run/catena.lock (flock in its
 # ExecStart), the lock catena-converge holds while it runs this play from the

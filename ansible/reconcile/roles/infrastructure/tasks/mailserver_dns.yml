@@ -74,6 +74,7 @@
           retries: 5
           delay: 6
           until: _ms_dns_zones.status == 200
+          no_log: true
 
         - name: "Mailserver DNS: assert the zone is visible to this token"
           ansible.builtin.assert:
@@ -100,6 +101,7 @@
       retries: 5
       delay: 6
       until: _ms_dns_a.status == 200
+      no_log: true
 
     - name: "Mailserver DNS: create mail A record (gray-cloud) if absent"
       ansible.builtin.uri:
@@ -117,6 +119,7 @@
           comment: "Managed by catena -- mail plane, MUST be gray-cloud"
         status_code: 200
       when: _ms_dns_a.json.result | length == 0
+      no_log: true
 
     - name: "Mailserver DNS: update mail A record if content/proxy drifted"
       ansible.builtin.uri:
@@ -142,6 +145,7 @@
         - >-
           _ms_dns_a.json.result[0].content != public_ip
           or _ms_dns_a.json.result[0].proxied | default(false)
+      no_log: true
 
     # --- _mta-sts.<zone> TXT (policy id) -----------------------------
     - name: "Mailserver DNS: look up _mta-sts TXT"
@@ -153,6 +157,7 @@
         status_code: 200
         return_content: true
       register: _ms_dns_stsid
+      no_log: true
 
     - name: "Mailserver DNS: set _mta-sts TXT (create or update on drift)"
       ansible.builtin.uri:
@@ -173,6 +178,7 @@
       when: >-
         (_ms_dns_stsid.json.result | length) == 0
         or _ms_dns_stsid.json.result[0].content != ('v=STSv1; id=' ~ mailserver_mta_sts_policy_id ~ ';')
+      no_log: true
 
     # --- _smtp._tls.<zone> TXT (TLS-RPT) -----------------------------
     - name: "Mailserver DNS: look up _smtp._tls TXT"
@@ -184,6 +190,7 @@
         status_code: 200
         return_content: true
       register: _ms_dns_tlsrpt
+      no_log: true
 
     - name: "Mailserver DNS: set _smtp._tls TXT (create or update on drift)"
       ansible.builtin.uri:
@@ -204,3 +211,4 @@
       when: >-
         (_ms_dns_tlsrpt.json.result | length) == 0
         or _ms_dns_tlsrpt.json.result[0].content != ('v=TLSRPTv1; rua=' ~ mailserver_tlsrpt_rua)
+      no_log: true

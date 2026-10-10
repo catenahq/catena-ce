@@ -1,20 +1,24 @@
 """reconcile/roles/backup and the payload it does not ship: a converge that
 installs the payload fails on a missing backup wrapper, one whose payload is
-staged out of band (CATENA_PAYLOAD_INSTALL=false) defers with a notice, and
-the first snapshot and validate's payload checks wait for the scripts (its
-tasks/install.yml says why).
+staged out of band (CATENA_PAYLOAD_INSTALL=false) defers with a notice, the
+first snapshot and validate's payload checks wait for the scripts (its
+tasks/install.yml says why), and every restic call runs under catena-restic-env.
 
 Run: uv run pytest tests/unit/test_backup_wrapper_payload_sequencing.py
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
 
+from ansible_tree import command_text, walk_tasks
+
 ANSIBLE = Path(__file__).resolve().parents[2]
 INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
 VALIDATE = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "validate.yml"
+VERIFY = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "verify.yml"
 # The "is the payload expected here" decision all five callers share.
 SHARED = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "_payload_expected.yml"
 
@@ -91,6 +95,23 @@ def test_the_inline_first_snapshot_needs_the_wrapper():
         "payload lands after this role it starts a unit whose ExecStart does "
         "not exist"
     )
+
+
+def test_every_restic_call_runs_under_the_entrypoint():
+    """So the credentials stay off every command line (the role's defaults say
+    how, at backup_restic_env_script). The entrypoint ships in the payload with
+    the wrapper, so the converge's snapshot probe waits for the wrapper too."""
+    calls = []
+    for path in (INSTALL, VALIDATE, VERIFY):
+        for task in walk_tasks(yaml.safe_load(path.read_text())):
+            text = command_text(task).strip()
+            if re.search(r"(^|\s)restic\s", text):
+                calls.append(task["name"])
+                assert text.startswith("{{ backup_restic_env_script }}"), (
+                    f"{path.name}: {task['name']!r} runs restic outside catena-restic-env")
+                assert "environment" not in task, task["name"]
+    assert len(calls) == 3, calls
+    assert "_backup_wrapper_present" in _when(_find("Check whether any snapshots exist"))
 
 
 def test_the_first_backup_is_queued_not_waited_for():

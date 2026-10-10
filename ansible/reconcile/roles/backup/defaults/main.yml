@@ -375,20 +375,6 @@ backup_pg_dump_user: postgres
 # immediately. Subsequent plays skip (repo already has snapshots).
 backup_run_initial_snapshot: true
 
-# Single canonical environment dict for every restic CLI invocation. Every
-# callsite (install init + initial snapshot; verify) reaches it through
-# `environment: "{{ backup_restic_env }}"`, so the four credential keys have
-# one definition and one audit surface.
-#
-# CRITICAL: every task that uses backup_restic_env MUST also set
-# `no_log: true`. The dict still expands at runtime; no_log is what
-# keeps Jinja-rendered creds out of task results / debug output.
-backup_restic_env:
-  RESTIC_REPOSITORY: "{{ backup_restic_repo | default('') }}"
-  RESTIC_PASSWORD_FILE: "{{ backup_password_file }}"
-  AWS_ACCESS_KEY_ID: "{{ backup_s3_access_key | default('') }}"
-  AWS_SECRET_ACCESS_KEY: "{{ backup_s3_secret_key | default('') }}"
-
 # Wrapper + helper locations. Every path below is INSTALLED BY THE IMAGE
 # PAYLOAD: the lane scripts and the backup units live in catena-admin
 # payload/lanes/ and reconcile/roles/payload puts them on the host right after
@@ -403,7 +389,9 @@ backup_wrapper_script: /usr/local/bin/catena-backup-run
 backup_coverage_script: /usr/local/bin/catena-backup-coverage
 # Single canonical entrypoint for running restic with backup.env loaded
 # from outside the systemd-launched scripts. See that script's header for why
-# this exists.
+# this exists. Every restic call in this role runs under it: it loads the
+# repository, the S3 keys and the password file from backup.env and the store
+# on the host, so none of them is on a command line.
 backup_restic_env_script: /usr/local/bin/catena-restic-env
 # Per-app PITR recovery via FUSE. Mounts the restic repo read-only at
 # /mnt/restic-browse so the operator can copy a single file out of a

@@ -85,6 +85,7 @@
           | default({})).get('CLOUDFLARE_ZONE', '')
          if (_cf_regen_store_stat.stat.exists | default(false))
          else '' }}
+  no_log: true
 
 # The tunnel this host owns is named the way catena-cloudflared-sync names it:
 # the box's own hostname, with the store's prefix in front. Read the hostname
@@ -105,6 +106,7 @@
           if (_cf_regen_store_stat.stat.exists | default(false))
           else '')
          ~ (_cf_regen_hostname.stdout | trim) }}
+  no_log: true
 
 - name: "CF regen: the store names a zone"
   ansible.builtin.assert:
@@ -133,6 +135,7 @@
   run_once: true
   delegate_to: localhost
   become: false
+  no_log: true
 
 - name: "CF regen: assert the zone is visible to the supplied token"
   ansible.builtin.assert:
@@ -162,6 +165,7 @@
   run_once: true
   delegate_to: localhost
   become: false
+  no_log: true
 
 - name: "CF regen: clean up stale connectors (refuses delete on tunnels with active connections)"
   ansible.builtin.uri:
@@ -176,6 +180,7 @@
   run_once: true
   delegate_to: localhost
   become: false
+  no_log: true
 
 - name: "CF regen: delete existing tunnel(s)"
   ansible.builtin.uri:
@@ -190,6 +195,7 @@
   run_once: true
   delegate_to: localhost
   become: false
+  no_log: true
 
 # Hand off to the find-or-create. Nothing is passed: that role dispatches
 # catena-cloudflared-sync, and the engine reads the token out of the store

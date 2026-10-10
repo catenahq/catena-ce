@@ -4,8 +4,8 @@
 # restorable -- "restic snapshots" only proves the repo exists, not that it
 # works.
 #
-# Run via playbooks/verify-backup.yml. Cleanup of verify_scratch_dir is done
-# by that playbook's post_tasks, not here -- keeps this file focused.
+# Run via ops automation/ansible/playbooks/verify-backup.yml, whose post_tasks
+# remove verify_scratch_dir.
 
 - name: Ensure scratch dir exists (empty)
   ansible.builtin.file:
@@ -18,26 +18,31 @@
 - name: Restore latest snapshot into scratch dir
   ansible.builtin.command:
     argv:
+      - "{{ backup_restic_env_script }}"
       - restic
       - restore
       - latest
       - --target
       - "{{ verify_scratch_dir }}"
       - --quiet
-  environment: "{{ backup_restic_env }}"
   register: _restic_verify_restore
   changed_when: false
   # Restic over S3 can hit transient 5xx / connection-reset from OVH / B2
   # mid-restore. The verify path is a pure read so safe to retry; the
   # operation is idempotent (restore into a pre-cleaned scratch dir).
-  # Drop the historic no_log: true so a real failure surfaces stderr
-  # (rate-limit, repo corruption, missing repo) instead of being hidden
-  # behind a censored message. Restic argv carries no secrets; the AWS
-  # creds live in backup_restic_env which ansible redacts from task
-  # output by default for environment dicts referenced via {{ }}.
   retries: 3
   delay: 30
   until: _restic_verify_restore.rc == 0
+  # failed_when: false leaves restic's stderr (rate-limit, repo corruption,
+  # missing repo) to the task below, which prints it once the retries are spent.
+  failed_when: false
+
+- name: Fail with restic's stderr when the restore failed
+  ansible.builtin.fail:
+    msg: >-
+      restic restore exited {{ _restic_verify_restore.rc }}:
+      {{ (_restic_verify_restore.stderr | default(''))[-2000:] }}
+  when: _restic_verify_restore.rc != 0
 
 - name: Stat each expected path
   ansible.builtin.stat:

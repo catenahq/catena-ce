@@ -169,6 +169,7 @@
         # host, reads the published one; a development host names its own
         # (helpers/knobs.yml CATENAHQ_TEMPLATES_BASE).
         CATENAHQ_TEMPLATES_BASE: "{{ cfg_catenahq_templates_base | default('') }}"
+  no_log: true # secrets carries each secret's value
   when: catena_admin_deploy_from_converge | bool
 
 - name: "Catena-admin: check the swarm service exists"

@@ -13,11 +13,10 @@ Run: uv run pytest tests/unit/test_tagged_includes_apply_their_tags.py
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import yaml
 
-_ANSIBLE = Path(__file__).resolve().parents[2]
+from ansible_tree import ANSIBLE as _ANSIBLE, PLAYBOOKS, ROLE_ROOTS
+
 _INCLUDE_KEYS = ("ansible.builtin.include_tasks", "include_tasks")
 # `always` needs no apply: it is never filtered out in the first place.
 _EXEMPT = {"always"}
@@ -39,11 +38,8 @@ def _tasks(node):
 
 def _offenders() -> list[str]:
     bad: list[str] = []
-    roots = [_ANSIBLE / "roles", _ANSIBLE / "playbooks"]
-    for root in roots:
+    for root in (*ROLE_ROOTS, PLAYBOOKS):
         for path in sorted(root.rglob("*.yml")):
-            if ".collections" in path.parts:
-                continue
             try:
                 doc = yaml.safe_load(path.read_text())
             except Exception:
@@ -76,3 +72,12 @@ def test_every_tagged_include_applies_its_tags():
         "tag-scoped converge silently does nothing:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_the_check_reads_the_role_trees():
+    """Most tagged includes are in the roles: a scan that misses them passes on
+    nothing."""
+    tagged = [task for root in ROLE_ROOTS for path in root.rglob("*.yml")
+              for task in _tasks(yaml.safe_load(path.read_text()))
+              if any(key in task for key in _INCLUDE_KEYS) and task.get("tags")]
+    assert len(tagged) > 20, f"only {len(tagged)} tagged includes under {ROLE_ROOTS}"

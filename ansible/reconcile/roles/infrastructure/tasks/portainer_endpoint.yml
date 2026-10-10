@@ -27,6 +27,7 @@
   retries: 30
   delay: 5
   until: _portainer_endpoints.status == 200
+  no_log: true
 
 # Pick the local Docker endpoint. reconcile/roles/portainer names it deterministically
 # (portainer_local_endpoint_name); fall back to the first Docker endpoint
