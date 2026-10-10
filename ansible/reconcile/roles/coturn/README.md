@@ -8,8 +8,9 @@ Shared TURN/STUN server for the chat-video apps deployed from the catalog:
   (`scripts/nextcloud-talk-hpb-wire.sh`, installed as
   `/usr/local/bin/catena-wire-nextcloud-talk-hpb`).
 - **The Jitsi bridges of Rocket.Chat and Element** -- each template
-  configures jitsi-videobridge with `JVB_TURN_HOST=turn.<zone>`,
-  `JVB_TURN_PORT=5349` and the shared `turn_static_auth_secret`.
+  configures jitsi-videobridge with `JVB_TURN_HOST` from `TURN_HOSTNAME`
+  (`coturn_hostname`, default `turn.<zone>`), `JVB_TURN_PORT=5349` and the
+  shared `turn_static_auth_secret`.
 - **Element's Synapse** -- hands its clients the same relay, from
   `TURN_HOSTNAME` and `TURN_STATIC_AUTH_SECRET` in its environment.
 

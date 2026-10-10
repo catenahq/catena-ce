@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 180 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 185 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -15,6 +15,7 @@ The 180 scenarios the maintainers' test bench carries, and the behaviour each on
 | `admin_apps_tab_staff_filtered` | A staff member signed in to the panel sees the application tiles their groups open, none of those reserved to administrators, and no administrator tab. |
 | `admin_email_change_follows` | An administrator email change moves the administrator's account to the new address: the sign-in service keeps one administrator, the same account under the new address, signing in with the same password, and the job monitor and the resource monitor follow it. |
 | `admin_staff_cannot_reach_admin_routes` | A staff member signed in to the panel is refused every administrator page and every administrator action. |
+| `app_checker_catalog` | Every catalog application's compose file passes the panel's application checker with no error, a file carrying one defect of each kind gets each finding and a corrected file with nothing left to correct, and the findings in a deployed application's own file are counted on its tile for administrators alone. |
 | `app_container_cannot_claim_an_identity` | A container on the server cannot claim a signed-in identity at the dashboard or at the job monitor, nor reach the container manager's or the resource monitor's login but through its sign-in gate, and no sign-in cookie a client app or another admin tool sees opens the dashboard or another client app, while a real sign-in reaches both. |
 | `app_several_addresses` | An application can publish several addresses: each one is routed and watched on its own and admits only the people its own labels name, a sign-in at one address opens no other, and an address another one already holds, or an application that does not say which of its addresses is the main one, gets no route. |
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
@@ -38,6 +39,7 @@ The 180 scenarios the maintainers' test bench carries, and the behaviour each on
 | `container_delete_recreated` | A container deleted out from under the orchestrator, and a whole service deleted with it, are scheduled again and come back serving. |
 | `control_plane_update_rollback` | A bad version bump of a control-plane service is detected, rolled back automatically, and quarantined so it is never retried blindly. |
 | `converge_suite` | One converge after an on-host image bump, a doctored release record and a rotated secret keeps the bump, restores the record and delivers the secret. |
+| `cross_host_pivot_finds_nothing` | A server broken into at root holds no credential that reaches a second Catena server. |
 | `cve_residual_emits_findings` | The vulnerability scan produces a well-formed machine-readable report on a real host, whether or not it finds anything. |
 | `daily_chain_container_rollback` | A failed container update inside the daily maintenance chain rolls that service back and lets the chain continue. |
 | `daily_chain_full_pass` | The daily maintenance chain runs every stage end to end on a real host and reports itself idle when it finishes. |
@@ -158,6 +160,7 @@ The 180 scenarios the maintainers' test bench carries, and the behaviour each on
 | `primary_domain_change_round_trip` | A server is moved to a different domain, and the domain it left stops answering. |
 | `quiesce_resume_round_trip` | A host is frozen in both available degrees and resumed exactly as it was found. |
 | `rclone_copy_preserves_pruned_packs` | The offsite copy keeps snapshots that have already been pruned from the primary repository. |
+| `realm_hand_edits_survive_converge` | Changes an administrator makes in the sign-in service survive the server's own configuration update: hand-made roles, departments and default scopes, the realm admin's account and a renamed sign-in page stay, a realm switched off stays off, and an administrators group left empty gets the realm admin back. |
 | `reboot_required_notified` | A host that needs a reboot reports it and waits for a person rather than restarting itself. |
 | `rebuild_backs_up_after_restore` | A server rebuilt from its backup keeps backing up: after the restore it holds the repository's password, not the one the new machine made for itself. |
 | `reconcile_is_a_noop` | The operator's converge and the host's own converge produce the same host: after either one, the other changes nothing, and a second converge in a row restarts nothing. |
@@ -185,7 +188,9 @@ The 180 scenarios the maintainers' test bench carries, and the behaviour each on
 | `user_recovery_2fa_reset` | A user who lost their second-factor device is reset and made to enrol a new one at next sign-in. |
 | `user_recovery_kcadm_temp_password` | A user who lost their password is issued a temporary one they must change at next sign-in. |
 | `verify_hot_bootprobe_weekly` | The weekly deep backup verification boots what it restored and records the outcome in its report. |
+| `versions_shown_to_administrators` | An administrator signed in to the panel sees the version each application and each infrastructure service runs, and when the versions were last checked, and a staff member sees no version. |
 | `wizard_migrate_resume_source` | A migration that fails after the source has been stopped brings the source back into service rather than stranding the client between two machines. |
 | `wizard_migrate_round_trip` | A client moves their server to a new machine end to end from the panel, with the old one still serving until the switch. |
 | `worm_object_lock_expiry_edge` | Backup data whose immutability window expired while the repository still references it is reported as a gap rather than silently degrading. |
 | `worm_round_trip` | A full recovery is performed from the immutable offsite copy alone. |
+| `zammad_update_migrates` | A Zammad update moves every Zammad process to the new build together, its setup step migrates the database on the new build and stays up, and the help desk answers again. |
