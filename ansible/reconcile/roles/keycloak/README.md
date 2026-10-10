@@ -33,12 +33,14 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      the two flows check (`catena-tier-admin`, `catena-tier-staff`) and grants
      each to its group (`/admin`, `/staff`), adds the scopes applications need
      to the realm's default client scopes, and puts the realm admin back in
-     `/admin` when `/admin` has no member. It then reads the two sign-in
-     flows' ids (`keycloak_signin_flows`), which dashboard-sync's env file
-     carries, and fails the converge when either is missing.
-   - The realm admin's account and the realm's tunable settings are a
-     seed: rendered into `/etc/catena/keycloak/seed`, imported once while
-     a bootstrap marker under `/var/lib/catena` is missing, then deleted.
+     `/admin` when `/admin` has no member. It reports a realm switched off,
+     moves the sign-in page name to a new domain (below), then reads the two
+     sign-in flows' ids (`keycloak_signin_flows`), which dashboard-sync's env
+     file carries, and fails the converge when either is missing.
+   - The realm admin's account and the realm's tunable settings are a seed:
+     rendered into `/etc/catena/keycloak/seed`, imported while a bootstrap
+     marker under `/var/lib/catena` or the realm itself is missing, then
+     deleted. The seed that creates the realm also switches it on.
    - Other roles render their own OIDC client next to the realm file
      and include `realm_bootstrap.yml` again.
 4. Move members off the legacy `administrators`/`client-staff` groups,
@@ -73,13 +75,20 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
     addresses among them, and each service account's client roles, which
     hold it to least privilege;
   - the MFA required action, the mail settings and the security posture,
-    which the panel's Settings own;
-  - the realm switched on, since it signs in to every application and the
-    panel.
+    which the panel's Settings own.
 - Everything else survives a converge: hand-made roles, groups, departments,
   clients, flows and their settings, roles mapped to `/admin` or `/staff` or
   added to a tier role, scopes added to the realm's default client scopes,
-  the login page's display name, and the realm admin's account.
+  the realm admin's account, and the realm's Enabled switch: a realm an
+  administrator switched off stays off, and the converge completes on it and
+  says so.
+- The sign-in page name (`displayName` and `displayNameHtml`) follows the
+  domain while it still holds the name Catena wrote, which the realm records
+  in its `catenaDisplayName` attribute: a converge with another domain writes
+  the new name and the new record. A name given in Keycloak's realm settings
+  stays. On a realm seeded before the record, a name equal to the seed's for
+  the current domain, or the seed's empty one from a host with no domain yet,
+  counts as Catena's (`playbooks/filter_plugins/keycloak_signin_name.py`).
 
 ## Related
 

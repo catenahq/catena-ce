@@ -14,11 +14,12 @@
 # stronger than "container exists in docker ps".
 #
 # Two imports. The SEED (realm-vps.yaml.j2 with realm_seed true: the realm
-# admin's account and the realm's tunable settings) is rendered into
-# keycloak_realm_seed_dir, imported once while a bootstrap marker is missing,
-# and deleted. The PERSISTENT realm dir (realm_seed false, plus the client
-# files) is imported on every converge, and what it renders depends on the
-# store alone, so the converge that bootstraps the realm leaves it settled.
+# admin's account, the realm's tunable settings and, when it creates the realm,
+# the realm switched on) is rendered into keycloak_realm_seed_dir, imported
+# while a bootstrap marker or the realm itself is missing, and deleted. The
+# PERSISTENT realm dir (realm_seed false, plus the client files) is imported on
+# every converge, and what it renders depends on the store alone, so the
+# converge that bootstraps the realm leaves it settled.
 
 # The realm files carry the SMTP password and the client secrets, and the
 # seed the admin password. 0700 on their parent keeps every account but root
@@ -41,7 +42,7 @@
     mode: "0755"
 
 # The bootstrap markers. Either one missing renders and imports the seed, then
-# writes both.
+# writes both; so does a realm missing from Keycloak (below).
 #
 # The realm admin: KC_BOOTSTRAP_ADMIN_* creates the admin's account in the
 # MASTER realm and nowhere else, and this realm's copy of that account has no
@@ -252,10 +253,38 @@
     - _kc_recorded_admin_email | length > 0
     - _kc_recorded_admin_email != admin_email
 
+# Whether the realm exists, from the master realm's list of realms. A realm
+# Keycloak's database lost while the markers remain is created again by the
+# seed, the one import that switches it on: the persistent import would create
+# it switched off and without its admin account. A failed listing fails the
+# task rather than reading as a missing realm, which would re-seed the admin's
+# password.
+- name: "Keycloak realm: list the realms Keycloak holds"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    IFS= read -r KC_CLI_PASSWORD
+    export KC_CLI_PASSWORD
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
+    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
+    kc() { docker exec -e KC_CLI_PASSWORD "$ct" /opt/keycloak/bin/kcadm.sh "$@"; }
+    kc config credentials --server http://localhost:{{ keycloak_internal_port }} --realm master --user {{ admin_email | quote }}
+    kc get realms --fields realm --format csv --noquotes
+  args:
+    executable: /bin/bash
+    stdin: "{{ admin_password }}"
+  register: _kc_realms
+  changed_when: false
+  retries: 15
+  delay: 4
+  until: _kc_realms.rc == 0
+  no_log: true
+
 # The seed, imported alone, and deleted whether the import succeeded or not.
 # The markers are written only once it has.
 - name: "Keycloak realm: seed the admin password and the realm settings"
-  when: not (_kc_admin_pw_marker.stat.exists and _kc_settings_marker.stat.exists)
+  when: >-
+    not (_kc_admin_pw_marker.stat.exists and _kc_settings_marker.stat.exists)
+    or keycloak_realm not in _kc_realms.stdout_lines
   block:
     - name: "Keycloak realm: ensure the seed dir"
       ansible.builtin.file:
@@ -274,6 +303,7 @@
         mode: "0644"
       vars:
         realm_seed: true
+        realm_create: "{{ keycloak_realm not in _kc_realms.stdout_lines }}"
 
     # apply: the tasks inside an include carry no tag of their own, so a
     # tag-scoped converge (--tags keycloak_realm) would fire this include and
@@ -640,6 +670,54 @@
     executable: /bin/bash
   register: _keycloak_admin_rejoin
   changed_when: "'joined:' in _keycloak_admin_rejoin.stdout"
+
+# The whole realm, for its switch and its sign-in page name. `--fields` would
+# print the attributes map with its values dropped.
+- name: "Keycloak realm: read the realm"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _keycloak_realm_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - "realms/{{ keycloak_realm }}"
+  register: _keycloak_realm_rep
+  changed_when: false
+
+# A realm an administrator switched off stays off: it may have been cut off
+# over a leaked password. Every step of this converge works on it, since kcadm
+# and keycloak-config-cli sign in to the master realm and the OIDC discovery
+# document and keys the sign-in gates are checked against answer for a realm
+# switched off; what stops is every sign-in through it.
+- name: "Keycloak realm: the realm is switched off, and stays off"
+  ansible.builtin.debug:
+    msg: >-
+      Realm {{ keycloak_realm }} is switched off in Keycloak, and this converge
+      leaves it off. Nobody signs in through it, to the applications or to the
+      panel at its public address, and its service accounts get no token:
+      dashboard-sync leaves the applications' own sign-in entries waiting and
+      the panel's People page cannot read the realm. To switch it back on, open
+      the Keycloak admin console, choose realm {{ keycloak_realm }} and turn
+      Enabled on in its Realm settings.
+  when: not ((_keycloak_realm_rep.stdout | from_json).enabled | bool)
+
+# The sign-in page follows the domain while it holds the name the seed or an
+# earlier converge wrote, and keeps a name a person gave it
+# (playbooks/filter_plugins/keycloak_signin_name.py). kcadm merges the
+# changes into the realm it reads, so the realm's other attributes stay.
+- name: "Keycloak realm: the sign-in page name follows the domain"
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'exec', _keycloak_realm_server_ct.stdout,
+          '/opt/keycloak/bin/kcadm.sh', 'update', 'realms/' ~ keycloak_realm]
+         + _keycloak_signin_name_sets }}
+  vars:
+    _keycloak_signin_name_sets: >-
+      {{ _keycloak_realm_rep.stdout | from_json
+         | keycloak_signin_name_sets(keycloak_realm_display_name,
+                                     keycloak_realm_display_name_attribute) }}
+  when: _keycloak_signin_name_sets | length > 0
 
 # The ids of the two sign-in flows realm-vps.yaml.j2 declares, for
 # dashboard-sync (reconcile/roles/infrastructure/templates/dashboard-sync.env.j2):

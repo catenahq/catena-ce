@@ -2,11 +2,12 @@
 
 Anything realm-vps.yaml.j2 declares unconditionally, keycloak-config-cli merges
 back on every converge. Declare the login-flow knobs, the eight brute-force
-numbers, defaultGroups, the locale attributes, the login page's name or the
-realm admin's account that way and an admin who turns "Verify email" off,
-widens the lockout window for a shared terminal, adds a second default group,
-switches the realm to French, gives the login page a trading name or disables
-the admin account finds it undone by the next converge, with nothing saying so.
+numbers, defaultGroups, the locale attributes, the login page's name, the
+realm's Enabled switch or the realm admin's account that way and an admin who
+turns "Verify email" off, widens the lockout window for a shared terminal, adds
+a second default group, switches the realm to French, gives the login page a
+trading name, switches the realm off after a leaked password or disables the
+admin account finds it undone by the next converge, with nothing saying so.
 
 The split is what this pins:
 
@@ -16,8 +17,9 @@ The split is what this pins:
   brute-force protected.
 
   SEEDED ONCE -- preferences about how this client runs their own tenant,
-  rendered only into the realm seed (realm_seed), which realm_bootstrap.yml
-  imports while a bootstrap marker is missing.
+  and the realm's Enabled switch, rendered only into the realm seed
+  (realm_seed), which realm_bootstrap.yml imports while a bootstrap marker or
+  the realm is missing.
 
 A key moving between the two groups should be a decision someone made, not a
 line that drifted, so it fails here.
@@ -65,6 +67,7 @@ SEEDED_ONCE = (
     "displayName",
     "displayNameHtml",
     "users",
+    "enabled",
 )
 
 # The structure the product depends on. NO_DELETE keeps any group, scope or flow
@@ -80,8 +83,7 @@ _GUARD_CLOSE = re.compile(r"\{%\s*endif\s*%\}")
 
 def _guard_depth_at_key(text: str) -> dict[str, int]:
     """Map each top-level YAML key to the number of open `{% if %}` blocks
-    around it. The template has no nested conditionals, so depth 0 means
-    unconditional and depth >= 1 means guarded."""
+    around it: depth 0 means unconditional and depth >= 1 means guarded."""
     depth = 0
     out: dict[str, int] = {}
     for line in text.splitlines():

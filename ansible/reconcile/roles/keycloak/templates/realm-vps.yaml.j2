@@ -6,15 +6,11 @@
 #
 # Rendered twice by realm_bootstrap.yml: with realm_seed false into the
 # persistent realm dir, imported on every converge, and with realm_seed
-# true into a seed file imported once and then deleted. The OIDC clients
-# live in their own realm-*.yaml.j2 files beside this one.
+# true into a seed file imported while a bootstrap marker or the realm is
+# missing, and then deleted. The OIDC clients live in their own
+# realm-*.yaml.j2 files beside this one.
 
-# enabled is asserted on every converge: the realm signs in to every
-# application and to the panel, and when Keycloak's database has lost the
-# realm while the bootstrap markers remain, the persistent import is the one
-# that creates it again, which without this flag would be switched off.
 realm: {{ keycloak_realm }}
-enabled: true
 
 # ─── Asserted on EVERY converge: security posture, not preference ────────
 #
@@ -60,16 +56,28 @@ requiredActions:
 {% if realm_seed | bool %}
 # ─── SEED ONLY: this client's own preferences ────────────────────────────
 #
-# Rendered only into the seed file realm_bootstrap.yml imports once, while a
-# bootstrap marker is missing. These are then owned by whoever administers the
-# realm: keycloak-config-cli's MERGE semantics leave out what the file does not
-# declare, so the persistent file never asserts them and an edit made in the
-# Keycloak admin UI ("Verify email" off, a wider lockout window, French as the
-# default locale) survives every converge.
+# Rendered only into the seed file realm_bootstrap.yml imports while a
+# bootstrap marker or the realm is missing. These are then owned by whoever
+# administers the realm: keycloak-config-cli's MERGE semantics leave out what
+# the file does not declare, so the persistent file never asserts them and an
+# edit made in the Keycloak admin UI ("Verify email" off, a wider lockout
+# window, French as the default locale) survives every converge.
 
-# The name on the login page: the client's domain until they give it another.
+# The realm switched on, by the seed that creates it (realm_create). Keycloak
+# creates a realm whose representation leaves `enabled` out switched off, and
+# keeps the flag through an update that leaves it out
+# (DefaultExportImportManager, Keycloak 26.6); keycloak-config-cli sends only
+# the fields a file declares. So every other import leaves it out, the seed
+# included when it runs again over an existing realm, and a realm an
+# administrator switched off stays off.
+{% if realm_create | bool %}
+enabled: true
+{% endif %}
+
+# The name on the login page: the client's domain, which follows a new domain
+# until they give the page another name (the record under attributes below).
 displayName: "{{ keycloak_realm_display_name }}"
-displayNameHtml: "<b>{{ keycloak_realm_display_name }}</b>"
+displayNameHtml: "{{ keycloak_realm_display_name | keycloak_signin_name_html }}"
 
 # Login flow. resetPasswordAllowed=true: standard "forgot password" flow
 # available on the login page.
@@ -233,6 +241,9 @@ attributes:
   internationalizationEnabled: "true"
   supportedLocales: '["en","fr"]'
   defaultLocale: "en"
+  # The login page's name as written above, which realm_bootstrap.yml compares
+  # the page against before it moves the page to a new domain.
+  {{ keycloak_realm_display_name_attribute }}: "{{ keycloak_realm_display_name }}"
 {% endif %}
 
 # Who may sign in through an application's own sign-in button.

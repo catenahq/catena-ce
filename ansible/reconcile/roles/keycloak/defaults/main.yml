@@ -103,10 +103,13 @@ keycloak_realm: "vps"
 # mail: the client's own domain, which is what a person signing in recognises.
 #
 # Derived from cloudflare_zone, which is a host fact the store already owns. The
-# login page takes it once, in the realm seed, and keeps a trading name given
-# to it in Keycloak's realm settings; the sender name follows the zone with the
-# rest of the realm's mail settings.
+# login page takes it in the realm seed and follows a new domain while it still
+# holds the name the seed or a converge wrote, which the realm records in the
+# attribute below; a trading name given to it in Keycloak's realm settings
+# stays (playbooks/filter_plugins/keycloak_signin_name.py). The sender name
+# follows the zone with the rest of the realm's mail settings.
 keycloak_realm_display_name: "{{ cloudflare_zone }}"
+keycloak_realm_display_name_attribute: "catenaDisplayName"
 
 # Nightly realm-export OnCalendar. Default 03:30 host-local --
 # spaced from the backup window (default 02:00) and any auto-update

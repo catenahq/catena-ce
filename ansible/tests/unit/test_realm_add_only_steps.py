@@ -183,10 +183,9 @@ def _verbs(state: dict) -> set[str]:
 def test_the_persistent_realm_file_declares_none_of_it():
     realm = yaml.safe_load(_render(realm_seed=False))
     for key in ("roles", "defaultDefaultClientScopes", "users", "displayName",
-                "displayNameHtml"):
+                "displayNameHtml", "enabled"):
         assert key not in realm, f"{key} is asserted on every converge"
     assert all("realmRoles" not in g and "clientRoles" not in g for g in realm["groups"])
-    assert realm["enabled"] is True
 
 
 def test_the_seed_creates_the_realm_admin_in_admin_with_its_password():
