@@ -204,10 +204,11 @@ catena_stack_update_cve_severity: "HIGH,CRITICAL"
 # UI port answers this host only.
 catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('') }}"
 
-# Health gate for the pre-update state. Blank on a host without Gatus, which
-# is a skip rather than a failure: the chain cannot ask whether the host is
-# healthy, so it does not pretend to have asked.
-catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
+# Gatus's endpoint statuses, on the loopback port reconcile/roles/infrastructure
+# publishes it on. The daily chain's pre-update gate reads it (daily.env), and
+# so does the health baseline the update lanes compare a bump against
+# (stack-update.env); both run on the host.
+catena_gatus_statuses_url: "http://127.0.0.1:{{ gatus_host_localhost_port }}/api/v1/endpoints/statuses"
 
 # The migration lane's PORT. A host process, not a container, because a
 # migration stops docker on this server and the endpoint that puts it back has
