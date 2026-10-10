@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""On-box config store for Catena (0b client-owned config).
+"""On-box config store for Catena.
 
 Single plaintext source of truth at ``/etc/catena/config.json`` (0600 root).
 Three top-level sections belong to this helper:
@@ -400,6 +400,24 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
     "portainer_api_key": "portainer",
 }
 
+# PANEL: the secrets the settings API's `read` hands catena-admin, beside the
+# whole non-secret `config` (panel_view). The panel is the most exposed
+# component on the host, and a credential it never reads is one a compromised
+# panel cannot take: the master realm's automation client, Keycloak's database
+# password, the console break-glass password and Portainer's API key stay on
+# the host. A settings write merges into the whole file (dump), so a key
+# outside this set survives every write the panel makes.
+#   - each client-supplied secret the Settings page offers (a knob with a
+#     `panel`): the page reports which are set, and the tailnet and backup
+#     checks send the stored ones;
+#   - backup_restic_password: the disaster-recovery keyset the page reveals;
+#   - admin_password: the panel's native sign-in, the Beszel hub's superuser
+#     sign-in, and the catalog's `{{ admin_password }}`;
+#   - turn_static_auth_secret: the catalog's `{{ turn_static_auth_secret }}`.
+PANEL_SECRETS: frozenset[str] = frozenset(
+    entry["key"] for entry in _KNOBS["secrets"] if "panel" in entry
+) | {"backup_restic_password", "admin_password", "turn_static_auth_secret"}
+
 
 # --- non-secret config: who owns which key (SECRETS.md category 4) ----------
 #
@@ -544,6 +562,16 @@ def secret_names() -> list[str]:
         set(INTERNAL_SECRETS) | set(USER_HELD_SECRETS)
         | set(EXTERNAL_SECRETS) | set(ROLE_MINTED_SECRETS)
     )
+
+
+def panel_view(store: dict) -> dict:
+    """What the settings API's `read` returns: the store's `config`, and its
+    secrets named in PANEL_SECRETS."""
+    return {
+        "secrets": {k: v for k, v in (store.get("secrets") or {}).items()
+                    if k in PANEL_SECRETS},
+        "config": dict(store.get("config") or {}),
+    }
 
 
 # --- store I/O --------------------------------------------------------------
@@ -936,7 +964,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="serve the catena-admin settings API: read a JSON "
                          "request {op: read|write|mint-app-secrets, secrets, "
                          "config, app_secrets} from stdin. read -> print the "
-                         "full store; write -> apply the external creds/config "
+                         "panel's view of the store (the config and "
+                         "PANEL_SECRETS); write -> apply the external "
+                         "creds/config "
                          '(overwrite, no mint) and print {"ok": true}, '
                          "rejecting internal-secret keys; mint-app-secrets -> "
                          "resolve the marketplace's per-deploy client-app env "
@@ -975,7 +1005,7 @@ def main(argv: list[str] | None = None) -> int:
         store = load(args.path)
         op = req.get("op")
         if op == "read":
-            print(json.dumps(store))
+            print(json.dumps(panel_view(store)))
             return 0
         if op == "write":
             apply_inputs(store, secrets_in=req.get("secrets"),

@@ -476,6 +476,78 @@ def test_dispatch_read_prints_store(oc, tmp_path, capsys, monkeypatch):
     assert got["config"]["BACKUP_RESTIC_REPO"] == "s3:x/y"
 
 
+# --- the panel's view -------------------------------------------------------
+# catena-admin reads the store through `read`. It is the most exposed component
+# on the host, so it is handed the secrets it uses and no others.
+def _every_key_stored(oc) -> dict:
+    """A store holding every declared secret, a client app's per-deploy value
+    and another writer's block."""
+    return {
+        "secrets": {name: f"value-of-{name}" for name in oc.secret_names()},
+        "config": {"CLOUDFLARE_ZONE": "x.com",
+                   "CLOUDFLARE_ZONES": [{"zone": "x.com"}]},
+        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "app-pw"},
+        "image_pins": {"traefik": "traefik:v3.7.12"},
+    }
+
+
+def _dispatch(oc, path, request, monkeypatch, capsys) -> dict:
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
+    assert oc.main(["--path", str(path), "--dispatch-stdin"]) == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def test_the_panels_read_carries_no_master_realm_credential(oc, tmp_path, monkeypatch, capsys):
+    """The automation client signs in to the master realm with its admin role
+    and no second factor, and Keycloak's database password reaches the same
+    realm underneath it."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(_every_key_stored(oc)))
+    got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
+    for key in ("keycloak_automation_client_secret", "keycloak_db_password"):
+        assert key not in got["secrets"], f"the panel's read hands it {key}"
+
+
+def test_the_panels_read_holds_the_secrets_it_uses_and_no_others(oc, tmp_path, monkeypatch, capsys):
+    p = tmp_path / "config.json"
+    stored = _every_key_stored(oc)
+    p.write_text(json.dumps(stored))
+    got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
+    assert set(got) == {"secrets", "config"}
+    assert set(got["secrets"]) == oc.PANEL_SECRETS
+    assert got["config"] == stored["config"]
+    # The values the panel signs in and renders the catalog with, and the
+    # disaster-recovery keyset it reveals, beside every Settings field.
+    for key in ("admin_password", "turn_static_auth_secret",
+                "backup_restic_password", "cloudflare_api_token"):
+        assert got["secrets"][key] == f"value-of-{key}"
+    for key in ("console_recovery_password", "portainer_api_key",
+                "catena_admin_session_key", "catena_marketplace_token"):
+        assert key not in got["secrets"]
+
+
+def test_every_secret_the_panel_reads_is_declared(oc):
+    """A misspelt name would leave the panel without a value it reads."""
+    assert oc.PANEL_SECRETS <= set(oc.secret_names())
+
+
+def test_a_panel_write_keeps_the_keys_its_read_leaves_out(oc, tmp_path, monkeypatch, capsys):
+    """The panel saves the fields it sees, and the host merges them into the
+    whole file."""
+    p = tmp_path / "config.json"
+    stored = _every_key_stored(oc)
+    p.write_text(json.dumps(stored))
+    assert _dispatch(oc, p, {"op": "write", "secrets": {"smtp_password": "new"},
+                             "config": {"SMTP_PROVIDER": "resend"}},
+                     monkeypatch, capsys) == {"ok": True}
+    doc = json.loads(p.read_text())
+    assert doc["secrets"] == {**stored["secrets"], "smtp_password": "new"}
+    assert doc["config"] == {**stored["config"], "SMTP_PROVIDER": "resend"}
+    assert doc[oc.CLIENT_APP_SECRETS_KEY] == stored[oc.CLIENT_APP_SECRETS_KEY]
+    assert doc["image_pins"] == stored["image_pins"]
+
+
 def test_dispatch_write_persists_without_minting(oc, tmp_path, capsys, monkeypatch):
     import io
     p = tmp_path / "config.json"

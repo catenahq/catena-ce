@@ -207,6 +207,15 @@ the backup with the rest of the file:
 - `offsite_copies`: the source and target keys of each offsite copy, written
   by catena-admin (`payload/engines/offsite`).
 
+## What the panel reads
+
+catena-admin reads the store through the settings API's `read`, which
+returns `onbox_config.py` `panel_view`: the whole `config` and the secrets
+in `PANEL_SECRETS`, the ones the panel uses. Every other secret stays on the
+host, the master realm's automation client among them. A settings write
+merges into the whole file, so the panel's writes keep what its read leaves
+out.
+
 ## On-box persistence target
 
 `/etc/catena/` already rides the backup (`backup_paths` includes `/etc`) and
