@@ -25,8 +25,8 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # immutable byte-image at copy time, with the provider retaining prior
 # versions for the lock period. A ransomware-driven `forget --prune`
 # against a live bucket cannot reach the locked copies because the lane
-# issues no DELETEs in the first place; recovery means rclone-copy locked
-# -> fresh mutable bucket and point restic at that.
+# issues no DELETEs in the first place. The dashboard's Restore page reads a
+# locked copy where it is, with a key that only reads it.
 #
 # WHICH buckets are copied is NOT configured here and has no converge
 # projection. It is the `offsite_copies` list in /etc/catena/config.json,
@@ -36,9 +36,10 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # a client runs or what each one is called.
 #
 # Default cold partner: eazybackup s3.ca-central-1.eazybackup.com
-# (Canadian-owned, CGP-certified). Alternatives: Backblaze B2,
-# AWS S3, Cloudflare R2. Pick a different provider from the live
-# bucket so a single provider compromise can't reach both copies.
+# (Canadian-owned, CGP-certified). Alternatives with Object Lock and
+# versioning: Backblaze B2, AWS S3, OVHcloud Object Storage. Pick a
+# different provider from the live bucket so a single provider compromise
+# can't reach both copies.
 #
 # Ordering: sequencing across backup + verify + copy + auto-update +
 # container-update is owned by the catena-daily orchestrator chain.
