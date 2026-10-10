@@ -21,10 +21,9 @@ which recreates the panel from its run's image on a host a scenario left
 without it. Both create the service directly against the local swarm,
 with no stack API between them to hold a shared compose file, so the only thing
 that can keep their argv identical is a renderer they both call. What MUST NOT
-drift is exactly what nobody reads: eight mounts and six labels. So the mounts,
-the labels, the publish mode and the host-gateway alias live HERE as product
-facts, and the spec carries only what is
-genuinely per-host.
+drift is exactly what nobody reads: the eight mounts. So the mounts, the
+publish mode and the host-gateway alias live HERE as product facts, and the
+spec carries only what is genuinely per-host.
 
 The bench imports this module by path, the way it already reads role files
 out of the catena-ce tree.
@@ -84,20 +83,6 @@ _MOUNTS = (
     # audit entry is silently dropped. Send-only: the socket lets the
     # container WRITE journald entries, not read other services' logs.
     ("/run/systemd/journal/socket", "/run/systemd/journal/socket", False),
-)
-
-# CONTAINER labels, not service labels. gatus-sync reads `docker ps`, which
-# reports the labels on the task container; `--label` would put these on the
-# service object where it never looks, and the panel would quietly drop off
-# the monitored set.
-_LABELS = (
-    ("vps.auth.mode", "private"),
-    ("vps.auth.groups", "staff,admin"),
-    ("vps.auto-update", "patch"),
-    ("vps.homepage.name", "Catena Admin"),
-    ("vps.homepage.icon", "mdi-shield-account"),
-    ("vps.homepage.description",
-     "Operator panel: apps, system, actions, recovery"),
 )
 
 # Where a swarm secret lands inside the container. The env var the shell
@@ -245,9 +230,6 @@ def catena_admin_service_argv(spec):
 
     for source, destination, readonly in _MOUNTS:
         argv.append("--mount=" + _mount_arg(source, destination, readonly))
-
-    for key, value in _LABELS:
-        argv.append(f"--container-label={key}={value}")
 
     for secret in spec.get("secrets") or []:
         argv.append(

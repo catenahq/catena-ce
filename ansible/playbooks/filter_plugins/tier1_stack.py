@@ -306,9 +306,9 @@ def _service(spec):
 
     labels = spec.get("container_labels") or {}
     if labels:
-        # CONTAINER labels, not service labels: gatus-sync reads `docker ps`,
-        # which reports labels on the task container. `deploy.labels` would
-        # put them on the service object where nothing looks for them.
+        # Container labels, where the engine's `--container-label` puts them
+        # (catena-admin payload/engines/tier1/spec.go): compose `labels:` is
+        # the task's container spec, `deploy.labels` the service object's.
         out["labels"] = {str(k): str(v) for k, v in sorted(labels.items())}
 
     hc = _healthcheck(spec)

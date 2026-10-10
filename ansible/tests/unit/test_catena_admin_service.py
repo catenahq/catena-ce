@@ -3,7 +3,7 @@
 The panel is created with `docker service create` rather than through
 Portainer's stack API, so the shape of that argv IS the deployment. Two
 consumers render it -- the converge and the test bench -- which is why the
-mounts and labels live in the plugin and not in either caller.
+mounts live in the plugin and not in either caller.
 
 Run: uv run pytest tests/unit/test_catena_admin_service.py
 """
@@ -76,13 +76,12 @@ def test_the_host_gateway_alias_is_set():
     assert "--host=host.docker.internal:host-gateway" in argv
 
 
-def test_labels_are_container_labels_not_service_labels():
-    # gatus-sync reads `docker ps`, which reports the TASK container's
-    # labels. As --label these land on the service object, where nothing
-    # looks, and the panel drops off the monitored set silently.
+def test_the_panel_carries_no_labels():
+    # The vps.* labels are read from client-app stacks alone (catena-admin
+    # payload/lib/app_intent.py). The panel's gate is its entry in
+    # reconcile/roles/oauth2_proxy/defaults/main.yml oauth2_proxy_apps.
     argv = _plugin().catena_admin_service_argv(_spec())
-    assert "--container-label=vps.auth.mode=private" in argv
-    assert not any(a.startswith("--label=") for a in argv)
+    assert not any(a.startswith(("--container-label=", "--label=")) for a in argv)
 
 
 def test_the_payload_mount_stays_writable_inside_the_read_only_parent():

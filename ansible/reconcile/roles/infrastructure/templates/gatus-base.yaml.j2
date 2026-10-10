@@ -13,14 +13,15 @@
 # A public endpoint that expects 302 tests the whole Cloudflare tunnel ->
 # Traefik -> oauth2-proxy chain: 302 is oauth2-proxy sending an
 # unauthenticated request to Keycloak, so every layer in front answered.
-# An internal endpoint (a catena-network alias) tests the service itself.
+# An internal endpoint (a service's network alias) tests the service itself.
 # Gatus holds no credentials.
 #
-# Endpoint naming: `<hostname or alias> (<service label>)` so the
-# downstream notification body (posted to Healthchecks, then fanned out
-# via the client-configured integrations -- see alerting.custom below
-# for the webhook wiring) carries enough context to identify what's
-# down without opening the status page.
+# Endpoint naming: an infrastructure endpoint is named by its image and the
+# version catena-version-check reports for it, or by its spec entry's label
+# while the report has no row for it; a client app's endpoint by the app's
+# title or host, in the app's group. The alert body (alerting.custom below)
+# carries `<group> / <name>`, enough to identify what is down without opening
+# the status page.
 
 {# ─── Labels (client-facing status page + notification titles) ───
    Gatus has no upstream i18n, so we author these labels ourselves. They
@@ -72,10 +73,10 @@ alerting:
   # the admin's email channel is attached automatically without per-check
   # wiring.
   #
-  # Every endpoint below sets `description:` on its alert (overriding
-  # default-alert.description), and that description is the slug.
-  # Derived from endpoint name so operators reading both the Gatus UI
-  # and the Healthchecks UI get obvious pairings.
+  # Every endpoint catena-gatus-sync writes sets `description:` on its alert
+  # (overriding default-alert.description) to its slug: an infrastructure
+  # entry's alert_slug, else its label, and a client app's host, so the Gatus
+  # UI and the Healthchecks UI pair obviously.
   custom:
     url: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}/ping/{{ healthchecks_ping_key }}/gatus-[ALERT_DESCRIPTION][ALERT_TRIGGERED_OR_RESOLVED]?create=1"
     method: "POST"
@@ -112,28 +113,12 @@ alerting:
 # and self-contained the instant the process starts; it carries no
 # `alerts:` (a monitor that is down cannot page about itself).
 endpoints:
-  # The name carries the migration, and the parentheses are what it cost.
-  #
-  # This endpoint's group said "infrastructure" while every entry in
-  # gatus-infra-spec.json.j2 says "Infrastructure". Gatus renders the group
-  # string verbatim, so the status page grew a second Infrastructure section
-  # with this one endpoint stranded in it.
-  #
-  # Correcting the capitalisation alone fixes a FRESH install and silently does
-  # nothing to a running one. Gatus stores the rendered group in SQLite and the
-  # dashboard reads it from there, not from this file; the row is found by
-  # `sanitize(group) + "_" + sanitize(name)`, and sanitize lowercases -- so
-  # "infrastructure" and "Infrastructure" are the same key. The row is
-  # therefore never missing, `endpoint_group` is only ever written on INSERT,
-  # and `DeleteAllEndpointStatusesNotInKeys` keeps a key it still sees. The old
-  # spelling outlives any number of converges and restarts.
-  #
-  # Dropping the parentheses changes the NAME, which changes the key, which
-  # makes Gatus purge the stale row at startup and insert a fresh one carrying
-  # this group. The converge migrates an already-running host by itself, with
-  # no hand-written SQL against a database another process holds open. The cost
-  # is this endpoint's history, which is a self-check on the monitor that would
-  # be down if it mattered.
+  # In the group every gatus-infra-spec.json.j2 entry uses: Gatus renders the
+  # group string verbatim, one status-page section per spelling. Gatus keys an
+  # endpoint's stored row by its group and name lowercased and writes the
+  # group only when it inserts the row, so on a running host a group whose
+  # spelling changes by letter case alone keeps its stored spelling until the
+  # endpoint's name changes (tests/unit/test_gatus_base_selfcheck.py).
   - name: "Gatus self-check"
     group: "Infrastructure"
     url: "http://localhost:{{ gatus_internal_port }}/health"

@@ -175,8 +175,9 @@ def test_global_mode_drops_replicas() -> None:
 
 
 def test_container_labels_land_on_the_container_not_the_service() -> None:
-    """gatus-sync reads `docker ps`, which reports labels on the task
-    container; deploy.labels would put them where nothing looks."""
+    """The render is the oracle for what the tier1 engine applies, which
+    sets container_labels with `--container-label`: compose `labels:`, the
+    task's container spec. deploy.labels is the service object's own."""
     out = render([_pg(container_labels={"vps.auth.mode": "private"})])
     svc = out["services"]["catena-postgres"]
     assert svc["labels"] == {"vps.auth.mode": "private"}
