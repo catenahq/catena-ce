@@ -2,11 +2,16 @@
 side: the sshd AcceptEnv entry carrying the candidate token, a converge that
 declares no Cloudflare action (catena-admin payload/actions.d/20-catena.sh
 holds them), the host payload install in reconcile/roles/payload, and the
-ee-install-engines wording.
+ee-install-engines dispatch.
 
 Run: uv run pytest tests/unit/test_catena_admin_cloudflared_actions.py
 """
 from __future__ import annotations
+
+import os
+import subprocess
+
+import jinja2
 
 from ansible_tree import GROUP_VARS, PANEL_HOST_TASKS as HOST, panel_vars, role_dir
 
@@ -94,12 +99,50 @@ def test_the_passthrough_list_still_carries_the_candidate_token():
 
 
 # --- unconditional host payload install -------------------------------------
-def test_ee_install_engines_dispatches_the_host_verb():
+def _press_ee_install_engines(tmp_path, systemd_run: str):
+    """Run the rendered ee-install-engines arm under the runner's strict mode,
+    with a systemd-run that records its argv and then runs `systemd_run`."""
     d = panel_vars()
-    ee = _by_name(d["catena_admin_ee_reserved_actions"])
-    assert "ee-install-engines" in ee
-    assert "catena_admin_stack_update_bin" in ee["ee-install-engines"]
-    assert "install-payload" in ee["ee-install-engines"]
+    shell = jinja2.Template(
+        _by_name(d["catena_admin_ee_reserved_actions"])["ee-install-engines"]
+    ).render(catena_admin_stack_update_bin=d["catena_admin_stack_update_bin"])
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_file = tmp_path / "argv"
+    stub = bindir / "systemd-run"
+    stub.write_text(f'#!/bin/bash\nprintf "%s\\n" "$@" > "{argv_file}"\n{systemd_run}\n')
+    stub.chmod(0o755)
+    r = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n" + shell],
+        capture_output=True, text=True, timeout=30,
+        env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
+    )
+    argv = argv_file.read_text().splitlines() if argv_file.exists() else []
+    return r, argv
+
+
+def test_ee_install_engines_runs_the_verb_detached_under_the_host_lock(tmp_path):
+    """The self-update and the host's own converge empty and refill the same
+    stage directory and rotate the payload manifest under /run/catena.lock.
+    flock sits inside the unit, around the verb: around systemd-run it would
+    let go of the lock as soon as the unit started."""
+    r, argv = _press_ee_install_engines(tmp_path, "exit 0")
+    assert r.returncode == 0, r.stderr
+    assert argv == [
+        "--unit", "catena-install-payload", "--collect",
+        "/usr/bin/flock", "-w", "3600", "/run/catena.lock",
+        panel_vars()["catena_admin_stack_update_bin"], "install-payload",
+    ]
+    assert "started in the background" in r.stdout
+
+
+def test_ee_install_engines_reports_no_start_when_systemd_run_refuses(tmp_path):
+    """A second press while the first unit runs is refused by systemd-run, the
+    unit name being in use. The button then fails rather than reporting an
+    install that never started."""
+    r, _ = _press_ee_install_engines(tmp_path, 'echo "unit exists" >&2; exit 1')
+    assert r.returncode != 0
+    assert "started" not in r.stdout
 
 
 def test_deploy_does_not_own_the_payload_install():

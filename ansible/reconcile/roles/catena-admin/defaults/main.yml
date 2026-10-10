@@ -212,22 +212,22 @@ catena_migrate_lane_port: 9040
 # forced-command runner. The runner's dispatch table is CE-rendered, so
 # without a matching entry it rejects the action name; these entries authorize
 # the known Business action names -> the host engines. The engines install on
-# EVERY host at converge (the payload is not license-gated -- see deploy.yml),
-# so the binaries are present even on a plain Community host; the license only
-# controls which buttons the shell RENDERS. The dispatcher already runs as root
-# (the forced-command pipes through sudo), so no extra sudoers is needed. These
-# are appended to the host dispatch table + allow-list ONLY, never to the
-# shell-read catalog (actions.yml), so no Business button ever appears on a
-# Community host -- the panel contributes the button only while its license is
-# active. Names + commands MUST match the panels' ActionSpec (catena-admin
-# shell/panels/audit + shell/panels/daily); a drift means the shell dispatches a
-# name the host cannot resolve.
+# EVERY host at converge (the payload is not license-gated -- see
+# reconcile/roles/payload), so the binaries are present even on a plain
+# Community host; the license only controls which buttons the shell RENDERS.
+# The dispatcher already runs as root (the forced-command pipes through sudo),
+# so no extra sudoers is needed. These are appended to the host dispatch table
+# + allow-list ONLY, never to the shell-read catalog (actions.yml), so no
+# Business button ever appears on a Community host -- the panel contributes the
+# button only while its license is active. The name MUST match the daily panel's ActionSpec (catena-admin
+# shell/panels/daily); a drift means the shell dispatches a name the host
+# cannot resolve.
 catena_admin_ee_reserved_actions:
   # Payload (re-)install: refreshes the host payload (engines + lane scripts +
   # units) from the image the panel is running. The converge installs the
-  # payload unconditionally (deploy.yml); this reserved action lets the shell
-  # re-run the install out of band after an image bump without a full converge.
-  # Must match dailyplugin ee-install-engines ActionSpec.
+  # payload unconditionally (reconcile/roles/payload); this reserved action
+  # lets the shell re-run the install out of band after an image bump without
+  # a full converge.
   #
   # It runs the ENGINE, which copies the tree out of the running image, as
   # root, into the root-owned stage directory reconcile/roles/payload uses
@@ -235,8 +235,26 @@ catena_admin_ee_reserved_actions:
   # is the trust root, and nothing the panel can write is read back as root
   # input. The panel is built with no root and no docker socket for exactly
   # this reason.
+  #
+  # Detached under its own unit, holding /run/catena.lock for the engine's
+  # lifetime, like the panel's self-update. The self-update and the host's own
+  # converge (catena-converge) hold that lock while they empty and refill the
+  # same stage directory and rotate the payload manifest, so a reinstall
+  # beside either would install from a half-filled tree and record a partial
+  # manifest, whose next prune removes engines the image still ships. flock
+  # waits for the holder inside the unit, where the panel's action timeout
+  # does not reach, so the button reports that the install started. A second
+  # press while the unit runs is refused by systemd-run, and the report is
+  # printed only once the unit started.
   - name: ee-install-engines
-    shell: "{{ catena_admin_stack_update_bin }} install-payload"
+    shell: >-
+      systemd-run --unit catena-install-payload --collect
+      /usr/bin/flock -w 3600 /run/catena.lock
+      {{ catena_admin_stack_update_bin }} install-payload
+      && echo 'Engine install started in the background. It waits for any
+      backup, update or converge already running on this server, then installs
+      the engines from the image this panel runs. Follow it with: journalctl -u
+      catena-install-payload -f'
   # ee-install-engines is the ONLY entry in this table, and the rule that keeps
   # it alone is the reconcile invariant applied to the dispatch table itself:
   # the action that REINSTALLS the payload cannot depend on the payload having

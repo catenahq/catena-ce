@@ -24,8 +24,8 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   from here. Each runs a binary the payload installs at a path the
   payload chose, so this repo would have been holding an authorization
   record for names it does not own -- and a one-line change to any of
-  them would have needed a converge against a live client. The four that
-  are still authorized here are declared, with their reasons, in
+  them would have needed a converge against a live client. The one action
+  still authorized here is declared, with its reason, in
   [../../tests/unit/test_converge_dispatch_table.py](../../tests/unit/test_converge_dispatch_table.py).
 - Renders the catalog the Go shell reads at runtime
   (`/etc/catena/admin-actions.yml`) from the same source, plus the
@@ -54,7 +54,9 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   `ee-install-engines` reserved action re-installs out of band after an
   image bump, extracting from the running image as root, and it stays in
   this repo's table precisely because it is the way back when a drop-in
-  is broken.
+  is broken. It starts a detached unit that holds `/run/catena.lock`, so
+  it waits for the panel's self-update and the host's own converge, which
+  refill the same stage directory, and the button reports that it started.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).
