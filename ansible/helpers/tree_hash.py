@@ -8,9 +8,10 @@ hash this module computes, and reconcile/roles/payload compares the tree
 running a converge with the record of the image its engines come from. One
 implementation on both sides, so the two cannot disagree about what a tree is.
 
-What ships: the files git tracks under ansible/, minus ansible/tests/, with
-their bytes on disk. The hash is the sha256 of one line per file, sorted by
-path: `<path>\\0<sha256 of its content>\\n`, the path relative to the tree root.
+What ships: the files git tracks under ansible/, minus ansible/tests/ and any
+the working tree has deleted, with their bytes on disk. The hash is the sha256
+of one line per file, sorted by path: `<path>\\0<sha256 of its content>\\n`,
+the path relative to the tree root.
 
 A tree with no git checkout is one staged out of an image (catena-admin
 catena-converge): it carries the image's VENDOR.json beside ansible/, and its
@@ -41,7 +42,8 @@ def shipped_files(root: Path) -> list[str]:
         ["git", "-C", str(root), "ls-files", "-z", "--", SHIPPED],
         check=True, capture_output=True).stdout.decode("utf-8")
     return sorted(p for p in out.split("\0")
-                  if p and not p.startswith(NOT_SHIPPED))
+                  if p and not p.startswith(NOT_SHIPPED)
+                  and (root / p).exists())
 
 
 def content_hash(root: Path, paths: list[str]) -> str:

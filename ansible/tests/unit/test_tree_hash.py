@@ -89,6 +89,24 @@ def test_files_an_image_does_not_ship_do_not_change_the_hash(checkout):
     assert tree_hash.identify(checkout)["tree_sha256"] == before
 
 
+def test_a_tracked_file_deleted_from_the_working_tree_does_not_ship(checkout, capsys):
+    """The bench builds images from working trees. A deletion not yet
+    committed is left out of the list the vendor step copies and of the hash
+    both sides compute, which is the hash of the tree once it is committed."""
+    (checkout / "ansible" / "ansible.cfg").unlink()
+
+    assert tree_hash.main(["--files", str(checkout)]) == 0
+    assert capsys.readouterr().out.split("\0")[:-1] == [
+        "ansible/playbooks/reconcile.yml",
+        "ansible/reconcile/roles/r/tests/kept.yml",
+    ]
+    assert tree_hash.main(["--sha256", str(checkout)]) == 0
+    working = capsys.readouterr().out.strip()
+
+    _git(checkout, "commit", "-q", "-am", "delete")
+    assert working == tree_hash.identify(checkout)["tree_sha256"]
+
+
 def test_a_checkout_is_described_the_way_the_version_stamp_is(checkout):
     _git(checkout, "tag", "v1.2.3")
     assert tree_hash.identify(checkout)["describe"] == "v1.2.3"
