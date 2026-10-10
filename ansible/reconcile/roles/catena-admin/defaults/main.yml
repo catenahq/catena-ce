@@ -255,11 +255,9 @@ catena_admin_ee_reserved_actions:
   # installed correctly. Everything else follows the ordinary rule -- whoever
   # ships a command authorises it.
   #
-  # So the nine paid names (the daily chain's two, audit-export,
-  # verify-backup, the migration source side's four, and cloudflare-zones-save)
-  # are authorised by the payload's own dispatch drop-in,
-  # catena-admin payload/actions.d/10-paid.sh, next to
-  # the binaries they run. An entry here for any of them would be an
+  # So the paid names (catena-admin payload/actions.d/10-paid.sh
+  # _CATENA_PAID_NAMES) are authorised by that dispatch drop-in of the
+  # payload's own, next to the binaries they run. An entry here for any of them would be an
   # authorization record for a name and a path this converge neither chooses nor
   # can verify, and it would put a whole converge between a panel that gains an
   # action and a host willing to accept it.
