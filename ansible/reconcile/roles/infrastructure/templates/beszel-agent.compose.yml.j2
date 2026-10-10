@@ -54,8 +54,6 @@ services:
       - source: {{ _secret.name }}
         target: {{ _secret.target }}
 {% endfor %}
-    labels:
-      - traefik.enable=false
 
 networks:
   # Docker's predefined host network. Not created by us and not removed by

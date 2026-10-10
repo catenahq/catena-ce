@@ -59,18 +59,6 @@ services:
     # config (see gatus-base.yaml.j2 "Gatus self-check"), which is the
     # authoritative signal -- a second Docker-level check added nothing
     # except a failure mode.
-    labels:
-      # FALSE on purpose, here and in every infra compose. The service IS
-      # served, but its route is a Traefik FILE-provider route with the real
-      # hostname (its oauth2-proxy's, written by reconcile/roles/oauth2_proxy),
-      # and nothing reads traefik.enable. `true` would buy no routing
-      # and cost a bogus one: the docker provider would see an enabled container
-      # with no rule, apply Traefik's built-in `Host(<container name>)` default,
-      # and produce a DOTLESS router like `gatus-app-1-<taskid>`. Every
-      # websecure router inherits entryPoints.websecure.http.tls.certResolver,
-      # so Traefik would then ask a public CA for a certificate for a name that
-      # cannot have one, on every converge.
-      - traefik.enable=false
 
 volumes:
   gatus-data:

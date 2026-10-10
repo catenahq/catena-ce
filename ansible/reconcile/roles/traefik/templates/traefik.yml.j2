@@ -29,14 +29,13 @@
 # and rewrite X-Forwarded-Proto unconditionally.
 global:
   sendAnonymousUsage: false
+# The file provider is the only one. Every route is a file in the dynamic
+# directory, written by reconcile/roles/oauth2_proxy, reconcile/roles/infrastructure
+# swarm_stack.yml and dashboard-sync, and dashboard-sync writes a client app's
+# route only after its checks on the address (catena-admin
+# payload/lib/app_intent.py). Traefik reads no container or service labels, so
+# a client app's own traefik.* labels route nothing.
 providers:
-  swarm:
-    exposedByDefault: false
-    watch: true
-  docker:
-    exposedByDefault: false
-    watch: true
-    network: {{ catena_network_name }}
   file:
     directory: {{ traefik_dynamic_dir }}
     watch: true
@@ -62,13 +61,9 @@ entryPoints:
 # is `web`-only: app-route.yml.j2 (swarm_stack) and both route_synth
 # variants (dashboard-sync).
 #
-# A certResolver on this entrypoint is therefore an ACME order waiting for an
-# accident. A container labelled traefik.enable=true with no rule gets the
-# docker provider's built-in Host(`{{ '{{' }} normalize .Name {{ '}}' }}`)
-# default, and that DOTLESS router inherits the entrypoint's resolver -- so a
-# converge asks a public CA for a name no CA can issue and burns
-# failed-validation quota on the account. Declaring no resolver removes the
-# mechanism. ce_install_suite's stage-3e-no-public-acme guards the property.
+# A certResolver here would order certificates Cloudflare already provides,
+# against a public CA. With no resolver, Traefik orders none;
+# ce_install_suite's stage-3e-no-public-acme guards the property.
 #
 # Restoring TLS here takes four things together: an entrypoint, a resolver
 # with a real notification email, a published :443, and a caServer so a bench

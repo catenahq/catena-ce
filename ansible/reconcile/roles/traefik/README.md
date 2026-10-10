@@ -6,18 +6,21 @@ wildcard ingress rule (cloudflared) points at.
 
 ## What it manages
 
-- The `catena-network` attachable overlay, created here. Every catena app
-  stack joins it through the Portainer stack seam, so that one network is all
-  Traefik needs to route to.
+- The `catena-network` attachable overlay, created here. Every service a
+  route points at joins it, so that one network is all Traefik needs to
+  route to.
 - The `catena-traefik` swarm service. Its spec -- image, mounts, hardening,
   placement, health probe -- comes from the tier-1 host engine
   (`catena-tier1 spec catena-traefik`) rather than from this role, so the
   desired control plane travels with the catena-admin image.
 - The config tree at `/etc/catena/traefik`: `traefik.yml` (static config,
   rendered here) and `dynamic/` (file-provider routes written by three
-  producers: `reconcile/roles/oauth2_proxy`, dashboard-sync, and the
-  portainer_stack seam). This role guarantees the dynamic dir exists and that
-  Traefik watches it; route CONTENT belongs to those producers.
+  producers: `reconcile/roles/oauth2_proxy`, dashboard-sync, and
+  `reconcile/roles/infrastructure/tasks/swarm_stack.yml`). This role
+  guarantees the dynamic dir exists and that Traefik watches it; route
+  CONTENT belongs to those producers.
+- The file provider as Traefik's only provider: Traefik reads no container or
+  service labels, so every route comes from `dynamic/`.
 - Two middlewares on the `web` entrypoint, rendered into `dynamic/`:
   `cf-forwarded-proto-https` (cloudflared sends `Cf-Visitor` rather than
   `X-Forwarded-Proto`, and Keycloak reads the latter) and

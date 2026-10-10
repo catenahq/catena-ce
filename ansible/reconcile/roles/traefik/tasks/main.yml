@@ -10,8 +10,8 @@
 #     without a nudge unit. Reasons in full at the deploy block below.
 #
 # The config tree lives under /etc/catena/traefik. catena-traefik is on
-# catena_network_name only -- every catena app deploys onto catena-network via
-# the Portainer stack seam.
+# catena_network_name only -- every service a route points at joins
+# catena-network.
 
 # ─── overlay network ─────────────────────────────────────────────────────
 - name: "traefik: ensure {{ catena_network_name }} overlay exists"
@@ -165,9 +165,9 @@
   vars:
     tier1_spec: "{{ _traefik_spec }}"
 
-# NOTE: catena-traefik attaches to catena_network_name ONLY. Every catena app
-# stack joins catena-network via the Portainer stack seam, so that single
-# overlay is all traefik needs to route to.
+# NOTE: catena-traefik attaches to catena_network_name ONLY. Every service a
+# route points at joins catena-network, so that single overlay is all traefik
+# needs to route to.
 
 # The static config is a bind mount, so a changed traefik.yml is already on
 # disk inside the running task -- but Traefik reads it once at startup. Only

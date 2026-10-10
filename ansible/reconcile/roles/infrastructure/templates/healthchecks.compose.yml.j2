@@ -121,9 +121,6 @@ services:
       - source: {{ _secret.name }}
         target: {{ _secret.target }}
 {% endfor %}
-    labels:
-      # FALSE on purpose -- see the note in gatus.compose.yml.j2.
-      - traefik.enable=false
 
 volumes:
   healthchecks-data:

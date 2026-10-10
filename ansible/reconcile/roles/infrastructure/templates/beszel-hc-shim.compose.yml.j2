@@ -7,7 +7,7 @@
 # ops/internal_docs/tools/notifications.md and
 # catena-ce/ansible/scripts/beszel-hc-shim.py.
 #
-# No public surface (traefik.enable=false). Reachable on beszel_network at
+# No public surface: no route points at it. Reachable on beszel_network at
 # {{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}, where
 # the hub is its one caller: catena-ce/ansible/scripts/beszel-seed.py points
 # the hub's webhook at
@@ -43,8 +43,6 @@ services:
       - source: {{ _secret.name }}
         target: {{ _secret.target }}
 {% endfor %}
-    labels:
-      - traefik.enable=false
 
 networks:
   {{ beszel_network }}:

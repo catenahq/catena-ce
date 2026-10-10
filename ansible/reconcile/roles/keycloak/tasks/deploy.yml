@@ -8,11 +8,11 @@
 # resolves once cloudflared + Traefik route this host AND Keycloak's
 # /health/ready returns 200. cloudflared is up by now (roles/
 # cloudflare_tunnel runs before this role), but the
-# Traefik route for auth.<zone> is the keycloak compose itself --
-# which we are deploying RIGHT NOW. Skip the public probe and let
+# Traefik route for auth.<zone> is the route file swarm_stack.yml writes
+# in this same include, after the deploy. Skip the public probe and let
 # the in-container healthcheck (defined in keycloak.compose.yml.j2)
 # gate readiness; the post-deploy probe in tasks/validate.yml handles
-# the cross-check once Traefik picks up the new compose.
+# the cross-check once Traefik picks up the route file.
 
 # Multi-domain: the domains this host serves after its primary,
 # catena_secondary_zones, which the compose and the route below both read.
