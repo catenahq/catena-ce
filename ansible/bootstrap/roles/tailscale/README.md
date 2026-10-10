@@ -90,7 +90,8 @@ Settings.
 - Adds the Tailscale apt keyring + source, installs `tailscale`, enables
   `tailscaled`.
 - `tailscale up` with the minted key (plus `--login-server` on the Headscale
-  fork).
+  fork), handed over as a root-only temporary file the role removes after the
+  join.
 - Exposes the joined node's tailnet IPv4 as the `tailscale_ipv4` fact.
   `playbooks/lockdown.yml` runs this role first; from the panel's Lockdown it
   then closes public 22 behind it.

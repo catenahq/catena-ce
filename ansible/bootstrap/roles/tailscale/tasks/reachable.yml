@@ -6,23 +6,35 @@
 # probe of the tailnet address would dial its own, so an online peer answering
 # through the tunnel is required.
 
+- name: "Tailnet: drop the reachability check to /root"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../helpers/tailnet_reachability.py"
+    dest: /root/catena-tailnet-reachability.py
+    owner: root
+    group: root
+    mode: "0700"
+
+# The check reads its input on stdin: an argv, or a task environment, which
+# Ansible prefixes to the command line it runs, would show the OAuth secret and
+# the API key to every local user through `ps`.
 - name: "Tailnet: ask the control server and a peer whether this host is reachable"
-  ansible.builtin.script:
-    cmd: "{{ playbook_dir }}/../helpers/tailnet_reachability.py"
-    executable: python3
-  environment:
-    TAILNET_PROVIDER: "{{ tailnet_provider }}"
-    TAILSCALE_API_BASE: "{{ tailscale_api_base }}"
-    TAILSCALE_OAUTH_CLIENT_ID: "{{ tailscale_oauth_client_id | default('') }}"
-    TAILSCALE_OAUTH_CLIENT_SECRET: "{{ tailscale_oauth_client_secret | default('') }}"
-    HEADSCALE_URL: "{{ tailnet_control_url | default('') }}"
-    HEADSCALE_API_KEY: "{{ headscale_api_key | default('') }}"
-    TAILNET_OWN_TAGS: "{{ tailscale_tags | join(',') }}"
-    TAILNET_REQUIRE_PEER: "1"
+  ansible.builtin.command:
+    argv: [python3, /root/catena-tailnet-reachability.py]
+    stdin: "{{ _ts_reachable_input | to_json }}"
+  vars:
+    _ts_reachable_input:
+      TAILNET_PROVIDER: "{{ tailnet_provider }}"
+      TAILSCALE_API_BASE: "{{ tailscale_api_base }}"
+      TAILSCALE_OAUTH_CLIENT_ID: "{{ tailscale_oauth_client_id | default('') }}"
+      TAILSCALE_OAUTH_CLIENT_SECRET: "{{ tailscale_oauth_client_secret | default('') }}"
+      HEADSCALE_URL: "{{ tailnet_control_url | default('') }}"
+      HEADSCALE_API_KEY: "{{ headscale_api_key | default('') }}"
+      TAILNET_OWN_TAGS: "{{ tailscale_tags | join(',') }}"
+      TAILNET_REQUIRE_PEER: "1"
   register: _ts_reachable
   changed_when: false
   failed_when: false
-  no_log: true # the environment carries the OAuth secret and the API key
+  no_log: true # stdin carries the OAuth secret and the API key
 
 # Two tasks rather than a ternary: ansible-core 2.19 templates both branches,
 # and from_json on the empty stdout of a crashed helper fails the play with a

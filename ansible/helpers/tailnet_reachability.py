@@ -26,10 +26,11 @@ answered by something other than the host's own view of itself:
      tailscale0 and addressed to this host's tailnet address, through the
      iptables and ip6tables rulesets in the order the kernel does.
 
-Input is the environment, so no credential reaches argv or the process table:
-TAILNET_PROVIDER (tailscale | headscale), TAILSCALE_API_BASE,
-TAILSCALE_OAUTH_CLIENT_ID, TAILSCALE_OAUTH_CLIENT_SECRET, HEADSCALE_URL,
-HEADSCALE_API_KEY, TAILNET_OWN_TAGS (comma-separated), TAILNET_REQUIRE_PEER.
+Input is one JSON object on stdin, so no credential reaches an argv, an
+environment or the process table: TAILNET_PROVIDER (tailscale | headscale),
+TAILSCALE_API_BASE, TAILSCALE_OAUTH_CLIENT_ID, TAILSCALE_OAUTH_CLIENT_SECRET,
+HEADSCALE_URL, HEADSCALE_API_KEY, TAILNET_OWN_TAGS (comma-separated),
+TAILNET_REQUIRE_PEER.
 
 Prints one JSON object on stdout, {"ok", "reasons", "summary"}, and exits 0
 whatever the verdict; the caller asserts on it. Nothing it prints carries a
@@ -40,7 +41,6 @@ from __future__ import annotations
 import base64
 import ipaddress
 import json
-import os
 import shlex
 import subprocess
 import sys
@@ -94,15 +94,15 @@ def local_status(run: Run) -> dict:
     return json.loads(r.stdout)
 
 
-def tailscale_control(status: dict, env: dict, http: Http) -> list[str]:
+def tailscale_control(status: dict, cfg: dict, http: Http) -> list[str]:
     """Reasons the Tailscale control server gives for this node being
     unreachable, or [] when it sees the node connected and accepting."""
     node_id = str((status.get("Self") or {}).get("ID") or "")
     if not node_id:
         return ["`tailscale status` names no node id for this host"]
-    base = (env.get("TAILSCALE_API_BASE") or "https://api.tailscale.com/api/v2").rstrip("/")
-    client_id = env.get("TAILSCALE_OAUTH_CLIENT_ID") or ""
-    secret = env.get("TAILSCALE_OAUTH_CLIENT_SECRET") or ""
+    base = (cfg.get("TAILSCALE_API_BASE") or "https://api.tailscale.com/api/v2").rstrip("/")
+    client_id = cfg.get("TAILSCALE_OAUTH_CLIENT_ID") or ""
+    secret = cfg.get("TAILSCALE_OAUTH_CLIENT_SECRET") or ""
     if not (client_id and secret):
         return ["no Tailscale OAuth client is stored, so the control server "
                 "cannot be asked"]
@@ -132,14 +132,14 @@ def tailscale_control(status: dict, env: dict, http: Http) -> list[str]:
     return reasons
 
 
-def headscale_control(status: dict, env: dict, http: Http) -> list[str] | None:
+def headscale_control(status: dict, cfg: dict, http: Http) -> list[str] | None:
     """Reasons the Headscale server gives, [] when it sees the node online,
     or None when no API key is stored to ask with."""
-    key = env.get("HEADSCALE_API_KEY") or ""
+    key = cfg.get("HEADSCALE_API_KEY") or ""
     if not key:
         return None
     node_key = str((status.get("Self") or {}).get("PublicKey") or "")
-    base = (env.get("HEADSCALE_URL") or "").rstrip("/")
+    base = (cfg.get("HEADSCALE_URL") or "").rstrip("/")
     code, body = http("GET", f"{base}/api/v1/node",
                       headers={"Authorization": f"Bearer {key}"})
     if code != 200 or not isinstance(body, dict):
@@ -441,11 +441,11 @@ def policy_reasons(status: dict, peers: list[tuple[str, list[str]]],
             f"{_brief(allows, 5) or 'nothing'}"]
 
 
-def check(env: dict, run: Run = _run, http: Http = _http,
+def check(cfg: dict, run: Run = _run, http: Http = _http,
           sleep: Callable[[float], None] = time.sleep) -> dict:
-    provider = (env.get("TAILNET_PROVIDER") or "tailscale").strip().lower()
-    require_peer = (env.get("TAILNET_REQUIRE_PEER") or "0").strip() == "1"
-    own_tags = {t.strip() for t in (env.get("TAILNET_OWN_TAGS") or "").split(",")
+    provider = (cfg.get("TAILNET_PROVIDER") or "tailscale").strip().lower()
+    require_peer = (cfg.get("TAILNET_REQUIRE_PEER") or "0").strip() == "1"
+    own_tags = {t.strip() for t in (cfg.get("TAILNET_OWN_TAGS") or "").split(",")
                 if t.strip()}
 
     reasons: list[str] = []
@@ -464,7 +464,7 @@ def check(env: dict, run: Run = _run, http: Http = _http,
             continue
 
         if provider == "headscale":
-            control = headscale_control(status, env, http)
+            control = headscale_control(status, cfg, http)
             if control is None:
                 if require_peer:
                     reasons.append(
@@ -476,7 +476,7 @@ def check(env: dict, run: Run = _run, http: Http = _http,
             else:
                 reasons += control
         else:
-            reasons += tailscale_control(status, env, http)
+            reasons += tailscale_control(status, cfg, http)
 
         if require_peer and not reasons:
             peers = eligible_peers(status, own_tags)
@@ -510,7 +510,7 @@ def check(env: dict, run: Run = _run, http: Http = _http,
 
 
 def main() -> int:
-    print(json.dumps(check(dict(os.environ))))
+    print(json.dumps(check(json.load(sys.stdin))))
     return 0
 
 
