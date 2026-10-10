@@ -316,6 +316,14 @@
 # restic runs under backup_restic_env_script (../defaults/main.yml says why),
 # which ships in the payload with the wrapper, hence the same gate as the first
 # backup below.
+#
+# Both tasks carry `first_backup`, which a whole-server restore's converge
+# skips (catena-admin payload/cmd/catena-recovery). After a restore from the
+# offsite copy the adopted store names a repository location that stays empty
+# until the admin puts the repository back from the copy, and a first backup
+# there would create a new repository the put-back then refuses. The two go
+# together: skipped alone, the probe leaves the queue reading no result as no
+# snapshot.
 - name: Check whether any snapshots exist
   # `--latest 1`: restic has no `--last` flag, and a probe that exits non-zero
   # on every run would queue the first backup below on every converge.
@@ -329,6 +337,7 @@
   when:
     - _backup_configured | bool
     - _backup_wrapper_present | default(false)
+  tags: [first_backup]
 
 # Queued, not waited for: the backup unit takes /run/catena.lock (flock in its
 # ExecStart), the lock catena-converge holds while it runs this play from the
@@ -353,3 +362,4 @@
       - "--no-block"
       - "{{ backup_systemd_unit_name }}.service"
   changed_when: true
+  tags: [first_backup]

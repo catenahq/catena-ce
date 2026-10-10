@@ -2,7 +2,9 @@
 
 Writes the configuration the payload's backup lane reads and takes
 the first snapshot. Verifying a backup and restoring it run in the
-`catena-recovery` host binary, driven from the panel.
+`catena-recovery` host binary, driven from the panel. A whole-server
+restore's converge skips the first snapshot (tag `first_backup`;
+`tasks/install.yml` says why).
 
 ## Tasks
 
