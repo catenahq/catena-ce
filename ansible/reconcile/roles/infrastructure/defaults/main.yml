@@ -177,11 +177,11 @@ infrastructure_smtp: >-
 # Always deployed: Beszel is part of the base plane. Pinned tags
 # (Renovate-managed); the agent reads docker.sock, so it has the docker
 # daemon's blast radius on a single-tenant VPS.
-beszel_image_tag: "0.20.0"
+beszel_image_tag: "0.21.0"
 beszel_image: >-
   {{ ('henrygd/beszel:' ~ beszel_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
-beszel_agent_image_tag: "0.20.0"
+beszel_agent_image_tag: "0.21.0"
 beszel_agent_image: >-
   {{ ('henrygd/beszel-agent:' ~ beszel_agent_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
@@ -295,7 +295,7 @@ dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
 # Topology and image: templates/clamav.compose.yml.j2. Renovate manages the
 # pin (custom manager for stack images).
 clamav_image: >-
-  {{ 'clamav/clamav:1.5.3_base'
+  {{ 'clamav/clamav:1.5.4_base'
      | catena_image_pin(catena_image_pins | default({})) }}
 clamav_compose_name: "clamav"
 clamav_network: "catena-clamav"
