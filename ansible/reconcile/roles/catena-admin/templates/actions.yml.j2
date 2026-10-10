@@ -48,7 +48,8 @@ actions:
     # the command. Single source of truth for sourcing the env from
     # outside the systemd-launched backup scripts; see catena-admin
     # payload/lanes/catena-restic-env.sh and its restic_env_pattern_test.go.
-    shell: "catena-restic-env restic snapshots --latest 10"
+    # --no-lock: a listing writes nothing into the repository it reads.
+    shell: "catena-restic-env restic snapshots --no-lock --latest 10"
 
   - name: backup-coverage-check
     title: "Check backup coverage"
