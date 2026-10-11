@@ -40,9 +40,20 @@ the configured relay. A lock takes away the paid features only: applications,
 their data, backups, restores and updates by hand keep running.
 
 A move to another server needs a paid edition on the server being moved, and
-none on the receiving one. Once the move is validated, the old server frees
-the key and closes its migration window, and the receiving server takes the
-key over and converges itself.
+none on the receiving one. The receiving server reaches the old one over SSH,
+with a one-time migration ticket and a pairing code the old server's dashboard
+gives out when it allows the move; no private network is needed, and no port
+opens for it. Once the move is validated, the old server frees the key and
+closes its migration window, and the receiving server takes the key over and
+converges itself.
+
+A paid server can send Catena support a report when one of Catena's own checks
+fails or recovers, once its administrator switches it on in the dashboard. The
+report names the check, its state and the application concerned, and nothing
+from inside the applications; the text a failed job wrote stays on the server,
+where the dashboard offers it for download, and reaches support only when the
+administrator reviews it, edits it if they wish, and sends it. The dashboard
+shows each report sent, and switching reports off stops them at once.
 
 | Invariant | Enforced by |
 | --- | --- |
@@ -51,7 +62,7 @@ key over and converges itself.
 | A lock takes away paid features only: applications, restores and Community actions keep running | `bench:license_seat`, `threat:LE3` |
 | A subscription key is active on one server at a time | `bench:license_seat`, `bench:polar_sandbox_smoke`, `threat:LE7` |
 | A move hands the key on only once the move is validated | `bench:wizard_migrate_round_trip`, `bench:migrate_lane_auth_denied`, `threat:LE12` |
-
+| A move reaches the old server only through a one-time grant, while its migration window is open | `bench:migrate_lane_auth_denied` |
 ## How this repository is layered
 
 A desired state is reached in four layers, widest to narrowest.
@@ -170,7 +181,7 @@ Order is the converge order, which is dependency order.
 | --- | --- |
 | `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the running dashboard image. Deploys no container |
 | `public_ports` | The declarative public-port registry's host side: the fragment directory, the docker drop-in that reapplies the rules on every docker start, and the reconciler's timer. The reconciler and its timer ship in the payload, and a payload without them fails the converge |
-| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, the journal's storage, the host resolving its own name, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, and the reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
+| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, the journal's storage, the host resolving its own name, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, the reboot-required probe's configuration, and the timers of the licence check and the error reports. The probe, the licence check, the error reporter and their timers ship in the payload |
 | `swarm` | The swarm's own settings (task history, the data-node label), which a restore does not bring back, and the self-heal that restarts containers which lost the race to the overlay at daemon start |
 | `traefik` | The reverse proxy and the `catena-network` overlay |
 | `postgres` | The infrastructure Postgres swarm service, hosting the sign-on database |
@@ -306,21 +317,53 @@ and its keys are saved, and shown once: the host keeps it to run backups, and
 the copy kept off the host opens the repository once the host is gone. A
 server rebuilds from the endpoint and that keyset alone.
 
-restic and rclone ship in the payload, pinned by digest. The backup wrapper
-creates the repository when it finds none, and stops when the password is
-wrong. Snapshots list, browse and export without a restore.
+restic and rclone ship in the payload, pinned by digest. Saving a backup
+destination in the dashboard creates its repository when the bucket holds
+none. A backup never creates one: it stops when it finds no repository, or
+when the password is wrong. Snapshots list, browse and export without a
+restore.
 
 Restores run on the host through `catena-recovery`, the payload's restore
-engine, which the dashboard's restore page drives. They need no converge
-afterwards. Progress is recorded in `/var/lib/catena/recovery.state`: an
-interrupted restore resumes with the same snapshot and scope, refuses a
-different one, and only a finished run clears the record.
+engine, which the dashboard's restore page drives. A restore reads the
+repository it is given the same way whichever it is (this server's own,
+another server's, or an offsite copy) and writes nothing to it, so a key that
+may only read is enough. A whole-server restore puts the data back, adopts
+the settings stored with it, renders the server's services from them, starts
+the services Catena runs, and joins the private network those settings name.
+The client applications it brought back stay stopped until an administrator
+starts them from the restore page, which replays their databases, releases
+them from their backup mode and brings the server up to date with a converge:
+a restore cannot tell whether their data was compromised before the backup was
+taken. A one-application restore holds that application the same way; a move
+to another server holds nothing. After a whole-server restore, backups wait
+until an administrator confirms the backup destination or saves a new one, and
+the daily chain's updates and engine upgrade are turned off, with a warning
+on every page, until an administrator turns them back on: a restore never
+treats the repository it read, or the one its settings name, as safe to write
+to. A new destination gets a new backup password, shown once. Progress is
+recorded in
+`/var/lib/catena/recovery.state`: an interrupted restore resumes with the same
+snapshot and scope, refuses a different one, and only a finished run clears
+the record.
+
+On a Catena Business server the offsite copy duplicates a bucket into a
+locked bucket at another provider, and refuses a destination that holds a
+different repository from its source. A bucket comes back from its offsite
+copy into a bucket and keys the administrator names, new ones after a
+compromise, never into the bucket it came from, and the application that used
+it is switched to that bucket. The backup repository comes back the same way:
+backups then either continue in it, with its offsite copy continuing in the
+same locked bucket, or start in a new repository whose copy goes to a new
+folder of that bucket.
 
 | Invariant | Enforced by |
 | --- | --- |
 | A server rebuilds from only the backup endpoint and key | `bench:dr_suite#stage-19-onbox-store`, `bench:ce_restore`, `bench:recover_secrets_from_running_host`, `threat:CV9` |
 | Backups are encrypted on the host before upload, under a password also kept off the host | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
 | Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore` |
+| A restore writes nothing to the repository it reads | `bench:worm_round_trip` |
+| After a restore, the client applications stay stopped until an administrator starts them | `bench:inplace_restore_suite`, `bench:dr_suite` |
+| After a whole-server restore, backups wait for a confirmed or new destination | `bench:rebuild_backs_up_after_restore`, `bench:dr_suite` |
 | An interrupted restore resumes with the same snapshot and scope, and is never reported as finished | `bench:fi_n5_provider_outage_mid_restore`, `bench:inplace_restore_suite#app-restore-stage-6-halted-scope-refuses-to-widen` |
 | Snapshots export without a restore | `bench:snapshot_export_round_trip` |
 | The backup key rotates without losing the repository | `bench:restic_password_rotation_round_trip` |
@@ -329,26 +372,48 @@ different one, and only a finished run clears the record.
 ### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
 Scheduled work is default-deny. This repository ships two local-maintenance
-timers (the antivirus watch, the mail canary) and enables five the payload
+timers (the antivirus watch, the mail canary) and enables six the payload
 ships (the public-port reconcile, the dashboard and Gatus syncs, the hourly
-reboot-required probe, the hourly licence check). None spends object storage.
+reboot-required probe, the hourly licence check, and the five-minute error
+reports to Catena support, which send nothing until an administrator switches
+them on). None spends object storage.
 
 Every lane (backup, the bit-rot check, the offsite copy, the daily update
-chain, dashboard updates, the scheduled converge) ships in the payload with its
-timer off. `catena-schedule apply` turns a lane on only on a licensed host, at
+chain, dashboard updates, the scheduled converge, the off-site heartbeat, the
+vulnerability watch) ships in the payload with its timer off. `catena-schedule apply` turns a lane on only on a licensed host, at
 the cadence set in the dashboard. The backup, the updates, the converge, the
 container engine upgrade and the restart stay runnable by hand on every host.
 A dashboard update applies the configuration its new image carries with a
 converge, and puts the previous dashboard back when that converge fails.
 
 The daily chain applies updates whether or not a backup is configured, and the
-dashboard warns on every page for as long as none is. A configured backup that
-fails, or fails its verification, stops the chain before any update. After the
-container updates, the chain upgrades the container engine to the version
-pinned in this repository, within the major version it runs, and restores the
-previous version when the host does not come back healthy. Its last step
-restarts the host when an update needs it, and checks afterwards that every
-service came back.
+dashboard warns on every page for as long as none is. The dashboard's Schedules
+page chooses the chain's steps; a server that never chose runs them all except
+the vulnerability watch. An offsite copy always runs behind the repository
+check. Leaving out the backup, its restore test or its repository check, the
+health check before the updates, or the offsite check is allowed with a
+warning, and updates running without the backup step put a warning at the top
+of every page. A configured backup that fails, or fails its verification,
+stops the chain before any update, unless the backup step is left out. After
+the container updates, the chain upgrades the container engine, when that step
+is on, to the version pinned in this repository, within the major version it
+runs, and restores the previous version when the host does not come back
+healthy. Its last step, when on, restarts the host when an update needs one,
+including the operating system updates, also after a night that stopped before
+any change, and checks afterwards that every service came back. The chain
+reports to its own alert check and records its result, or the step that
+failed, in the maintenance log.
+
+The vulnerability watch runs on its own schedule or as a step of the daily
+chain, never both. It checks the software lists of every running image against
+a fresh vulnerability database and the list of vulnerabilities known to be
+exploited, and alerts once per vulnerability. An emergency patch moves an
+application's service to the oldest release its update policy allows that a
+scan on the host shows free of the vulnerability, behind the update's own
+copies, health check and rollback; a person confirms it, or, when the
+administrator turns the automatic mode on, the watch starts it for an exploited
+vulnerability, never for a service kept off the updates and never while
+updates are paused.
 
 Debian's unattended-upgrades is the one thing that applies OS packages, on
 every host, licensed or not: the security suite, stable updates and point
@@ -362,7 +427,7 @@ on every page until it is taken.
 | Scheduled work is default-deny: this repository ships only enumerated local-maintenance timers, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
 | An unlicensed host schedules no lane at all | `bench:unlicensed_schedules_nothing` |
 | A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
-| A failed backup verification stops the daily chain before any update | `bench:daily_chain_verify_hot_fail_aborts_updates` |
+| A failed backup verification stops the daily chain before any update, while the restore test is in the chain | `bench:daily_chain_verify_hot_fail_aborts_updates` || An emergency patch moves a service only to a release within its policy that a host scan shows free of the vulnerability | `threat:CV16` |
 
 ### The release manifest -- written last, by both converge paths
 
