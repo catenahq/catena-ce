@@ -12,10 +12,10 @@
 #             as it is.
 #   system    everything else, in a session that logged in as ops with that
 #             key: playbooks/bootstrap.yml, show-keyset.yml (the passwords,
-#             printed between the KEYSET markers), converge.yml, the recorded
-#             version, then validate.yml (vantages 1 and 2). It refuses to start
-#             unless helpers/session_proof.py proves the session, because its
-#             first role turns off every login but ops.
+#             printed between the KEYSET markers), converge.yml under the host
+#             lock, the recorded version, then validate.yml (vantages 1 and 2).
+#             It refuses to start unless helpers/session_proof.py proves the
+#             session, because its first role turns off every login but ops.
 #
 # `uninstall` runs playbooks/uninstall.yml alone.
 #
@@ -180,9 +180,19 @@ show_keyset() {
 }
 show_keyset
 
+# The converge holds /run/catena.lock, the lock catena-admin's catena-converge
+# runs under and every lane takes while it changes this server, with the same
+# hour of wait: an engine reinstall or a scheduled lane started meanwhile waits
+# for it rather than refilling the payload stage beside it.
 converge=()
 [ -n "$tags" ] && converge=(--tags "$tags")
-play converge.yml "${extra[@]}" "${converge[@]}" || exit 1
+(
+    if ! flock -n 9; then
+        say "waiting for another lane holding /run/catena.lock"
+        flock -w 3600 9 || { say "another lane held /run/catena.lock for an hour"; exit 1; }
+    fi
+    play converge.yml "${extra[@]}" "${converge[@]}"
+) 9>>/run/catena.lock || exit 1
 
 # The version this server now runs, read by a later install, a restore onto a
 # new server and the panel's update lane. A converge scoped by --tags applied

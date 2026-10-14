@@ -8,6 +8,7 @@ Run: uv run pytest tests/unit/test_install_host.py
 """
 from __future__ import annotations
 
+import fcntl
 import os
 import subprocess
 from pathlib import Path
@@ -84,6 +85,42 @@ def test_a_scoped_converge_records_no_version():
     text = SCRIPT.read_text()
     guard = text[_at(text, 'if [ -z "$tags" ]'):]
     assert guard.index("catena-stack-update-managed pin") < guard.index("fi")
+
+
+HOST_LOCK = "/run/catena.lock"
+
+
+def _converge_on(lock: Path) -> subprocess.Popen:
+    """The script's converge step, from its tags to its lock, run against
+    `lock` with a play that reports whether the lock is held while it runs."""
+    text = SCRIPT.read_text()
+    tail = f") 9>>{HOST_LOCK} || exit 1\n"
+    step = text[_at(text, "converge=()"):_at(text, tail) + len(tail)]
+    assert "flock -w 3600 9" in step, "the hour of wait catena-converge runs with"
+    harness = (
+        "set -euo pipefail\n"
+        "say() { printf 'catena-install: %s\\n' \"$*\" >&2; }\n"
+        f"play() {{ flock -n {lock} true && echo free || echo held; echo \"play $*\"; }}\n"
+        'extra=(-e @vars.json) tags=""\n'
+        + step.replace(HOST_LOCK, str(lock))
+        + f"flock -n {lock} true && echo released\n")
+    return subprocess.Popen(["timeout", "30", "bash", "-c", harness],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def test_the_converge_waits_for_the_host_lock_and_holds_it(tmp_path):
+    """A lane holding /run/catena.lock (catena-admin's catena-converge, the
+    engine reinstall, the nightly lanes) holds the install's converge back, and
+    the play runs holding the lock, so nothing refills the payload stage
+    beside it. The lock is free again once the play ends."""
+    lock = tmp_path / "catena.lock"
+    with lock.open("w") as lane:
+        fcntl.flock(lane, fcntl.LOCK_EX)
+        run = _converge_on(lock)
+        assert "waiting for another lane holding" in run.stderr.readline()
+    out, err = run.communicate(timeout=30)
+    assert run.returncode == 0, err
+    assert out.splitlines() == ["held", "play converge.yml -e @vars.json", "released"]
 
 
 def test_the_image_reaches_the_converge_for_the_panel_and_the_engines():
