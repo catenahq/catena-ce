@@ -154,10 +154,24 @@ smtp_port: "{{ _smtp.port }}"
 smtp_user: "{{ _smtp.user }}"
 smtp_from: "{{ _smtp.sender }}"
 # Always STARTTLS on the port given, never implicit TLS: that is what
-# realm-vps.yaml.j2 renders (starttls true, ssl false) and what both known
-# providers expect on 587. There is no TLS toggle to set: the template pins
-# both values, so nothing can accept a setting that changes nothing.
+# keycloak_smtp_server below carries (starttls true, ssl false) and what both
+# known providers expect on 587. There is no TLS toggle to set: this value and
+# keycloak_smtp_server's ssl pin both, so nothing can accept a setting that
+# changes nothing.
 smtp_use_starttls: true
+
+# The realm's mail settings without the password: what Settings > Outgoing mail
+# makes of the realm's `smtpServer`, empty when mail is off. realm-vps.yaml.j2
+# renders it, and the realm records its fingerprint in the attribute below
+# (playbooks/filter_plugins/keycloak_mail_settings.py), so settings changed in
+# the realm's own Email tab stay.
+keycloak_smtp_server: >-
+  {{ {'host': smtp_host, 'port': smtp_port | string, 'from': smtp_from,
+      'fromDisplayName': keycloak_realm_display_name, 'auth': 'true',
+      'user': smtp_user, 'starttls': smtp_use_starttls | string | lower,
+      'ssl': 'false', 'envelopeFrom': smtp_from}
+     if smtp_enabled | bool else {} }}
+keycloak_realm_mail_attribute: "catenaMailSettings"
 
 # The master realm's service account every realm import and kcadm session of
 # the converge signs in with (tasks/_master_login.yml), holding the master

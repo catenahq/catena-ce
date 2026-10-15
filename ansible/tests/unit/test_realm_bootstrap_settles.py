@@ -2,23 +2,25 @@
 realm files hold their passwords where only root reads them.
 
 realm_bootstrap.yml renders realm-vps.yaml.j2 twice. The persistent file is
-imported on every converge and renders from the store alone, so the next
-converge renders the same bytes and reports nothing to change. The seed (the
+imported on every converge and renders from the store and from
+keycloak_smtp_write, which the realm's own state decides, so a converge that
+finds the same state renders the same bytes and reports nothing to change. The seed (the
 realm switched on, the realm admin's account and the realm's tunable settings)
 is rendered into its own dir, imported, deleted, and only then are the
 bootstrap markers written. Every import runs with keycloak-config-cli's cache
-off. Settings > Mail owns the realm's mail settings:
-they render into the persistent file on every converge, and an empty map when
-mail is off.
+off. Settings > Mail owns the realm's mail settings while the realm holds
+the ones Catena wrote: they render into the persistent file, and an empty map
+when mail is off, unless keycloak_smtp_write is false, which leaves them out.
 
 The template is rendered here the way the converge renders it, with stand-ins
-for the two Ansible filters it uses and the playbooks' own
+for the Ansible filters it uses and the playbooks' own
 keycloak_signin_name_html.
 
 Run: uv run pytest tests/unit/test_realm_bootstrap_settles.py
 """
 from __future__ import annotations
 
+import ast
 import json
 import sys
 from pathlib import Path
@@ -35,6 +37,7 @@ IMPORT = ROLE / "tasks" / "_config_cli_import.yml"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 
 sys.path.insert(0, str(ANSIBLE / "playbooks" / "filter_plugins"))
+from keycloak_mail_settings import keycloak_mail_fingerprint  # noqa: E402
 from keycloak_signin_name import keycloak_signin_name_html  # noqa: E402
 
 ADMIN_PASSWORD = "admin-pw-0123456789"
@@ -55,11 +58,29 @@ def _bool(value) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _smtp_server(*, smtp_enabled: bool = True, display_name: str = "acme.test") -> dict:
+    """keycloak_smtp_server as defaults/main.yml defines it, for the store's mail
+    values below."""
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["bool"] = _bool
+    source = yaml.safe_load(DEFAULTS.read_text())["keycloak_smtp_server"]
+    return ast.literal_eval(env.from_string(source).render(
+        smtp_enabled=smtp_enabled,
+        smtp_host="smtp.resend.com",
+        smtp_port=587,
+        smtp_user="resend",
+        smtp_from="no-reply@acme.test",
+        smtp_use_starttls=True,
+        keycloak_realm_display_name=display_name,
+    ))
+
+
 def _render(*, realm_seed, smtp_enabled: bool = True, realm_create: bool = True,
-            display_name: str = "acme.test") -> str:
+            display_name: str = "acme.test", smtp_write: bool = True) -> str:
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     env.filters["bool"] = _bool
     env.filters["to_json"] = json.dumps
+    env.filters["combine"] = lambda base, extra: {**base, **extra}
     env.filters["keycloak_signin_name_html"] = keycloak_signin_name_html
     return env.from_string(TEMPLATE.read_text()).render(
         ansible_managed="managed",
@@ -73,12 +94,9 @@ def _render(*, realm_seed, smtp_enabled: bool = True, realm_create: bool = True,
         admin_email="admin@acme.test",
         admin_password=ADMIN_PASSWORD,
         smtp_enabled=smtp_enabled,
-        smtp_host="smtp.resend.com",
-        smtp_port=587,
-        smtp_user="resend",
-        smtp_from="no-reply@acme.test",
         smtp_password=SMTP_PASSWORD,
-        smtp_use_starttls=True,
+        keycloak_smtp_server=_smtp_server(smtp_enabled=smtp_enabled, display_name=display_name),
+        keycloak_smtp_write=smtp_write,
     )
 
 
@@ -136,6 +154,23 @@ def test_the_mail_settings_follow_the_store(realm_seed):
     assert smtp["from"] == "no-reply@acme.test"
     assert smtp["password"] == SMTP_PASSWORD
     assert smtp["starttls"] == "true" and smtp["ssl"] == "false"
+    assert smtp["fromDisplayName"] == "acme.test" and smtp["envelopeFrom"] == "no-reply@acme.test"
+
+
+@pytest.mark.parametrize("realm_seed", [False, True])
+@pytest.mark.parametrize("smtp_enabled", [True, False])
+def test_a_realm_whose_mail_settings_were_edited_gets_none_declared(realm_seed, smtp_enabled):
+    """No `smtpServer`: keycloak-config-cli drops null properties from the
+    realm it sends, and Keycloak's realm update leaves the mail settings alone
+    when the representation has none."""
+    doc = yaml.safe_load(_render(realm_seed=realm_seed, smtp_enabled=smtp_enabled, smtp_write=False))
+    assert "smtpServer" not in doc
+    assert SMTP_PASSWORD not in _render(realm_seed=realm_seed, smtp_write=False)
+
+
+def test_the_declared_mail_settings_are_the_ones_the_record_fingerprints():
+    declared = yaml.safe_load(_render(realm_seed=False))["smtpServer"]
+    assert keycloak_mail_fingerprint(declared) == keycloak_mail_fingerprint(_smtp_server())
 
 
 def test_mail_turned_off_clears_the_realm_mail_settings():

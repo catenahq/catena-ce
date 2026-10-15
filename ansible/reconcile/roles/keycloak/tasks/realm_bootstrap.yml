@@ -18,8 +18,9 @@
 # the realm switched on) is rendered into keycloak_realm_seed_dir, imported
 # while a bootstrap marker or the realm itself is missing, and deleted. The
 # PERSISTENT realm dir (realm_seed false, plus the client files) is imported on
-# every converge, and what it renders depends on the store alone, so the
-# converge that bootstraps the realm leaves it settled.
+# every converge, and what it renders depends on the store and on whether the
+# realm's mail settings still follow the panel (below), so the converge that
+# bootstraps the realm leaves it settled.
 
 # The realm files carry the SMTP password and the client secrets, and the
 # seed the admin password. 0700 on their parent keeps every account but root
@@ -76,24 +77,14 @@
     path: /var/lib/catena/keycloak-realm-settings-bootstrapped
   register: _kc_settings_marker
 
-# realm_bootstrap.yml is included from BOTH reconcile/roles/keycloak/tasks/main.yml
-# AND reconcile/roles/oauth2_proxy/tasks/main.yml (the latter calls back here to
-# re-import the realm after rendering its own client. Mirrors the
-# pattern oauth2_proxy uses for realm-oauth2-proxy.yaml.j2). Ansible's
-# template lookup uses the CALLING role's templates/ dir, so when the
-# call comes from oauth2_proxy this template wouldn't resolve. Use an
-# explicit playbook_dir-relative path so it works from either caller.
-- name: "Keycloak realm: render realm config ({{ keycloak_realm }})"
-  ansible.builtin.template:
-    src: "{{ playbook_dir }}/../reconcile/roles/keycloak/templates/realm-vps.yaml.j2"
-    dest: "{{ keycloak_realm_host_dir }}/{{ keycloak_realm }}.yaml"
-    owner: root
-    group: root
-    mode: "0644"
-  vars:
-    realm_seed: false
-  register: _keycloak_realm_render
-
+# realm_bootstrap.yml is included from this role's tasks/main.yml and from the
+# roles that register an OIDC client of their own (oauth2_proxy, and the
+# infrastructure role's beszel.yml and mailserver_oidc.yml), which call back
+# here to re-import the realm after rendering that client. Ansible's template
+# lookup uses the CALLING role's templates/ dir, so a template named plainly
+# would not resolve from them. The realm file and the clients below use an
+# explicit playbook_dir-relative path so they work from any caller.
+#
 # Service-account client for the host-side dashboard-sync cron. Rendered
 # into the same /config dir so the keycloak-config-cli import below picks
 # it up. Gated on the secret being present so a realm imports cleanly
@@ -387,6 +378,31 @@
   register: _kc_realms
   changed_when: false
 
+# The realm's mail settings follow the panel's Settings > Outgoing mail while
+# they are the ones Catena wrote, which the realm records in an attribute; the
+# realm files declare `smtpServer` only then, and a change made in the realm's
+# Email tab stays (playbooks/filter_plugins/keycloak_mail_settings.py). The
+# whole realm is read, since `--fields` drops the values of the attributes and
+# smtpServer maps. A realm Keycloak does not hold yet takes them.
+- name: "Keycloak realm: read the mail settings before the imports"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _kc_master_login.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - "realms/{{ keycloak_realm }}"
+  register: _kc_realm_before
+  changed_when: false
+  when: keycloak_realm in _kc_realms.stdout_lines
+
+- name: "Keycloak realm: decide whether the imports write the mail settings"
+  ansible.builtin.set_fact:
+    keycloak_smtp_write: >-
+      {{ (_kc_realm_before.stdout | default('{}', true) | from_json)
+         | keycloak_mail_follows(keycloak_realm_mail_attribute) }}
+
 # The seed, imported alone, and deleted whether the import succeeded or not.
 # The markers are written only once it has.
 - name: "Keycloak realm: seed the admin password and the realm settings"
@@ -445,6 +461,17 @@
       ansible.builtin.file:
         path: "{{ keycloak_realm_seed_dir }}/{{ keycloak_realm }}.yaml"
         state: absent
+
+- name: "Keycloak realm: render realm config ({{ keycloak_realm }})"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../reconcile/roles/keycloak/templates/realm-vps.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/{{ keycloak_realm }}.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    realm_seed: false
+  register: _keycloak_realm_render
 
 - name: "Keycloak realm: import the realm config"
   ansible.builtin.include_tasks:
@@ -913,6 +940,35 @@
          | keycloak_signin_name_sets(keycloak_realm_display_name,
                                      keycloak_realm_display_name_attribute) }}
   when: _keycloak_signin_name_sets | length > 0
+
+# The realm's mail settings changed in Keycloak's Email tab since Catena wrote
+# them are not written over; the converge says so.
+- name: "Keycloak realm: the mail settings were changed in Keycloak, and stay"
+  ansible.builtin.debug:
+    msg: >-
+      The mail settings of realm {{ keycloak_realm }} were changed in the Email
+      tab of Keycloak's admin console, and this converge leaves them as they
+      are: Settings > Outgoing mail no longer changes them. To hand them back
+      to Settings, set the Email tab to exactly the values Settings > Outgoing
+      mail shows, or empty them on the server with kcadm update
+      realms/{{ keycloak_realm }} -s 'smtpServer={}' (the role README,
+      "Handing the realm's mail settings back to Settings").
+  when: not (keycloak_smtp_write | bool)
+
+# Records the mail settings Catena wrote, once the realm holds them. kcadm
+# merges the change into the realm it reads, so the realm's other attributes
+# stay.
+- name: "Keycloak realm: record the mail settings Catena wrote"
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'exec', _keycloak_realm_server_ct.stdout,
+          '/opt/keycloak/bin/kcadm.sh', 'update', 'realms/' ~ keycloak_realm]
+         + _keycloak_mail_record_sets }}
+  vars:
+    _keycloak_mail_record_sets: >-
+      {{ _keycloak_realm_rep.stdout | from_json
+         | keycloak_mail_record_sets(keycloak_smtp_server, keycloak_realm_mail_attribute) }}
+  when: _keycloak_mail_record_sets | length > 0
 
 # The ids of the two sign-in flows realm-vps.yaml.j2 declares, for
 # dashboard-sync (reconcile/roles/infrastructure/templates/dashboard-sync.env.j2):

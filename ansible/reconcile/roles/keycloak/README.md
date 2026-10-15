@@ -37,8 +37,9 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      `visitor`), the `groups` client scope, the
      two sign-in flows applications are bound to by tier with a client scope
      named after each, the post-broker-login flow, the security
-     posture, MFA enforcement and the realm's mail settings, all from the
-     on-box store.
+     posture and MFA enforcement, all from the on-box store, and the realm's
+     mail settings from it while the realm holds the ones Catena wrote
+     (below).
    - After the import, with kcadm, it turns the master realm's lockout on (a
      growing pause after repeated wrong passwords, capped at 15 minutes, as in
      this realm) and asks the master admin to set up a one-time code at their
@@ -101,8 +102,8 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
   - the settings each client file declares for its own client, its return
     addresses among them, and each service account's client roles, which
     hold it to least privilege;
-  - the MFA required action, the mail settings and the security posture,
-    which the panel's Settings own;
+  - the MFA required action and the security posture, which the panel's
+    Settings own;
   - the master realm's lockout switch, and its admin's second factor while
     they hold none (every master admin's, while Settings requires one).
 - Everything else survives a converge: hand-made roles, groups, departments,
@@ -118,6 +119,18 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
   stays. On a realm seeded before the record, a name equal to the seed's for
   the current domain, or the seed's empty one from a host with no domain yet,
   counts as Catena's (`playbooks/filter_plugins/keycloak_signin_name.py`).
+- The realm's mail settings follow Settings > Outgoing mail while they are the
+  ones Catena wrote, which the realm records in its `catenaMailSettings`
+  attribute as a fingerprint of the settings Keycloak returns (the stored
+  password is not among them). Before the imports the converge reads the
+  realm's settings: it writes the panel's when the realm holds none, holds no
+  record yet (the realm is adopted, whatever it holds, and the record follows),
+  or holds the record's. Mail settings changed in the realm's Email tab after
+  that stay: the import declares none, keycloak-config-cli sends no
+  `smtpServer` and Keycloak keeps the realm's, and the converge says so.
+  Handing them back to Settings is described below. A hand edit that changes
+  only the password cannot be seen, and the next converge writes the panel's
+  password over it (`playbooks/filter_plugins/keycloak_mail_settings.py`).
 
 ## Lifting a master-realm lockout or a lost second factor
 
@@ -146,6 +159,20 @@ type `otp`); the next converge asks the admin to set up a new one:
 ```sh
 kc delete "users/$id/credentials/<credential id>" -r master
 ```
+
+## Handing the realm's mail settings back to Settings
+
+The Email tab of the realm's settings in Keycloak's admin console has no control
+to clear its fields. With kcadm signed in as in the first block above, empty the
+realm's mail settings; the next converge writes the ones Settings > Outgoing
+mail shows and records them:
+
+```sh
+kc update realms/vps -s 'smtpServer={}'
+```
+
+Setting the Email tab to exactly the values Settings > Outgoing mail shows works
+too: the converge after it records them.
 
 ## Related
 

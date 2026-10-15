@@ -169,15 +169,14 @@ def test_wordpress_sends_from_the_admin_email_when_no_sender_is_set():
 
 
 def test_implicit_tls_is_not_offered_and_not_stored():
-    """realm-vps.yaml.j2 renders starttls true and ssl false as literals, so an
-    SMTP_USE_TLS key would be collected, validated, stored and read by nothing.
-    A key that accepts a value and changes nothing answers "is TLS configured"
-    with a yes."""
+    """The keycloak role's keycloak_smtp_server (rendered into the realm) pins
+    starttls on and ssl off as literals, so an SMTP_USE_TLS key would be
+    collected, validated, stored and read by nothing. A key that accepts a value
+    and changes nothing answers "is TLS configured" with a yes."""
     assert "SMTP_USE_TLS" not in ONBOX_CONFIG.read_text(), (
         "SMTP_USE_TLS is back in the store registry")
-    realm = (ANSIBLE / "reconcile" / "roles" / "keycloak" / "templates"
-             / "realm-vps.yaml.j2").read_text()
-    assert 'ssl: "false"' in realm, (
+    defaults = KEYCLOAK_DEFAULTS.read_text()
+    assert "'ssl': 'false'" in defaults and "\nsmtp_use_starttls: true\n" in defaults, (
         "the realm no longer pins implicit TLS off; if that became configurable, "
         "this file's reasoning about the deleted key no longer holds")
 

@@ -15,7 +15,8 @@ test_smtp_resolution.py holds each consumer to it. Project rule: a non-trivial
 transform gets a filter plugin and a unit test, not a copy of an expression.
 
 The connection is always STARTTLS on the port given, never implicit TLS. That
-is what realm-vps.yaml.j2 renders (starttls true, ssl false), what PocketBase
+is what the keycloak role's keycloak_smtp_server carries (starttls true, ssl
+false), what PocketBase
 means by `tls: false` ("leaving the server to decide whether to upgrade"), and
 what both known providers expect on 587. A SMTP_USE_TLS key was collected and
 read by nothing for as long as it existed.

@@ -221,25 +221,18 @@ users:
 # reset, invitations, MFA enrolment, and the verify-email send used by
 # validate.yml's Vantage 1b smoke test.
 #
-# Asserted on EVERY converge, like the MFA action above: Settings > Mail
-# is where this is decided, so a saved change (a rotated key, another
-# provider) reaches the realm on the converge the save starts, and a change
-# made in the Keycloak admin UI's Email tab is reverted by the next one.
+# Declared while keycloak_smtp_write holds (realm_bootstrap.yml): Settings >
+# Mail is where this is decided, so a saved change (a rotated key, another
+# provider) reaches the realm on the converge the save starts. A realm whose
+# mail settings were changed in the Keycloak admin UI's Email tab since Catena
+# wrote them gets no `smtpServer` here, and the import leaves them as they are.
 # Mail turned off renders an empty map, which clears the realm's settings.
+{% if keycloak_smtp_write | bool %}
 {% if smtp_enabled | bool %}
-smtpServer:
-  host: "{{ smtp_host }}"
-  port: "{{ smtp_port }}"
-  from: "{{ smtp_from }}"
-  fromDisplayName: "{{ keycloak_realm_display_name }}"
-  auth: "true"
-  user: "{{ smtp_user }}"
-  password: {{ smtp_password | default('') | to_json }}
-  starttls: "{{ smtp_use_starttls | string | lower }}"
-  ssl: "false"
-  envelopeFrom: "{{ smtp_from }}"
+smtpServer: {{ keycloak_smtp_server | combine({'password': smtp_password | default('')}) | to_json }}
 {% else %}
 smtpServer: {}
+{% endif %}
 {% endif %}
 
 # Phase Two extension features that ship enabled in this realm:
