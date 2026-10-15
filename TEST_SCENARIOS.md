@@ -5,11 +5,13 @@
 
 # Test scenarios
 
-The 189 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 197 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
 | `activate_ee` | A Community host becomes a licensed host when a key Polar grants is saved in its Settings, and unlocks nothing for a key Polar refuses. |
+| `actualbudget_backup_mode_round_trip` | A budget synced while the nightly backup runs comes back from the backup whole: the server's data opens without corruption, every file synced before the backup is there as it was sent, and the server answers once the release that follows the restore ends. |
+| `actualbudget_failed_update_rolls_back` | When an Actual Budget update fails, the previous version and the data volume it ran on are put back, the budget server starts on them with its accounts and its password intact, and the failed version is held back. |
 | `admin_action_unknown_rejected` | The administrative action dispatcher refuses a request for an action it does not carry, exits non-zero, and names nothing it might have run. |
 | `admin_apps_tab_admin_full` | An administrator signed in to the panel sees every application tile, those hidden or reserved to others included, and every administrator tab. |
 | `admin_apps_tab_staff_filtered` | A staff member signed in to the panel sees the application tiles their groups open, none of those reserved to administrators, and no administrator tab. |
@@ -17,8 +19,10 @@ The 189 scenarios the maintainers' test bench carries, and the behaviour each on
 | `admin_staff_cannot_reach_admin_routes` | A staff member signed in to the panel is refused every administrator page and every administrator action. |
 | `app_checker_catalog` | Every catalog application's compose file passes the panel's application checker with no error, a file carrying one defect of each kind gets each finding and a corrected file with nothing left to correct, and the findings in a deployed application's own file are counted on its tile for administrators alone. |
 | `app_container_cannot_claim_an_identity` | A container on the server cannot claim a signed-in identity at the dashboard or at the job monitor, nor reach the container manager's or the resource monitor's login but through its sign-in gate, and no sign-in cookie a client app or another admin tool sees opens the dashboard or another client app, while a real sign-in reaches both. |
+| `app_declarations_travel_with_the_app` | An app carries the steps it was deployed with: its update, its backup mode in the nightly maintenance and its restore read them from the file the server stores for it, so they hold with the app catalogue unreachable, for an app deployed by hand, and a block written for a newer Catena is refused instead of half run. |
 | `app_several_addresses` | An application can publish several addresses: each one is routed and watched on its own and admits only the people its own labels name, a sign-in at one address opens no other, and an address another one already holds, or an application that does not say which of its addresses is the main one, gets no route. |
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
+| `backup_destination_creates_repository` | Saving a backup destination creates its repository there, a destination holding other files is refused, and a backup never creates a repository. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
 | `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing at all. |
 | `catalog_app_sign_in` | Every catalog application that offers single sign-on in its free edition signs a new staff account in with Keycloak, and the others create no sign-in entry. |
@@ -42,17 +46,19 @@ The 189 scenarios the maintainers' test bench carries, and the behaviour each on
 | `converge_suite` | One converge after an on-host image bump, a doctored release record and a rotated secret keeps the bump, restores the record and delivers the secret. |
 | `cross_host_pivot_finds_nothing` | A server broken into at root holds no credential that reaches a second Catena server. |
 | `cve_residual_emits_findings` | The vulnerability scan produces a well-formed machine-readable report on a real host, whether or not it finds anything. |
+| `cve_watch_emergency_patch` | Every running image's software is recorded and checked against a fresh vulnerability database and the list of actively exploited vulnerabilities, each exploited one an application carries raises one alert of its own, and an emergency patch moves an application to the oldest release its update policy allows that is free of it, restoring the previous release when the move regresses the server's health, on a licensed server only. |
 | `daily_chain_container_rollback` | A failed container update inside the daily maintenance chain rolls that service back and lets the chain continue. |
 | `daily_chain_full_pass` | The daily maintenance chain runs every stage end to end on a real host and reports itself idle when it finishes. |
 | `daily_chain_preflight_aborts_low_disk` | The daily maintenance chain refuses to start when free disk at the staging area is below the configured floor. |
 | `daily_chain_quiesce_invoked` | The nightly maintenance puts each application that asks for it into its backup mode before the backup and back out after it, also when the backup fails, and leaves a removed application alone. |
 | `daily_chain_reboot_round_trip` | The nightly maintenance restarts a host whose installed updates wait for a restart, and checks that everything running before it came back. |
 | `daily_chain_resumes_after_reboot` | A daily maintenance chain cut short by a reboot resumes when the host comes back, on a licensed host whose daily schedule is on. |
+| `daily_chain_step_list` | The nightly maintenance runs only the steps kept on in its schedule, warns about, forces or refuses the unsafe combinations, reports every night through its own alert check and the maintenance log, and restarts the server only once no other scheduled work holds it. |
 | `daily_chain_updates_without_backup` | Container updates still run on a server with no backup configured, behind the same health gate, and the maintenance log says no backup stands behind them. |
 | `daily_chain_verify_cold_blocks_mirror` | A failed cold-storage verification stops the offsite copy from pushing, so a bad archive is never propagated. |
 | `daily_chain_verify_cold_fail_configurable` | Whether a failed cold-storage verification blocks the update tail of the daily chain follows the host configuration rather than being hard- wired. |
 | `daily_chain_verify_hot_fail_aborts_updates` | A failed backup verification aborts the update tail of the daily chain, preserving a known-good rollback target. |
-| `daily_state_corrupt_fallback` | A corrupted daily maintenance state file fails the chain with a readable diagnostic, and the reset command returns the host to the start of the chain. |
+| `daily_state_corrupt_fallback` | A corrupted daily maintenance state file starts a new night from the start of the chain, and the log shows the state it found. |
 | `daily_umbrella_healthchecks` | The daily maintenance chain signals an external monitor when it starts and again when it succeeds. |
 | `debian_major_upgrade_restore` | A snapshot taken on one major operating-system release restores onto a host running the next one. |
 | `dev_to_prod_cutover_round_trip` | A staging deployment is promoted to its production hostname on the same machine, with every application reconciled to the new address. |
@@ -130,13 +136,15 @@ The 189 scenarios the maintainers' test bench carries, and the behaviour each on
 | `install_rerun` | Applying the Community installer a second time to an already converged host changes nothing. |
 | `install_without_a_domain` | A server with no domain converges green and says what it is waiting for. |
 | `keycloak_admin_email_loss_recovery` | An administrator locked out of the identity provider mail channel recovers access by minting a fresh named administrator against the running server. |
+| `keycloak_master_realm_hardening` | The sign-in service's own administrator account locks out repeated wrong passwords with a pause that grows, asks its administrator to set up a one-time code and then asks for it, while Catena's own configuration and the realm's backup copy keep signing in with a service client of their own. |
 | `keycloak_signing_keys_rotation_round_trip` | A single sign-on signing key is rotated with an overlap window where both keys verify, then retired without breaking any session. |
 | `labels_vocabulary_from_image` | The port a template's labels declare is read with the label vocabulary the server's panel image ships, so an image update changes what a label means with no converge. |
 | `launcher_install` | The installer installs a server over a private address and over the public one, adding its key with the provider's password, and leaves an inventory that holds no credential. |
 | `license_seat` | A key is active on one server at a time: a copy of a licensed server and a second server are both refused the key's seat, and once the seat is freed the second server takes it and the first locks at its next check -- while the first keeps everything but its paid panels. |
 | `mailbox_sync_ownership` | A mailbox made by hand survives the mailbox reconciler, and a mailbox the reconciler made is closed when its owner leaves the staff group. |
 | `mailserver_after_domain` | A mail server deployed from the catalogue on a server that already has its domain is wired with nothing pressed: the server starts the converge that wires it, once. |
-| `malformed_catalog_rejection` | A malformed application catalogue is refused, and the host keeps using the last one it read correctly. |
+| `mailserver_webmail_failed_update_rolls_back` | When a webmail update fails, the previous Roundcube version and its database from before the update are put back, the webmail signs in again, the mail server runs again, and the failed version is held back. |
+| `malformed_catalog_rejection` | The panel's app list refuses a malformed application catalogue, and leaves out an entry the catalogue does not describe while it offers the others. |
 | `marketplace_catalog_resolved` | The application catalogue a client browses is the one this host resolved, with every published placeholder filled in. |
 | `migrate` | A host is replaced end to end by another machine, with the source quiesced and the destination serving what it served. |
 | `migrate_lane_auth_denied` | The migration endpoint refuses every unauthenticated and unauthorised caller, and is absent entirely on a host that is not migrating. |
@@ -148,8 +156,9 @@ The 189 scenarios the maintainers' test bench carries, and the behaviour each on
 | `nextcloud_update_migrates` | A Nextcloud patch update runs the migration steps once the upgraded application answers, and the new version stays in place. |
 | `nextcloud_versions_retention_applied` | The file-version retention configured for the file-sync application reaches the running container instead of stopping at the catalogue. |
 | `oauth2_proxy_cookie_rotation_round_trip` | Rotating the panel's session-cookie secret invalidates existing sessions cleanly while a fresh sign-in keeps working and leaves no copy of the old secret on the server, and neither the admin tools' sign-in gates nor the sign-in service nor the resource monitor shows a credential in its service definition. |
-| `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone. |
+| `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone, and a destination holding another repository or a changed file is refused rather than written over. |
 | `oidc_label_client_provisioned` | An application that asks for single sign-on in its labels gets its own sign-in entry, receives that entry's values in its settings, follows a secret change, and loses the entry when it is removed, while entries made by hand are left alone. |
+| `outline_update_migrates` | An Outline update runs the migration its application file declares and the wiki answers on the new build, and an update whose migration fails puts the previous build and its database back and holds the failed build back. |
 | `panel_release_moves_pins` | A new administration panel release moves the reverse proxy and the uptime monitor to the versions it ships, on a Community server, through the panel's update button alone. |
 | `panel_renames_itself` | The dashboard renames itself from its own Settings page, and it says where it is going before it goes. |
 | `payload_action_dispatches_without_converge` | An administrative action can arrive with a new image and dispatch immediately, without waiting for a converge to render it. |
@@ -162,9 +171,8 @@ The 189 scenarios the maintainers' test bench carries, and the behaviour each on
 | `polar_unreachable_grace` | A licensed host keeps its edition while Polar cannot be reached for up to 48 hours, locks past that and tells its admin once, and unlocks as soon as Polar answers again. |
 | `post_compromise_rebuild` | A server rebuilt after a compromise comes back on a new object-store key pair, with the pair its backups were taken under revoked, and stays off the public edge until its Cloudflare token is replaced. |
 | `primary_domain_change_round_trip` | A server is moved to a different domain, and the domain it left stops answering. |
-| `quiesce_resume_round_trip` | A host is frozen in both available degrees and resumed exactly as it was found. |
 | `rclone_copy_preserves_pruned_packs` | The offsite copy keeps snapshots that have already been pruned from the primary repository. |
-| `realm_hand_edits_survive_converge` | Changes an administrator makes in the sign-in service survive the server's own configuration update: hand-made roles, departments and default scopes, the realm admin's account and a renamed sign-in page stay, a realm switched off stays off, and an administrators group left empty gets the realm admin back. |
+| `realm_hand_edits_survive_converge` | Changes an administrator makes in the sign-in service survive the server's own configuration update: hand-made roles, departments and default scopes, the realm admin's account and a renamed sign-in page stay, a realm switched off stays off, an administrators group left empty gets the realm admin back, and a realm lost from the sign-in service's database comes back switched on with its admin. |
 | `reboot_required_notified` | A host that needs a reboot reports it and waits for a person rather than restarting itself. |
 | `rebuild_backs_up_after_restore` | A server rebuilt from its backup keeps backing up: after the restore it holds the repository's password, not the one the new machine made for itself. |
 | `reconcile_is_a_noop` | The operator's converge and the host's own converge produce the same host: after either one, the other changes nothing, and a second converge in a row restarts nothing. |
@@ -173,7 +181,7 @@ The 189 scenarios the maintainers' test bench carries, and the behaviour each on
 | `recovery_landing_page_bilingual_parity` | The recovery page a client lands on presents the same content in both supported languages. |
 | `recovery_readme_manual_restore` | A client rebuilds their data from a snapshot using only ordinary tools and the instructions shipped beside it. |
 | `repair_broken_template_round_trip` | An application whose deployment file has been hand-edited into an invalid state is repaired by re-rendering it from the canonical published source. |
-| `restic_check_subset_weekly` | The backup integrity check runs its cheap structural pass and its expensive data-reading pass on separate cadences. |
+| `restic_check_subset_weekly` | The backup integrity check runs its cheap structural pass and its expensive data-reading pass on separate cadences, and a damaged repository fails both and stops the nightly chain before its updates. |
 | `restic_password_rotation_round_trip` | The backup repository password is rotated with an overlap where both keys open it, and the backup chain stays unbroken across the change. |
 | `rotate_all_secrets_sequencer` | Every secret a host holds is rotated in dependency order by one resumable sequence. |
 | `s3_backup_keys_rotation_round_trip` | The backup's object-store key pair is replaced in the panel's settings and the old pair revoked, and backups keep running on the new pair while neither secret ever shows on a panel page or in a server log. |
