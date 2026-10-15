@@ -49,6 +49,9 @@ exists.
    from there.
 8. Writes the image ID into the marker.
 
+On every converge it also removes `/var/lib/catena/templates-catalog.json`,
+which no engine writes: they read each application's own compose file.
+
 Step 1 is the reason the two halves cannot drift apart. The engines and the
 shell come out of one image because the converge has one input for it:
 `catena_admin_image` (`CATENA_ADMIN_IMAGE`). install-host.sh sets it to the

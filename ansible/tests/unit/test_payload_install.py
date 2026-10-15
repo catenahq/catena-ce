@@ -445,3 +445,14 @@ def test_an_explicit_digest_wins() -> None:
     assert _render_digest(image, env_digest=wrong) == wrong
     assert _render_digest("ghcr.io/catenahq/catena-admin:v0.6.2",
                           env_digest=wrong) == wrong
+
+
+def test_the_templates_catalog_cache_is_removed_on_every_converge() -> None:
+    """No engine writes it, so a host that still holds one is cleared. The task
+    sits outside the install block: it does not depend on the marker or on the
+    converge owning the engines."""
+    top = _tasks()[-1]
+    assert top["name"] == "Payload: remove the templates catalog cache"
+    assert top["ansible.builtin.file"] == {
+        "path": "/var/lib/catena/templates-catalog.json", "state": "absent"}
+    assert "when" not in top

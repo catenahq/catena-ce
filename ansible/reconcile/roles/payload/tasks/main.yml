@@ -283,3 +283,10 @@
       ansible.builtin.debug:
         msg: "{{ _payload_install.stdout | trim }}"
       when: not (_payload_current | bool)
+
+# The engines read each application's own compose file; nothing writes this
+# cache.
+- name: "Payload: remove the templates catalog cache"
+  ansible.builtin.file:
+    path: /var/lib/catena/templates-catalog.json
+    state: absent
