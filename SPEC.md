@@ -17,8 +17,8 @@ not implement.
   host engine binaries from that same image. No Go source belongs here.
 - **The application catalogue.** Per-app compose files and templates live in
   `catena-templates`.
-- **Maintainer tooling.** The rehearsal bench, the audit graph and the fleet
-  control plane are not published.
+- **Maintainer tooling.** The rehearsal bench, the audit graph and the
+  attestation are not published.
 - **Secrets.** The repository contains none. What a deployment needs is
   documented in [ansible/SECRETS.md](ansible/SECRETS.md).
 
@@ -33,7 +33,13 @@ A paid edition is a subscription key bought through Polar and saved in the
 dashboard. The host asks Polar about the key every hour, and only when it
 holds one. A key is active on one server at a time, bound to that server's
 hardware, so a copy of the server is refused while the original holds the
-key. While Polar cannot be reached, the edition holds for 48 hours after its
+key.
+
+If an activation reaches Polar and its answer is lost, the server records it,
+and the dashboard says to free that activation, labelled with the server's
+domain, in Polar's customer portal, then to save the key again.
+
+While Polar cannot be reached, the edition holds for 48 hours after its
 last confirmation; a cancelled, revoked or freed key locks at once. The host
 tells its admin of a lock once, in the maintenance log and by email through
 the configured relay. A lock takes away the paid features only: applications,
@@ -62,14 +68,16 @@ shows each report sent, and switching reports off stops them at once.
 | A lock takes away paid features only: applications, restores and Community actions keep running | `bench:license_seat`, `threat:LE3` |
 | A subscription key is active on one server at a time | `bench:license_seat`, `bench:polar_sandbox_smoke`, `threat:LE7` |
 | A move hands the key on only once the move is validated | `bench:wizard_migrate_round_trip`, `bench:migrate_lane_auth_denied`, `threat:LE12` |
-| A move reaches the old server only through a one-time grant, while its migration window is open | `bench:migrate_lane_auth_denied` |
+| A move reaches the old server only through a one-time grant, while its migration window is open | `bench:migrate_lane_auth_denied`, `threat:CV15` |
+| Error reports leave the server only while switched on and carry only the listed fields | `bench:error_reports_opt_in`, `threat:CV18` |
+
 ## How this repository is layered
 
 A desired state is reached in four layers, widest to narrowest.
 
 | Layer | What it is |
 | --- | --- |
-| **CLI** | `uv run catena-cli <verb> --inventory <inventory>`. Selects a playbook, or chains several. Prompts for what it needs, and never asks Ansible anything the product cannot answer for itself |
+| **Installer** | `uvx catena-installer`, or `catena-installer <verb> --inventory <inventory>` in a console. Reaches the server over SSH; the server runs `ansible/install-host.sh` from the release image's own tree, which selects a playbook or chains several |
 | **Playbook** | Names the hosts and the ordered list of roles to apply to them. One playbook is one atomic operation |
 | **Role** | A unit of related tasks plus its defaults, templates, handlers and its own `validate.yml`. The reuse boundary: several playbooks apply the same role |
 | **Task** | One step. Task files are shared between roles and between playbooks where the step is the same step |
@@ -77,11 +85,14 @@ A desired state is reached in four layers, widest to narrowest.
 Reuse happens downward only. A role never calls a playbook, and a task never
 decides which role it belongs to.
 
-## CLI and GUI
+## The installer
 
-Both run from the repository root: `uv run catena-cli <verb> --inventory
-<inventory>` (`ansible/catena_cli.py`), and `uv run catena-gui`, a local web
-front end that produces the same install input.
+`catena-installer` (`installer/`) runs on the client's machine, Windows, macOS
+or Linux, with uv: `uvx catena-installer`, or `uv run catena-installer` in a
+checkout. With no argument it serves a page on loopback; with a verb it runs in
+the console. It runs no Ansible itself: it reaches the server over SSH, and the
+server installs itself with the code of the release image it fetched, so the
+roles, the engines and the dashboard are one version.
 
 The installer only reaches and installs a server: SSH access (address, initial
 user, key, operator account), the admin email, and the settings the first
@@ -93,23 +104,35 @@ playbook is named after it.
 | Verb | Runs | For |
 | --- | --- | --- |
 | `init` | nothing | Creating an inventory: its `.env`, every key at its default, to fill in before `install` |
-| `install` | seed, then `bootstrap`, `show-keyset`, `converge`, `validate`, and the keyset again | A fresh server, and a running one: run again, it asks nothing and re-applies the whole configuration, the bootstrap roles included. Reaches the server at its SSH address when one is set, else its public IP; `--address` reaches it at another address for one run, such as its tailnet address after a Lockdown, and `--tags` scopes the converge leg. Leaves public SSH open |
-| `uninstall` | `uninstall.yml` | Handing the server back to Debian |
+| `install` | the `accounts` leg, then the `system` leg: `bootstrap`, `show-keyset`, `converge`, the version recorded, `validate`, and the keyset again; then the installer's outside checks | A fresh server, and a running one: run again, it asks nothing and re-applies the release the server records, the bootstrap roles included. `--release` moves the server to that release with that release's code. Reaches the server at its SSH address when one is set, else its public IP; `--address` reaches it at another address for one run, such as its tailnet address after a Lockdown, and `--tags` scopes the converge leg. Leaves public SSH open |
+| `connect` | nothing | Opening the forward of the `panel` account, to the dashboard and Portainer, from the client's machine |
+| `uninstall` | `uninstall.yml`, on the server | Handing the server back to Debian |
 
-A server that presents another SSH host key than the one the controller trusts
-for its address stops `install` before anything reaches it. A reinstalled
-server presents a new key, and so does another machine answering at that
-address: the operator says which, with `--reinstalled` or the graphical
-installer's reinstalled-server box. The old key is then forgotten, and
-bootstrap trusts the new one.
+The `accounts` leg runs through the provider's login and creates the `ops` and
+`panel` accounts with the installer's key; it closes nothing. The installer
+then logs in again as `ops` with that key, and the `system` leg refuses to
+start until sshd's own record of that session proves it, because its first
+role turns off every other login. After the `system` leg the installer scans
+the public IP's every TCP port against what the server declares, and checks
+that the container network is out of its reach.
 
-`ansible/seed.py` runs before Ansible, on `install` only. It writes the
-inventory and passes an optional admin password to the first converge. It
-mints nothing, and refuses any value the dashboard owns.
+A server that presents another SSH host key than the one the installer's
+machine trusts for its address stops `install` before anything reaches it. A
+reinstalled server presents a new key, and so does another machine answering at
+that address: the person installing says which, with `--reinstalled` or the
+installer page's reinstalled-server box. The old key is then forgotten, and
+the installer trusts the new one.
+
+`ansible/seed.py` runs on the client's machine before the install. It writes
+the inventory and passes an optional admin password to the server as a
+transient 0600 file for the run. It mints nothing, and refuses any value the
+dashboard owns.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Installing, converging and uninstalling go through the bundled CLI | `bench:ce_install_suite`, `bench:install_rerun`, `bench:ce_uninstall` |
+| Installing and uninstalling go through the installer, and the server runs the tree of the release it installs | `bench:ce_install_suite`, `bench:install_rerun`, `bench:ce_uninstall` |
+| A host runs the roles, the engines and the dashboard of one release | `bench:update_from_previous_release`, `workflow:ci.yml#installer` |
+| Hardening waits until the server sees the installer's key open an `ops` session | `workflow:ci.yml#installer` |
 | A verb that runs one playbook is named after it | `audit:check-grid` |
 | The installer takes only what reaches and installs a server, and refuses a value the dashboard owns | `workflow:ci.yml#installer`, `bench:ce_install_suite` |
 
@@ -117,12 +140,13 @@ mints nothing, and refuses any value the dashboard owns.
 
 | Playbook | What it is |
 | --- | --- |
-| `bootstrap.yml` | The half that cannot self-repair. Run by `install`, over SSH, from outside |
+| `accounts.yml` | The install's first leg, run on the server through the provider's login: the `ops` and `panel` accounts with the installer's key, and the sudo rule of `ops`. Closes nothing |
+| `bootstrap.yml` | The half that cannot self-repair. Run by `install`, on the server, as the first step of its `system` leg |
 | `converge.yml` | The full converge. Safe to re-run |
 | `lockdown.yml` | The access posture, run on the host by the dashboard only. Joins the private network when one is saved. Closes public SSH behind it once the network proves it reaches the host, and opens public SSH when no private network is chosen |
-| `reconcile.yml` | The half a host runs against itself, from the dashboard image, with no controller inventory. Has no verb: nothing on a controller dispatches it |
-| `validate.yml` | Three vantages: on-host per-role checks, access from the controller, external from the controller. The install's last leg, and runnable on its own |
-| `show-keyset.yml` | Right after bootstrap: mints the admin and console passwords if absent and shows them once, with the journal verification key. The installer repeats the block when the install ends |
+| `reconcile.yml` | The half a host runs against itself, from the dashboard image, with no controller inventory. Has no verb: only the host runs it |
+| `validate.yml` | Two vantages, both on the host: per-role checks, and access (the dashboard and Portainer on the host's loopback, the public hostnames once a domain is set, the published ports). The install's last step, after which the installer makes the checks only another machine can make; runnable on its own |
+| `show-keyset.yml` | Right after bootstrap: mints the admin and console passwords if absent and shows them once, with the journal verification key. The install repeats the block when it ends |
 | `rotate-tunnel.yml` | Deletes the host's Cloudflare tunnel and mints a new one, run on the host by the dashboard's Settings > Domain > Apply, followed by `reconcile.yml`. Applying the domain already in use is how the tunnel is regenerated. Takes no secret: it authenticates as the Cloudflare token already in the store |
 | `rotate-tailscale.yml` | Forces re-authentication to the private network, run on the host by the dashboard |
 | `uninstall.yml` | Hands the OS update lane back to Debian, releases the container engine's version hold, and prints teardown guidance |
@@ -146,8 +170,8 @@ declared, not decided at the moment of extraction.
 Two questions, asked in order, decide which side a role is on.
 
 1. If this is wrong, is anything left that can fix it? If no, it is
-   **Bootstrap**: applied by `install`, over SSH, from outside. The set is
-   small and is meant to stay small.
+   **Bootstrap**: applied by `install`, on the server, from the release image.
+   The set is small and is meant to stay small.
 2. Otherwise, is the correct value a function of the product VERSION or of
    THIS HOST? Either way the role is **Reconcile**: it can run on the host,
    unattended, from the image, on a timer.
@@ -170,7 +194,7 @@ assertion grows.
 | `tailscale` | The private network the host is reached over, when one is configured. Joined only by `lockdown.yml`. Getting it wrong is the definition of question one |
 | `storage` | The data prefix every service keeps its data under, on the disk the host already has, and the optional remote bulk mount. A failure here costs data rather than access, and it cannot be safely re-applied to a live host by a timer |
 | `docker` | The engine, at the version pinned here and held on the host, and the swarm. Nothing else runs without it, and that includes whatever would have repaired it |
-| `catena_admin_host` | The trust path the dashboard's dispatch arrives over: the runner account, the sudoers drop-in, the forced command and its `authorized_keys`. A reconcile that could rewrite the way in could rewrite what a reconcile is |
+| `catena_admin_host` | Who the dashboard's dispatch signs in as and with what: the runner account, the dashboard's key pair and the host key it trusts; and the way a server taking this one over arrives, the migration account and its sshd rules, which nothing on the host can prove without an open migration window. A reconcile that could mint, move or trust another key could rewrite what a reconcile is |
 | `ansible_runtime` | The pinned ansible-core the host reconciles itself with. Also performed by the reconcile lane, deliberately: a root process with python3 can repair a broken runtime, so a host whose runtime broke does not need a human |
 
 ### Reconcile roles
@@ -179,18 +203,19 @@ Order is the converge order, which is dependency order.
 
 | Role | Contract |
 | --- | --- |
-| `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the running dashboard image. Deploys no container |
+| `dispatch_path` | The path a dashboard request crosses to become a root action: sshd's variable list for the runner account, its sudo rule, the forced command on the dashboard's key and the dispatcher, kept on the generation this tree ships. A new generation is installed beside the running one, and the dashboard's key moves to it only after a request has crossed it; a failed proof keeps the running path and stops the converge. First, so a proof that fails stops the converge before anything else changes |
+| `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the dashboard image the converge names, refused unless that image is, by digest, the release the converge's own tree came from and was built from this tree. Deploys no container |
 | `public_ports` | The declarative public-port registry's host side: the fragment directory, the docker drop-in that reapplies the rules on every docker start, and the reconciler's timer. The reconciler and its timer ship in the payload, and a payload without them fails the converge |
-| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, the journal's storage, the host resolving its own name, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, the reboot-required probe's configuration, and the timers of the licence check and the error reports. The probe, the licence check, the error reporter and their timers ship in the payload |
+| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, the journal's storage, the host resolving its own name, the clock's NTP pool, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, the reboot-required probe's configuration, and the timers of the licence check and the error reports. The probe, the licence check, the error reporter and their timers ship in the payload |
 | `swarm` | The swarm's own settings (task history, the data-node label), which a restore does not bring back, and the self-heal that restarts containers which lost the race to the overlay at daemon start |
 | `traefik` | The reverse proxy and the `catena-network` overlay |
 | `postgres` | The infrastructure Postgres swarm service, hosting the sign-on database |
 | `portainer` | The container control plane |
 | `cloudflare_tunnel` | The cloudflared swarm service, the tunnel and wildcard DNS. Self-defers when the store holds no Cloudflare token |
 | `keycloak` | The sign-on identity provider and its realm |
-| `oauth2_proxy` | One auth proxy per gated upstream |
-| `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the antivirus watch, the mail canary, the application wiring scripts, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
-| `catena-admin` | The action catalogue, the bind-mount targets, the update lanes' per-host configuration and the list of services they may update, the dashboard's port declarations, and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run. The image is the version the host recorded, else the newest release the registry names; when the registry does not answer, a converge keeps the image the dashboard already runs, and a host with neither stops before any role runs |
+| `oauth2_proxy` | One auth proxy per gated admin tool, each keeping its own sign-in session |
+| `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the antivirus watch, the mail canary, the external heartbeat's configuration, the application wiring scripts, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
+| `catena-admin` | The action catalogue, the bind-mount targets, the update lanes' per-host configuration and the list of services they may update, the dashboard's port declarations, and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run. The image is the release the install fetched, or, on a converge the host runs itself, the image the dashboard runs; a converge that names none stops before any role runs. An install fetches the release it is given, else the one the server records, else the newest the registry names |
 | `coturn` | The shared TURN and STUN relay for the audio and video media plane |
 | `backup` | The backup lane's per-host configuration (repository, credentials, paths, excludes) and the first snapshot. restic, rclone, the backup wrapper and its units ship in the payload |
 
@@ -209,12 +234,17 @@ converge's `roles:` list is classified rather than exempted.
 ### Paths a reconcile task may never write
 
 `/etc/ssh/`, `/etc/sudoers.d/`, `authorized_keys`,
-`/usr/local/sbin/catena-admin-runner`, `/etc/sysctl.d/`, `/etc/modprobe.d/`,
-`/etc/ansible/facts.d/`.
+`/usr/local/sbin/catena-admin-runner`, `/usr/local/lib/catena-dispatch/`,
+`/etc/sysctl.d/`, `/etc/modprobe.d/`, `/etc/ansible/facts.d/`.
 
 These are bootstrap-owned. A reconcile that can rewrite the way in can rewrite
 what a reconcile is, so the rule is a list of literals that can be checked
 rather than remembered.
+
+The one exception is the `dispatch_path` role, declared under `proven_switches`
+in `boundary.yml`: it writes only the paths of the dispatch path, and changes
+the live path only after a request has crossed the new one. The accounts, the
+dashboard's key pair, the host key and `known_hosts` stay bootstrap-owned.
 
 Two qualifiers, both deliberate. The rule covers **task files only**: a
 defaults file may name `/etc/ssh` because restic reads it into the backup set,
@@ -225,7 +255,7 @@ command is allowed to say so.
 ### Paths a bootstrap task may never write
 
 The unattended-upgrades and needrestart configuration, the journal's drop-ins,
-the update lanes' configuration, the dashboard's port declaration and the
+the clock's NTP drop-in, the update lanes' configuration, the dashboard's port declaration and the
 overlay self-heal. The reconcile side keeps them current on every converge,
 from either path. A bootstrap task runs only at install, so a second writer
 there would hold the host to the install's value until the next converge.
@@ -244,6 +274,10 @@ not reach it. None is declared.
 | No reconcile task writes a bootstrap-owned path, and no reconcile play reaches a bootstrap task file | `bench:ce_install_suite` |
 | A restore is neither a CLI verb nor a converge step: it runs only when started on the host | `workflow:ci.yml#installer`, `bench:ce_restore`, `bench:backup_rollback` |
 | The reconcile half reads nothing from a controller inventory | `bench:payload_action_dispatches_without_converge` |
+| The install's converge and the host's own converge produce the same host: after either, the other changes nothing | `bench:reconcile_is_a_noop` |
+| A host that converges itself puts back the upkeep it owns | `bench:reconcile_repairs_host_upkeep` |
+| A dashboard update changes the way a dispatch arrives only after a request has crossed the new path; a failed proof keeps the running path | `bench:update_from_previous_release` |
+| A converge refuses engines from an image built from another tree, and root runs nothing out of a place the dashboard can write | `bench:update_from_previous_release`, `workflow:ci.yml#installer`, `threat:CV14` |
 
 ## State the tasks produce
 
@@ -257,7 +291,7 @@ admin password an install supplies, every setting and credential saved in the
 dashboard, and every internal secret, minted on the host. It rides the backup.
 The inventory is bootstrap input only, with one exception: the
 development-only certificate keys, which no dashboard field shows, are written
-from the inventory into the store on every converge started from a controller.
+from the inventory into the store on every install run.
 `ansible/helpers/onbox_config.py`
 declares which names are secrets. Every converge loads the store first, so a
 tag-filtered run reads the same values as a full one.
@@ -378,21 +412,40 @@ reboot-required probe, the hourly licence check, and the five-minute error
 reports to Catena support, which send nothing until an administrator switches
 them on). None spends object storage.
 
-Every lane (backup, the bit-rot check, the offsite copy, the daily update
-chain, dashboard updates, the scheduled converge, the off-site heartbeat, the
-vulnerability watch) ships in the payload with its timer off. `catena-schedule apply` turns a lane on only on a licensed host, at
+Every lane (backup, the bit-rot check, the restore test, the offsite copy, the
+daily update chain, dashboard updates, the scheduled converge, the off-site
+heartbeat, the vulnerability watch) ships in the payload with its timer off.
+`catena-schedule apply` turns a lane on only on a licensed host, at
 the cadence set in the dashboard. The backup, the updates, the converge, the
 container engine upgrade and the restart stay runnable by hand on every host.
 A dashboard update applies the configuration its new image carries with a
 converge, and puts the previous dashboard back when that converge fails.
 
+The local Healthchecks checks of the lanes follow the lanes' schedules, and a
+lane that is off or unlicensed has its checks paused. The external heartbeat is
+the one call that leaves the server: while its lane is on and the licence
+active, it calls the outside monitoring address saved in the dashboard, and
+names any of the server's own monitors that stopped answering.
+
+Around the nightly backup, each application whose compose file declares a
+backup mode is put into it and taken back out, also after a failed backup and
+before a resumed run backs up again; a restore takes restored applications out
+of it. The commands run only inside that application's own container. An
+application left in its backup mode is named in the maintenance log.
+
 The daily chain applies updates whether or not a backup is configured, and the
-dashboard warns on every page for as long as none is. The dashboard's Schedules
-page chooses the chain's steps; a server that never chose runs them all except
-the vulnerability watch. An offsite copy always runs behind the repository
-check. Leaving out the backup, its restore test or its repository check, the
-health check before the updates, or the offsite check is allowed with a
-warning, and updates running without the backup step put a warning at the top
+dashboard warns on every page for as long as none is. While the backups wait
+after a restore, the chain still takes its updates when their steps are on, and
+the maintenance log says no backup stands behind them. The dashboard's
+Schedules page chooses the chain's steps; a server that never chose runs them
+all except the vulnerability watch and the restore test. The restore test
+restores the latest backup into a scratch area and checks it, on its own weekly
+lane or as a step of the chain, never both. An offsite copy of the host's backup
+repository always runs behind a repository check and is refused when it fails;
+an option makes it wait for a restore test of the newest backup too. Leaving
+out the backup or its repository check, scheduling no restore test, leaving out
+the health check before the updates, or leaving out the offsite check is
+allowed with a warning, and updates running without the backup step put a warning at the top
 of every page. A configured backup that fails, or fails its verification,
 stops the chain before any update, unless the backup step is left out. After
 the container updates, the chain upgrades the container engine, when that step
@@ -427,7 +480,10 @@ on every page until it is taken.
 | Scheduled work is default-deny: this repository ships only enumerated local-maintenance timers, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
 | An unlicensed host schedules no lane at all | `bench:unlicensed_schedules_nothing` |
 | A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
-| A failed backup verification stops the daily chain before any update, while the restore test is in the chain | `bench:daily_chain_verify_hot_fail_aborts_updates` || An emergency patch moves a service only to a release within its policy that a host scan shows free of the vulnerability | `threat:CV16` |
+| A failed backup verification stops the daily chain before any update, while the restore test is in the chain | `bench:daily_chain_verify_hot_fail_aborts_updates` |
+| An emergency patch moves a service only to a release within its policy that a host scan shows free of the vulnerability | `threat:CV16` |
+| The applications are in their backup mode for the whole nightly backup and out of it after a failed one | `bench:daily_chain_quiesce_invoked` |
+| The external heartbeat calls out while the monitors answer, names a silent one, and stops when turned off | `bench:external_heartbeat_round_trip` |
 
 ### The release manifest -- written last, by both converge paths
 
@@ -445,9 +501,11 @@ one no longer ships, provided the file is unchanged and the payload manifest
 ### The version stamp -- written first, by both converge paths
 
 `/etc/catena/version.txt` names the version of this repository a converge
-applied, as `git describe`: from the checkout on a converge started from a
-controller, and from the provenance the dashboard image records on a converge
-the host runs itself. It is the first thing either path writes, and it rides
+applied, as `git describe`, from the provenance the release image records beside its
+tree: the image the install fetched, or the one the dashboard runs on a
+converge the host runs itself. A tree with no such record stamps nothing and
+leaves the previous stamp standing. It is the first thing either path writes,
+and it rides
 the backup, so every snapshot names the version that produced its data.
 
 A restore compares the snapshot's stamp with the host's: a newer snapshot is
@@ -464,6 +522,25 @@ compose lives in `catena-templates`; this repository owns the wiring that makes
 the suite one product: mail, chat and video calling, file and office
 integration, the antivirus watch and delivery canaries.
 
+The host's sync lane, which sets up each application's sign-in and keeps
+mailboxes in line with the sign-on groups, reaches the identity provider
+through the dashboard on the host's loopback rather than through the public
+edge, so both keep working while the tunnel is down. The dashboard forwards
+only the calls that lane makes, behind the catalogue's per-host token, and adds
+no credential of its own.
+
+Settings > Outgoing mail is the source of the server's mail settings. A
+converge writes them into the sign-in realm while the realm still holds the
+settings Catena wrote; settings changed in the realm's own Email tab stay.
+Alerts for scheduled jobs and services reach the admin email by default,
+through the outgoing mail; with outgoing mail off they reach only the channels
+added in Healthchecks.
+
+Each shared service answers on `<subdomain>.<domain>`: `auth` (the sign-on),
+`dash` (the dashboard), `portainer`, `gatus`, `healthchecks` and `beszel`. Each
+subdomain is a setting in the dashboard; a host with none stored uses that
+name.
+
 | Invariant | Enforced by |
 | --- | --- |
 | The catalogue is resolved per host, and a malformed entry is refused | `bench:marketplace_catalog_resolved`, `bench:malformed_catalog_rejection` |
@@ -475,12 +552,21 @@ integration, the antivirus watch and delivery canaries.
 | Every admin surface sits behind the identity gate | `threat:CV2` |
 | The dashboard dispatches its actions without a converge, and refuses an action it does not know | `bench:ce_admin_smoke`, `bench:ce_admin_actions`, `bench:admin_action_unknown_rejected` |
 | The record of administrative actions can be exported and checked off the box: an edited or shortened trail fails verification | `bench:audit_chain_tamper_evident`, `threat:CV10` |
+| Application sign-in provisioning and mailbox reconciliation keep running while the Cloudflare tunnel is down | `bench:mailbox_sync_ownership#stage-5-sync-without-the-tunnel` |
+| An application that asks for single sign-on gets its own sign-in entry, kept in step with its labels and removed with the application; entries made by hand are left alone | `bench:oidc_label_client_provisioned`, `threat:CV13` |
+| Catalogue applications that offer single sign-on in their free edition sign in with the suite's account | `bench:catalog_app_sign_in` |
+| A sign-in cookie a client application or another admin tool sees opens no admin tool | `bench:app_container_cannot_claim_an_identity`, `threat:CV2` |
+| No sign-in gate shows its credentials in its service definition | `bench:oauth2_proxy_cookie_rotation_round_trip`, `threat:CV7` |
+| An application keeps the backup mode, update steps and restore steps it was deployed with; the server needs no catalogue to back it up, update it or restore it | `bench:app_declarations_travel_with_the_app` |
+| Monitoring probes each shared service, Beszel's hub included | `bench:gatus_probes_beszel_hub` |
+| Mail settings changed in the sign-in realm's own Email tab survive a converge and a change of the panel's outgoing mail | `bench:realm_hand_edits_survive_converge` |
 
 ## CI
 
 | Workflow | Jobs | Gates |
 | --- | --- | --- |
-| `ci.yml` | `installer`, `entry-points`, `syntax`, `duplication`, `prose` | the Python package and its unit tests, the two entry points a client runs (`catena-cli`, `catena-gui`) with their locks and the graphical installer's tests, Ansible syntax, copy-paste against a ratchet threshold, and comment prose |
+| `ci.yml` | `installer`, `entry-points`, `syntax`, `duplication`, `sentences`, `prose` | the Ansible tree's and the installer's unit tests, the one entry point a client runs (`catena-installer`) with its locks and its wheel, Ansible syntax, copy-paste against a ratchet threshold, duplicate sentences, and comment prose |
+| `publish-installer.yml` | `publish` | on a release tag on main, the installer's tests, then its wheel published to PyPI as `catena-installer` through trusted publishing, versioned from the tag |
 | `security.yml` | `scanctl` | secrets, dependency vulnerabilities, static analysis, and the container images pinned in role defaults. A finding in this tree fails every run; a CVE in a pinned image fails the change that introduces it. A pin that stops matching fails the scan |
 
 Every workflow runs on each pull request and on each push, except pushes to
@@ -504,7 +590,7 @@ merges.
 | No licensed source and no Go in this tree | `audit:check-port`, `audit:check-grid`, `threat:CP3` |
 | Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:govulncheck`, `scanctl:trivy`, `workflow:security.yml#scanctl` |
 | Static analysis runs on every change | `scanctl:semgrep`, `scanctl:zizmor` |
-| The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication` |
+| The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication`, `workflow:ci.yml#sentences` |
 | Code comments describe the tree as it stands, not its history | `workflow:ci.yml#prose` |
 | Public prose names no system Catena does not ship | `audit:check-banned-words` |
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
@@ -527,5 +613,11 @@ None.
 
 ## Installation
 
-A server needs at least 8 GB of memory; a smaller one is not supported. See
-[README.md](README.md).
+A server needs at least 4 GB of memory: 6 GB for light applications with few
+users, 8 GB for heavier ones such as Nextcloud or ERPNext with many users.
+Catena's own services take about 2 GB. See [README.md](README.md).
+
+| Invariant | Enforced by |
+| --- | --- |
+| The suite installs and runs on a server with less than 8 GB of memory, and the shared antivirus scanner reloads its signatures without holding two copies in memory | `bench:ce_install_suite`, `bench:clamd_reload_on_a_small_host`, `workflow:ci.yml#installer` |
+| The heavier applications are rehearsed on an 8 GB server | `bench:erpnext_update_migrates`, `bench:immich_extra_disk_round_trip` |
