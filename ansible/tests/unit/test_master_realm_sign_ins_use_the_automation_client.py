@@ -9,7 +9,9 @@ kcadm reads KC_CLI_CLIENT_SECRET when it is given a client and no secret, and
 KC_CLI_PASSWORD when it is given a user and no password (BaseConfigCredentialsCmd,
 Keycloak 26.6.7); keycloak-config-cli takes the client-credentials grant from
 KEYCLOAK_GRANTTYPE, KEYCLOAK_CLIENTID and KEYCLOAK_CLIENTSECRET
-(KeycloakConfigProperties, keycloak-config-cli 6.5.1). `docker exec -e NAME` and
+(KeycloakConfigProperties, keycloak-config-cli 6.5.1) and sends the secret as is
+in an HTTP Basic header, which Keycloak form-decodes, so the import is given it
+form-encoded. `docker exec -e NAME` and
 `docker run -e NAME` forward a variable from the client's environment.
 
 One task signs in with the admin's password: the one that creates the
@@ -29,6 +31,7 @@ import os
 import stat
 import subprocess
 import textwrap
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -43,6 +46,7 @@ ROLE = ANSIBLE / "reconcile" / "roles" / "keycloak"
 TASKS = ROLE / "tasks"
 BOOTSTRAP_STEP = "the automation client exists"
 CLIENT_STDIN = "{{ keycloak_automation_client_secret }}"
+IMPORT_STDIN = "{{ keycloak_automation_client_secret | urlencode }}"
 
 add_all_plugin_dirs(str(ANSIBLE / "playbooks"))
 
@@ -90,7 +94,8 @@ def test_every_sign_in_but_the_clients_creation_is_the_client_s():
         if BOOTSTRAP_STEP in task["name"]:
             continue
         assert "admin_password" not in text and "--user" not in text, where
-        assert _args(task).get("stdin") == CLIENT_STDIN, where
+        imports = "keycloak_config_cli_image" in text
+        assert _args(task).get("stdin") == (IMPORT_STDIN if imports else CLIENT_STDIN), where
         assert "--client" in text or "KEYCLOAK_GRANTTYPE=client_credentials" in text, where
 
 
@@ -108,14 +113,17 @@ def test_no_playbook_signs_in_with_a_password_on_its_command_line():
 
 
 def test_the_import_signs_in_with_the_client_credentials_grant():
-    argv = yaml.safe_load((TASKS / "_config_cli_import.yml").read_text())[0][
-        "ansible.builtin.command"]["argv"]
+    command = yaml.safe_load((TASKS / "_config_cli_import.yml").read_text())[0][
+        "ansible.builtin.command"]
+    argv = command["argv"]
     assert "KEYCLOAK_GRANTTYPE=client_credentials" in argv
     assert "KEYCLOAK_CLIENTID={{ keycloak_automation_client_id }}" in argv
     assert not any(str(a).startswith(("KEYCLOAK_USER", "KEYCLOAK_PASSWORD")) for a in argv)
+    sent = _template(command["stdin"], {"keycloak_automation_client_secret": SECRET})
+    assert "+" not in sent and urllib.parse.unquote_plus(sent) == SECRET
     out = subprocess.run(argv[:4] + ["printenv", "KEYCLOAK_CLIENTSECRET"],
-                         input=SECRET + "\n", text=True, capture_output=True, check=True)
-    assert out.stdout == SECRET + "\n"
+                         input=sent + "\n", text=True, capture_output=True, check=True)
+    assert out.stdout == sent + "\n"
 
 
 # --- the scripts, against a stand-in docker ------------------------------------

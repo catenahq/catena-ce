@@ -29,6 +29,9 @@
       # wrapper and forwarded to the container by name, never spelled out on an
       # argv, which `ps` shows every local user. A task `environment:` would not
       # do: Ansible prefixes it to the module's own `/bin/sh -c` command line.
+      # The secret is form-encoded: keycloak-config-cli sends it as is in an
+      # HTTP Basic header, and Keycloak form-decodes that header (RFC 6749
+      # 2.3.1), which turns a `+` of the secret's base64 into a space.
       - bash
       - -c
       - 'IFS= read -r KEYCLOAK_CLIENTSECRET; export KEYCLOAK_CLIENTSECRET; exec "$@"'
@@ -157,7 +160,7 @@
       - -v
       - "{{ kc_import_dir }}:/config:ro"
       - "{{ keycloak_config_cli_image }}"
-    stdin: "{{ keycloak_automation_client_secret }}"
+    stdin: "{{ keycloak_automation_client_secret | urlencode }}"
   register: _keycloak_realm_import
   # Tool reports its own changed/no-op state on stdout. Treat as
   # `changed_when` true if a file it imports was re-rendered OR the
