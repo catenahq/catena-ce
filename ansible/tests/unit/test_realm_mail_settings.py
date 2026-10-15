@@ -1,7 +1,7 @@
 """The realm's mail settings follow Settings > Outgoing mail while they are the
 ones Catena wrote, and settings changed in the realm's Email tab stay.
 
-The realm records a fingerprint of the mail fields it was last given in a realm
+The realm records a fingerprint of the mail fields Catena last gave it in a realm
 attribute. Before the imports, realm_bootstrap.yml reads the realm and
 keycloak_mail_follows (playbooks/filter_plugins/keycloak_mail_settings.py)
 decides whether the realm files declare `smtpServer`: a realm with no mail
@@ -166,7 +166,7 @@ def _variables(**extra) -> dict:
 
 def _decision(realm: dict | None) -> bool:
     """keycloak_smtp_write as the set_fact step renders it for one realm read, or
-    for a realm that was not read (the read step skipped)."""
+    for a realm not read (the read step skipped)."""
     fact = _tasks()[_index(_tasks(), FOLLOW)]["ansible.builtin.set_fact"]["keycloak_smtp_write"]
     before = {"skipped": True} if realm is None else {"stdout": json.dumps(realm)}
     templar = Templar(loader=DataLoader(), variables=_variables(_kc_realm_before=before))
