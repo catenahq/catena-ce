@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 204 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 205 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -96,7 +96,7 @@ The 204 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_d2_pg_dumpall_replay_constraint` | Replaying a database dump recreates a database role the cluster has lost. |
 | `fi_d3_postgres_oom_mid_restore` | A restore that would exhaust the host disk is refused before it starts, rather than leaving a half-loaded database. |
 | `fi_d4_disk_full_mid_snapshot` | A backup that runs out of disk partway through fails loudly and writes no half-finished archive. |
-| `fi_d5_disk_full_mid_converge` | A converge on a host with too little free disk aborts at its preflight check before pulling anything. |
+| `fi_d5_disk_full_mid_converge` | A converge on a host with too little free disk aborts at its preflight check before pulling anything, whether a person reruns the install or presses the Settings page's Converge. |
 | `fi_d6_volume_uid_drift` | A service whose user has drifted away from what it requires is reconciled back by the next converge. |
 | `fi_d7_restic_corrupt_pack` | Corruption introduced into the backup repository is detected by the deep verification pass. |
 | `fi_n10_multidomain_cap` | A Community host asked to serve more than one domain degrades to the one it supports rather than refusing to converge. |
@@ -158,6 +158,7 @@ The 204 scenarios the maintainers' test bench carries, and the behaviour each on
 | `nextcloud_failed_migrate_rolls_back` | When a Nextcloud update's migration fails, the previous version, its code, configuration and add-ons, and its database are put back, and the instance starts on the previous version. |
 | `nextcloud_update_migrates` | A Nextcloud patch update runs the migration steps once the upgraded application answers, and the new version stays in place. |
 | `nextcloud_versions_retention_applied` | The file-version retention configured for the file-sync application reaches the running container instead of stopping at the catalogue. |
+| `nightly_update_real` | The real nightly update takes the newer build of a client application, leaves every infrastructure service it moved running, records the update in the maintenance feed, and ends the night done. |
 | `oauth2_proxy_cookie_rotation_round_trip` | Rotating the panel's session-cookie secret invalidates existing sessions cleanly while a fresh sign-in keeps working and leaves no copy of the old secret on the server, and neither the admin tools' sign-in gates nor the sign-in service nor the resource monitor shows a credential in its service definition. |
 | `offsite_copy_refuses_an_unchecked_backup` | The offsite copy of the host's own backup repository refuses to run while the repository check fails, and, when the client asks for it, until the newest backup has passed a restore test. |
 | `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone, and a destination holding another repository or a changed file is refused rather than written over. |
