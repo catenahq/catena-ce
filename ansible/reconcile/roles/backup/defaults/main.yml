@@ -120,6 +120,16 @@ restic_check_healthcheck_url: >-
     ~ '/catena-restic-check-subset?create=1'
     if healthchecks_ping_key is defined else ''
   }}
+# The restore test lane's own check: catena-restore-test pings it with /fail
+# when the restore fails and success when it passes. catena-schedule keeps it on
+# the restore_test lane's schedule.
+restore_test_healthcheck_url: >-
+  {{
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-restore-test?create=1'
+    if healthchecks_ping_key is defined else ''
+  }}
 
 # Retention is not set by this repo at all.
 #

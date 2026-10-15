@@ -35,6 +35,7 @@ HOST_SIDE = {
         "offsite_healthcheck_url": "catena-offsite-copy-succeeded",
         "offsite_healthcheck_attempted_url": "catena-offsite-copy-attempted",
         "restic_check_healthcheck_url": "catena-restic-check-subset",
+        "restore_test_healthcheck_url": "catena-restore-test",
     },
     ADMIN_DEFAULTS: {
         "daily_healthcheck_chain_url": "catena-daily",
