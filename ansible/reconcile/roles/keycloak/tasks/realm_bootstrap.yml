@@ -668,33 +668,70 @@
 # RealmManager setupRealmDefaults, Keycloak 26.6.7), and the master admin, while
 # holding no one-time code, is asked to set one up at their next sign-in
 # (CONFIGURE_TOTP), after which the master realm's browser flow asks for it at
-# every sign-in. Only the switch and the missing second factor are put back:
-# numbers tuned in the master realm stay. The role README says how a lockout or
-# a lost second factor is lifted from the server.
+# every sign-in. While Settings requires a second factor (keycloak_enforce_mfa),
+# every other master-realm user holding the admin role, directly, through a
+# group or through a composite role, is asked the same, the
+# automation service account excepted. Each admin's state (holds a code, has
+# been asked) is written, with the time, to keycloak_master_admins_path, which
+# the Compliance page reads; a run that fails leaves no record. Only the switch and the missing second
+# factor are put back: numbers tuned in the master realm stay. The role README
+# says how a lockout or a lost second factor is lifted from the server.
 - name: "Keycloak realm: the master realm locks out wrong passwords and asks its admin for a second factor"
   ansible.builtin.shell: |
     set -euo pipefail
     kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
     admin={{ admin_email | quote }}
+    enforce={{ ('true' if keycloak_enforce_mfa | bool else 'false') | quote }}
+    record={{ keycloak_master_admins_path | quote }}
+    rm -f "$record"
+    rows=""
     if [ "$(kc get realms/master --fields bruteForceProtected --format csv --noquotes)" != true ]; then
       kc update realms/master -s bruteForceProtected=true
       echo "locks out: master"
     fi
+    settle() {
+      local held asked otp=0 has=0
+      held=$(kc get "users/$1/credentials" -r master --fields type --format csv --noquotes)
+      if grep -qxF otp <<<"$held"; then
+        otp=1
+      else
+        asked=$(kc get "users/$1" -r master --fields requiredActions --format csv --noquotes)
+        if grep -qxF CONFIGURE_TOTP <<<"${asked//,/$'\n'}"; then
+          has=1
+        elif [ "$3" = true ]; then
+          kc update "users/$1" -r master -s 'requiredActions+=CONFIGURE_TOTP'
+          echo "asks for a second factor: $2"
+          has=1
+        fi
+      fi
+      rows+="$2"$'\t'"$otp"$'\t'"$has"$'\n'
+    }
     id=$(kc get users -r master -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
     if [ -z "$id" ]; then
       echo "the master realm has no account $admin to ask for a second factor" >&2
-      exit 0
+    else
+      settle "$id" "$admin" true
     fi
-    held=$(kc get "users/$id/credentials" -r master --fields type --format csv --noquotes)
-    if grep -qxF otp <<<"$held"; then
-      exit 0
-    fi
-    asked=$(kc get "users/$id" -r master --fields requiredActions --format csv --noquotes)
-    if grep -qxF CONFIGURE_TOTP <<<"${asked//,/$'\n'}"; then
-      exit 0
-    fi
-    kc update "users/$id" -r master -s 'requiredActions+=CONFIGURE_TOTP'
-    echo "asks for a second factor: $admin"
+    members=$(kc get users -r master -q max=1000 --fields id,username --format csv --noquotes)
+    while IFS=, read -r uid uname; do
+      if [ -z "$uid" ] || [ "$uid" = "$id" ]; then
+        continue
+      fi
+      case "$uname" in service-account-*) continue ;; esac
+      effective=$(kc get "users/$uid/role-mappings/realm/composite" -r master --fields name --format csv --noquotes)
+      if grep -qxF admin <<<"$effective"; then
+        settle "$uid" "$uname" "$enforce"
+      fi
+    done <<<"$members"
+    python3 -I -c 'import datetime, json, os, sys
+    rows = [l.split("\t") for l in sys.stdin.read().splitlines() if l]
+    doc = {"checked_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "admins": [{"name": n, "otp": o == "1", "asked": a == "1"} for n, o, a in sorted(rows)]}
+    path = sys.argv[1]
+    tmp = path + ".tmp"
+    open(tmp, "w").write(json.dumps(doc, indent=1) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)' "$record" <<<"$rows"
   args:
     executable: /bin/bash
   register: _keycloak_master_posture

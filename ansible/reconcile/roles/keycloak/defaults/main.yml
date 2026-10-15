@@ -177,7 +177,8 @@ catena_admin_panel_client_id: "catena-admin-panel"
 # (catena-admin payload/cmd/catena-identity-probe).
 catena_identity_probe_client_id: "catena-identity-probe"
 
-# Whether every account in this realm must set up a second factor.
+# Whether every account in this realm, and every master-realm administrator,
+# must set up a second factor.
 #
 # Read from the on-box store (IDENTITY_ENFORCE_MFA, a Settings page value), so
 # a client turns it on without an operator. The CONVERGE owns the write because
@@ -189,3 +190,8 @@ catena_identity_probe_client_id: "catena-identity-probe"
 # next login until they enrol, and that is a decision with a support cost
 # attached rather than one a converge should make on a client's behalf.
 keycloak_enforce_mfa: "{{ cfg_identity_enforce_mfa | default('false') }}"
+
+# The master-realm administrators and whether each holds, or has been asked
+# for, a one-time code, as the last converge left them. The Compliance page
+# reads it from the directory the admin container mounts.
+keycloak_master_admins_path: /var/lib/catena/keycloak-master-admins.json

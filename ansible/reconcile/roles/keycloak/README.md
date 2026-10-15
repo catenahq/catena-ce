@@ -42,8 +42,10 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
    - After the import, with kcadm, it turns the master realm's lockout on (a
      growing pause after repeated wrong passwords, capped at 15 minutes, as in
      this realm) and asks the master admin to set up a one-time code at their
-     next sign-in while they hold none (see "Lifting a master-realm lockout or
-     a lost second factor").
+     next sign-in while they hold none, and, while Settings requires a second
+     factor, every other master-realm user holding the admin role (the
+     automation client's service account excepted; see "Lifting a master-realm
+     lockout or a lost second factor").
    - Then, adding only, it creates the tier roles the two flows check
      (`catena-tier-admin`, `catena-tier-staff`) and grants each to its group
      (`/admin`, `/staff`), adds the scopes applications need to the realm's
@@ -102,7 +104,7 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
   - the MFA required action, the mail settings and the security posture,
     which the panel's Settings own;
   - the master realm's lockout switch, and its admin's second factor while
-    they hold none.
+    they hold none (every master admin's, while Settings requires one).
 - Everything else survives a converge: hand-made roles, groups, departments,
   clients, flows and their settings, roles mapped to `/admin` or `/staff` or
   added to a tier role, scopes added to the realm's default client scopes,

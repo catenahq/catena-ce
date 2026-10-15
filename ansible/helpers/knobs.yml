@@ -651,6 +651,14 @@ config:
   - key: ERROR_REPORTS_TO_SUPPORT
     residence: store
 
+  # ---- recommendation notices ----
+  #
+  # "true" once an administrator dismissed the notice recommending a second
+  # factor for administrators. No `var`: catena-admin reads it off the store on
+  # every page. No `panel`: the notice's own Dismiss button writes it.
+  - key: MFA_NOTICE_DISMISSED
+    residence: store
+
   # ---- vulnerabilities (Catena Pro) ----
   #
   # Whether the CVE watch starts the emergency patch by itself for a
@@ -669,11 +677,12 @@ config:
 
   # ---- who may sign in ----
   #
-  # Whether every account must enrol a second factor. A choice rather than free
-  # text because the converge renders it straight into the realm's
-  # required-action config, where a value it cannot read as a boolean would
-  # either fail the import or silently mean off. The identity probe reads the
-  # resulting posture back and reports drift.
+  # Whether every account must enrol a second factor, the top-level (master
+  # realm) administrators included. A choice rather than free text because the
+  # converge renders it straight into the realm's required-action config and
+  # reads it for the master realm's administrators, where a value it cannot read
+  # as a boolean would either fail the import or silently mean off. The identity
+  # probe reads the resulting posture back and reports drift.
   - key: IDENTITY_ENFORCE_MFA
     residence: store
     var: cfg_identity_enforce_mfa
