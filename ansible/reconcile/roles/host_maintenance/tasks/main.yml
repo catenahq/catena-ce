@@ -373,7 +373,7 @@
     - catena_payload_missing | length == 0
 
 # The error reports to Catena support: `catena-error-report run`, every five
-# minutes. Its binary and both units ship in the catena-admin payload. Its own
+# minutes, from the catena-admin payload like the licence check. Its own
 # include, for the licence check's reason.
 - name: "Error reports: is the payload-shipped timer expected on this host"
   ansible.builtin.include_role:
@@ -397,9 +397,9 @@
 - name: "Error reports: timer staged out of band and not present yet"
   ansible.builtin.debug:
     msg: >-
-      The error-report timer is not on the host and this converge does not
-      install the payload (CATENA_PAYLOAD_INSTALL=false). The next converge
-      once the payload is installed enables it.
+      The error-report timer waits for the payload, which this converge skips
+      (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's install
+      enables the timer.
   when:
     - catena_payload_missing | length > 0
     - not (catena_payload_expected | bool)
