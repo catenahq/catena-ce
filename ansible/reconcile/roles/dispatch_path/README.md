@@ -30,6 +30,29 @@ and stops the converge.
 The proof dispatches `dispatch-path-proof`, which the dispatcher answers
 itself: the generation that answered, and which passthrough variables arrived.
 A request carrying more than the action name has to be refused by the entry.
+The proof key's line carries `expiry-time` ten minutes out, so a run killed
+mid-proof leaves no usable key.
+
+A generation already running is trusted only while its directory holds exactly
+this tree's two executables (root-owned, mode 0755, no links, nothing else).
+Otherwise it is reinstalled and the panel's key proves it before the link moves
+or any other generation is removed.
+
+## What it refuses
+
+- A passthrough name that is not `X_FORWARDED_<WORD>` or `CATENA_<WORDS>` in
+  capital letters, or that is `CATENA_ADMIN_ACTIONS_FILE`: the names are
+  rendered into sudo's `env_keep` and sshd's `AcceptEnv`, which take wildcards,
+  and reach a root dispatcher where loader and shell variables change what runs.
+- A panel public key that is not exactly one `ssh-ed25519` line.
+- A runner `~/.ssh` that is a link or not the runner's, and an `authorized_keys`
+  that is not a plain file, has a second name or is owned by neither the runner
+  nor root. The runner owns that directory, so root reads and
+  writes the file through a descriptor opened without following links, and
+  creates its temporary with `O_EXCL`.
+
+The key lines use `restrict` (no forwarding, no pty, no `~/.ssh/rc`) with the
+forced command.
 
 ## What it never writes
 

@@ -26,10 +26,14 @@
     password: "*"
     state: present
 
+# The runner owns its home, so ~/.ssh can be a link it planted. follow: false
+# makes the module see the link itself and fail, where following it would
+# chown and chmod whatever the link names as root.
 - name: "Runner: ~/.ssh directory"
   ansible.builtin.file:
     path: "{{ catena_admin_runner_home }}/.ssh"
     state: directory
+    follow: false
     owner: "{{ catena_admin_runner_user }}"
     group: "{{ catena_admin_runner_user }}"
     mode: "0700"
@@ -138,6 +142,7 @@
     owner: "{{ catena_admin_container_uid }}"
     group: "{{ catena_admin_container_gid }}"
     mode: "0700"
+    follow: false
 
 # Generated once and never replaced: `creates` skips ssh-keygen whenever the
 # private key exists.
@@ -153,6 +158,7 @@
     owner: "{{ catena_admin_container_uid }}"
     group: "{{ catena_admin_container_gid }}"
     mode: "0600"
+    follow: false
   loop:
     - "{{ catena_admin_host_ssh_dir }}/id_ed25519"
     - "{{ catena_admin_host_ssh_dir }}/id_ed25519.pub"
@@ -188,6 +194,7 @@
     owner: "{{ catena_admin_container_uid }}"
     group: "{{ catena_admin_container_gid }}"
     mode: "0644"
+    follow: false
     # ssh-keyscan emits "HOST keytype keydata"; the SSH client matches the
     # connection hostname against the first field literally. From inside the
     # container, the Go shell's SSH runner ONLY ever connects to
@@ -211,6 +218,7 @@
     owner: "{{ catena_admin_container_uid }}"
     group: "{{ catena_admin_container_gid }}"
     mode: "0644"
+    follow: false
 
 # --- Bind-mount targets the admin container expects -----------------
 # {{ catena_admin_stats_dir }} hosts the JSON reports the payload lanes
@@ -239,6 +247,7 @@
     owner: "{{ catena_admin_container_uid }}"
     group: "{{ catena_admin_container_gid }}"
     mode: "0700"
+    follow: false
 
 # The panel bind-mounts this read-only for the /recovery tab, and swarm
 # REJECTS a task whose bind source is missing rather than creating it. Its

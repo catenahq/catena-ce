@@ -44,7 +44,17 @@ it could dispatch through.
 The panel's key, the runner account, the host key and the panel's known_hosts
 are the install's (bootstrap/roles/catena_admin_host): this reads them and
 writes none of them, and the runner's authorized_keys holds the panel's line
-alone. The proof key exists for one run, in a root-only directory under /run.
+alone. The panel's key text goes into that line only when it is exactly one
+ssh-ed25519 line. The proof key exists for one run, in a root-only directory
+under /run, and its line expires ten minutes after it is written.
+
+The runner owns its ~/.ssh, so every read and write of authorized_keys goes
+through a descriptor on that directory opened without following links, and
+refuses a directory or file that is a link, a file with a second name, or
+anything neither the runner's nor root's: a link planted there never redirects
+what root writes. A generation already running is
+trusted only when its directory holds exactly this tree's two executables;
+otherwise it is reinstalled and proven before any other generation goes.
 
 Input: one JSON object on stdin: runner_user, runner_home, panel_key_dir, link
 (the dispatcher's stable path), passthrough (the variable names), entry and
@@ -58,9 +68,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pwd
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -82,7 +94,20 @@ ENTRY_REFUSAL = "catena-dispatch-entry: refusing"
 # lists the host key (bootstrap/roles/catena_admin_host's keyscan).
 HOST_ALIAS = "host.docker.internal"
 LOOPBACK = "127.0.0.1"
-KEY_OPTIONS = "no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty"
+# restrict: no forwarding, no pty, no ~/.ssh/rc.
+KEY_OPTIONS = "restrict"
+PROOF_LIFETIME_S = 600
+
+# The one key line shape the panel's public key may take: ssh-keygen -t ed25519.
+PANEL_KEY = re.compile(r"ssh-ed25519 [A-Za-z0-9+/]+=*( \S+)?")
+
+# Passthrough names reach sudoers env_keep and sshd AcceptEnv, which take
+# wildcards, and the root dispatcher's environment, where any variable the
+# dispatcher or its shell reads changes what runs. A name is one of the two
+# shapes the panel sends: X_FORWARDED_<WORD> or CATENA_<WORDS>.
+PASSTHROUGH_NAME = re.compile(r"X_FORWARDED_[A-Z]+|CATENA(?:_[A-Z]+)+")
+# Names that fit the shape yet point a root script at code to source.
+FORBIDDEN_NAMES = {"CATENA_ADMIN_ACTIONS_FILE"}
 
 SSH = "/usr/bin/ssh"
 SSH_KEYGEN = "/usr/bin/ssh-keygen"
@@ -111,8 +136,9 @@ def _run(argv: list[str]) -> "subprocess.CompletedProcess[str]":
                           stdin=subprocess.DEVNULL, check=False)
 
 
-def _chown(path: Path, user: str) -> None:
-    shutil.chown(path, user, user)
+def _ids(user: str) -> tuple[int, int]:
+    entry = pwd.getpwnam(user)
+    return entry.pw_uid, entry.pw_gid
 
 
 def _tail(text: str | None) -> str:
@@ -142,9 +168,24 @@ def acceptenv_rule(user: str, names: list[str]) -> str:
             + "Match all\n")
 
 
-def key_line(entry: str, pubkey: str, *, loopback_only: bool = False) -> str:
+def key_line(entry: str, pubkey: str, *, loopback_only: bool = False, expires: str = "") -> str:
+    """`expires` is an sshd expiry-time (YYYYMMDDHHMMSSZ, UTC)."""
     source = f'from="{LOOPBACK},::1",' if loopback_only else ""
-    return f'{source}command="{entry}",{KEY_OPTIONS} {pubkey}'
+    expiry = f'expiry-time="{expires}",' if expires else ""
+    return f'{source}{expiry}command="{entry}",{KEY_OPTIONS} {pubkey}'
+
+
+def passthrough_problem(names: object) -> str:
+    """Why `names` may not be rendered into sudoers and sshd; "" when it may."""
+    if not isinstance(names, list):
+        return "the passthrough names are not a list"
+    for name in names:
+        if (not isinstance(name, str) or not PASSTHROUGH_NAME.fullmatch(name)
+                or name in FORBIDDEN_NAMES):
+            return (f"the passthrough name {name!r} is refused: a name is X_FORWARDED_<WORD> "
+                    "or CATENA_<WORDS> in capital letters, and never a variable a root "
+                    "script reads to find its code")
+    return ""
 
 
 def generation(cfg: dict) -> str:
@@ -203,12 +244,14 @@ class Host:
     recorded in `wrote`."""
 
     def __init__(self, root: str = "/", run: Run = _run,
-                 chown: Callable[[Path, str], None] = _chown,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+                 ids: Callable[[str], tuple[int, int]] = _ids,
+                 sleep: Callable[[float], None] = time.sleep,
+                 now: Callable[[], float] = time.time) -> None:
         self.root = Path(root)
         self.run = run
-        self.chown = chown
+        self.ids = ids
         self.sleep = sleep
+        self.now = now
         self.wrote: list[str] = []
 
     def at(self, path: str) -> Path:
@@ -220,19 +263,17 @@ class Host:
         except (FileNotFoundError, NotADirectoryError):
             return None
 
-    def write(self, path: str, text: str, mode: int, *, owner: str = "",
+    def write(self, path: str, text: str, mode: int, *,
               check: list[str] | None = None) -> bool:
-        """Write `text` unless the file already holds it. `check` is a command
-        the temporary has to pass, its path appended, before it replaces the
-        target. Returns whether the file changed."""
+        """Write `text` to a root-owned file unless it already holds it.
+        `check` is a command the temporary has to pass, its path appended,
+        before it replaces the target. Returns whether the file changed."""
         if self.read(path) == text:
             return False
         target = self.at(path)
         tmp = target.with_name(target.name + ".tmp")
         tmp.write_text(text, encoding="utf-8")
         os.chmod(tmp, mode)
-        if owner:
-            self.chown(tmp, owner)
         if check:
             r = self.run([*check, str(tmp)])
             if r.returncode != 0:
@@ -242,12 +283,12 @@ class Host:
         self.wrote.append(path)
         return True
 
-    def put_back(self, path: str, text: str | None, mode: int, *, owner: str = "") -> None:
+    def put_back(self, path: str, text: str | None, mode: int) -> None:
         """Return a file to what it held before this run: `text`, or absent."""
         if text is None:
             self.remove(path)
         else:
-            self.write(path, text, mode, owner=owner)
+            self.write(path, text, mode)
 
     def remove(self, path: str) -> bool:
         target = self.at(path)
@@ -272,13 +313,32 @@ class Host:
         self.wrote.append(path)
         return True
 
-    def install_generation(self, gen: str, entry: str, dispatcher: str) -> None:
+    def generation_intact(self, gen: str, files: dict[str, str]) -> bool:
+        """Whether the generation's directory holds exactly `files`, as root-owned
+        0755 regular files in a root-owned 0755 directory."""
+        final = self.at(f"{GENERATIONS}/{gen}")
+        root_uid = self.ids("root")[0]
+
+        def plain(path: Path, kind: Callable[[int], bool]) -> bool:
+            st = os.lstat(path)
+            return kind(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o755 and st.st_uid == root_uid
+
+        try:
+            return (plain(final, stat.S_ISDIR) and sorted(os.listdir(final)) == sorted(files)
+                    and all(plain(final / name, stat.S_ISREG)
+                            and (final / name).read_text(encoding="utf-8") == text
+                            for name, text in files.items()))
+        except (OSError, ValueError):
+            return False
+
+    def install_generation(self, gen: str, entry: str, dispatcher: str) -> bool:
         """The generation's directory, root-owned 0755 with its two
-        executables, unless it already holds exactly them."""
+        executables, unless it already holds exactly them. Returns whether it
+        was written."""
         files = {"entry": entry, "dispatcher": dispatcher}
         final = f"{GENERATIONS}/{gen}"
-        if all(self.read(f"{final}/{name}") == text for name, text in files.items()):
-            return
+        if self.generation_intact(gen, files):
+            return False
         base = self.at(GENERATIONS)
         base.mkdir(parents=True, exist_ok=True)
         os.chmod(base, 0o755)
@@ -289,9 +349,13 @@ class Host:
         for name, text in files.items():
             (tmp / name).write_text(text, encoding="utf-8")
             os.chmod(tmp / name, 0o755)
-        shutil.rmtree(self.at(final), ignore_errors=True)
+        if self.at(final).is_symlink():
+            self.at(final).unlink()
+        else:
+            shutil.rmtree(self.at(final), ignore_errors=True)
         os.rename(tmp, self.at(final))
         self.wrote += [f"{final}/{name}" for name in files]
+        return True
 
     def generations(self) -> list[str]:
         base = self.at(GENERATIONS)
@@ -315,6 +379,89 @@ class Host:
             self.put_back(path, before, 0o644)
             raise Refused(f"sshd refused {path}: {_tail(r.stderr)}")
         return True
+
+
+class RunnerKeys:
+    """The runner's authorized_keys. The runner owns its ~/.ssh and can plant
+    links in it, so root reaches the file only through a descriptor on the
+    directory, opened without following a link and checked to be the runner's,
+    and creates the temporary beside the target with O_EXCL and O_NOFOLLOW."""
+
+    NAME = "authorized_keys"
+
+    def __init__(self, host: Host, home: str, user: str) -> None:
+        self.host = host
+        self.user = user
+        self.path = f"{home}/.ssh/{self.NAME}"
+        shown = f"{home}/.ssh"
+        try:
+            self.fd = os.open(host.at(shown), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            raise Refused(f"{shown} is missing; the install creates it") from None
+        except OSError as e:
+            raise Refused(f"{shown} is not a plain directory ({e.strerror})") from None
+        if os.fstat(self.fd).st_uid != host.ids(user)[0]:
+            os.close(self.fd)
+            raise Refused(f"{shown} is not owned by {user}")
+
+    def close(self) -> None:
+        os.close(self.fd)
+
+    def read(self) -> str | None:
+        try:
+            fd = os.open(self.NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=self.fd)
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            raise Refused(f"{self.path} is not a plain file ({e.strerror})") from None
+        with os.fdopen(fd, encoding="utf-8") as f:
+            st = os.fstat(f.fileno())
+            if not stat.S_ISREG(st.st_mode):
+                raise Refused(f"{self.path} is not a plain file")
+            if st.st_nlink != 1:
+                raise Refused(f"{self.path} has {st.st_nlink} links; it has to be the only name "
+                              "of its file")
+            if st.st_uid not in (self.host.ids(self.user)[0], self.host.ids("root")[0]):
+                raise Refused(f"{self.path} is owned by neither {self.user} nor root")
+            return f.read()
+
+    def write(self, text: str) -> bool:
+        """Replace the file with `text`, runner-owned 0600, unless it holds it."""
+        if self.read() == text:
+            return False
+        tmp = self.NAME + ".tmp"
+        uid, gid = self.host.ids(self.user)
+        try:
+            try:
+                os.unlink(tmp, dir_fd=self.fd)
+            except FileNotFoundError:
+                pass
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
+                         dir_fd=self.fd)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                os.fchmod(f.fileno(), 0o600)
+                os.fchown(f.fileno(), uid, gid)
+                f.write(text)
+            os.replace(tmp, self.NAME, src_dir_fd=self.fd, dst_dir_fd=self.fd)
+        except OSError as e:
+            raise Refused(f"{self.path} could not be written ({e.strerror})") from None
+        self.host.wrote.append(self.path)
+        return True
+
+    def remove(self) -> bool:
+        try:
+            os.unlink(self.NAME, dir_fd=self.fd)
+        except FileNotFoundError:
+            return False
+        self.host.wrote.append(self.path)
+        return True
+
+    def put_back(self, text: str | None) -> None:
+        """Return the file to what it held before this run: `text`, or absent."""
+        if text is None:
+            self.remove()
+        else:
+            self.write(text)
 
 
 # --- the proof ----------------------------------------------------------------
@@ -370,11 +517,12 @@ def prove(host: Host, cfg: dict, key: str, gen: str) -> list[str]:
     return reasons
 
 
-def prove_beside(host: Host, cfg: dict, gen: str, keys_path: str,
+def prove_beside(host: Host, cfg: dict, gen: str, keys_file: RunnerKeys,
                  keys_before: str | None) -> list[str]:
     """The proof through the new generation before the panel's key moves: a
-    key minted for this run, authorized from loopback for the new entry alone,
-    beside the panel's line, which stays as it is."""
+    key minted for this run, authorized from loopback for the new entry alone
+    until PROOF_LIFETIME_S passes, beside the panel's line, which stays as it
+    is."""
     keydir = tempfile.mkdtemp(prefix="catena-dispatch-proof.", dir=host.at(PROOF_KEY_PARENT))
     try:
         key = f"{keydir}/id_ed25519"
@@ -384,12 +532,13 @@ def prove_beside(host: Host, cfg: dict, gen: str, keys_path: str,
         pub = Path(f"{key}.pub").read_text(encoding="utf-8").strip()
         keys = keys_before if keys_before is not None else HEADER
         keys = keys if keys.endswith("\n") else keys + "\n"
-        host.write(keys_path, keys + key_line(entry_path(gen), pub, loopback_only=True) + "\n",
-                   0o600, owner=cfg["runner_user"])
+        expires = time.strftime("%Y%m%d%H%M%SZ", time.gmtime(host.now() + PROOF_LIFETIME_S))
+        keys_file.write(keys + key_line(entry_path(gen), pub, loopback_only=True,
+                                        expires=expires) + "\n")
         try:
             return prove(host, cfg, key, gen)
         finally:
-            host.put_back(keys_path, keys_before, 0o600, owner=cfg["runner_user"])
+            keys_file.put_back(keys_before)
     finally:
         shutil.rmtree(keydir, ignore_errors=True)
 
@@ -397,6 +546,9 @@ def prove_beside(host: Host, cfg: dict, gen: str, keys_path: str,
 # --- the switch ---------------------------------------------------------------
 
 def switch(cfg: dict, host: Host) -> dict:
+    problem = passthrough_problem(cfg["passthrough"])
+    if problem:
+        return {"ok": False, "changed": False, "generation": "", "wrote": [], "summary": problem}
     gen = generation(cfg)
     panel_key = f"{cfg['panel_key_dir']}/id_ed25519"
 
@@ -409,18 +561,33 @@ def switch(cfg: dict, host: Host) -> dict:
     if not blob:
         return verdict(False, f"the panel's public key {panel_key}.pub is missing or empty; "
                               "the install writes it")
-    if not host.at(f"{cfg['runner_home']}/.ssh").is_dir():
-        return verdict(False, f"{cfg['runner_home']}/.ssh is missing; the install creates it")
+    if not PANEL_KEY.fullmatch(panel_pub):
+        return verdict(False, f"the panel's public key {panel_key}.pub is not exactly one "
+                              "ssh-ed25519 line, so it is not put in the runner's authorized_keys")
+    try:
+        keys = RunnerKeys(host, cfg["runner_home"], cfg["runner_user"])
+    except Refused as e:
+        return verdict(False, str(e))
+    try:
+        return _switch(cfg, host, keys, Rendered(cfg, gen, panel_key, panel_pub), blob, verdict)
+    finally:
+        keys.close()
 
-    path = Rendered(cfg, gen, panel_key, panel_pub)
-    keys_before = host.read(path.keys)
+
+def _switch(cfg: dict, host: Host, keys: RunnerKeys, path: Rendered, blob: str,
+            verdict: Callable[[bool, str], dict]) -> dict:
+    gen = path.gen
+    try:
+        keys_before = keys.read()
+    except Refused as e:
+        return verdict(False, str(e))
     running = running_generation(line_for(keys_before, blob))
     current = running
     try:
         if running != gen:
-            _move(host, path, keys_before)
+            _move(host, path, keys, keys_before)
             current = gen
-        _retire(host, path)
+        _retire(host, path, keys)
     except Refused as e:
         return verdict(False, f"the panel dispatches through {describe(current)}: {e}")
     if running != gen:
@@ -451,13 +618,12 @@ class Rendered:
         self.panel_key = panel_key
         self.entry = _text(cfg["entry"])
         self.dispatcher = _text(cfg["dispatcher"])
-        self.keys = f"{cfg['runner_home']}/.ssh/authorized_keys"
         self.panel_keys = HEADER + key_line(entry_path(gen), panel_pub) + "\n"
         self.rule = sudo_rule(self.user, dispatcher_path(gen), names)
         self.accept = acceptenv_rule(self.user, names)
 
 
-def _move(host: Host, path: Rendered, keys_before: str | None) -> None:
+def _move(host: Host, path: Rendered, keys: RunnerKeys, keys_before: str | None) -> None:
     """BESIDE, PROOF and SWITCH. Returns with the panel's line on the new
     generation, proven, or raises Refused with the running path unchanged."""
     gen = path.gen
@@ -477,7 +643,7 @@ def _move(host: Host, path: Rendered, keys_before: str | None) -> None:
         # it may never have reloaded.
         reloaded = True
         host.sshd_reload()
-        reasons = prove_beside(host, path.cfg, gen, path.keys, keys_before)
+        reasons = prove_beside(host, path.cfg, gen, keys, keys_before)
         if reasons:
             raise Refused(f"the proof through generation {gen} failed: {'; '.join(reasons)}")
     except BaseException:
@@ -486,7 +652,7 @@ def _move(host: Host, path: Rendered, keys_before: str | None) -> None:
 
     switched = False
     try:
-        host.write(path.keys, path.panel_keys, 0o600, owner=path.user)
+        keys.write(path.panel_keys)
         switched = True
         reasons = prove(host, path.cfg, path.panel_key, gen)
         if reasons:
@@ -494,18 +660,21 @@ def _move(host: Host, path: Rendered, keys_before: str | None) -> None:
                           f"after the switch: {'; '.join(reasons)}")
     except BaseException:
         if switched:
-            host.put_back(path.keys, keys_before, 0o600, owner=path.user)
+            keys.put_back(keys_before)
         undo()
         raise
 
 
-def _retire(host: Host, path: Rendered) -> None:
+def _retire(host: Host, path: Rendered, keys: RunnerKeys) -> None:
     """RETIRE, with the generation running. Its rules stay in their -next
     files until the main ones hold them, and the panel's key proves whatever
-    changed before anything older is removed."""
+    changed before anything older is removed. A running generation whose
+    directory is not exactly this tree's is reinstalled and proven first."""
     gen = path.gen
     reload = False
-    touched = host.write(path.keys, path.panel_keys, 0o600, owner=path.user)
+    touched = host.install_generation(gen, path.entry, path.dispatcher)
+    if keys.write(path.panel_keys):
+        touched = True
     if host.write(SUDOERS, path.rule, 0o440, check=[VISUDO, "-cf"]):
         touched = True
     if host.place_sshd(ACCEPTENV, path.accept):

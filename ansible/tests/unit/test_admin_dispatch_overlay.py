@@ -41,6 +41,9 @@ RUNNER = ANSIBLE / "scripts" / "catena-admin-runner.sh"
 # it.
 PAYLOAD_ENV = "CATENA_DISPATCH_PAYLOAD"
 
+# Where the runner sources its dispatch table; the environment cannot move it.
+FIXED_TABLE = "ACTIONS_FILE=/etc/catena/admin-actions"
+
 # One CE arm, enough to prove base-first precedence and that the table still
 # dispatches at all.
 CE_ACTIONS = [
@@ -66,11 +69,15 @@ def dispatch(tmp_path):
     actions_file.write_text(rendered)
 
     runner = tmp_path / "catena-admin-runner"
-    runner.write_text(RUNNER.read_text())
+    # The runner reads its table from one fixed path; the copy under test points
+    # at the rendered one.
+    text = RUNNER.read_text()
+    assert text.count(FIXED_TABLE) == 1
+    runner.write_text(text.replace(FIXED_TABLE, f"ACTIONS_FILE={actions_file}"))
     runner.chmod(0o755)
 
     def run(*argv: str, payload: str | None = None) -> subprocess.CompletedProcess:
-        env = dict(os.environ, CATENA_ADMIN_ACTIONS_FILE=str(actions_file))
+        env = dict(os.environ, CATENA_ADMIN_ACTIONS_FILE="/nonexistent")
         env.pop(PAYLOAD_ENV, None)
         if payload is not None:
             env[PAYLOAD_ENV] = payload
@@ -97,6 +104,18 @@ def test_a_known_action_dispatches(dispatch):
     r = dispatch("tailscale-status")
     assert r.returncode == 0, r.stderr
     assert "CE-WON" in r.stdout
+
+
+def test_the_environment_cannot_move_the_dispatch_table(dispatch, tmp_path):
+    """The runner sources its table as root, so a variable sudo or sshd let
+    through must never name another file."""
+    hostile = tmp_path / "hostile"
+    hostile.write_text("catena_admin_dispatch() { echo HOSTILE; }\n")
+    env = dict(os.environ, CATENA_ADMIN_ACTIONS_FILE=str(hostile))
+    r = subprocess.run(["bash", str(dispatch.runner), "tailscale-status"],
+                       capture_output=True, text=True, env=env, timeout=30)
+    assert "HOSTILE" not in r.stdout
+    assert "CE-WON" in r.stdout, r.stderr
 
 
 def test_an_unknown_action_is_refused_with_the_allowed_list(dispatch):
@@ -320,7 +339,7 @@ def test_the_payload_variable_crosses_both_hops():
 
 def _proof(runner: Path, *argv: str, **env: str) -> subprocess.CompletedProcess:
     full = {k: v for k, v in os.environ.items() if k not in (PAYLOAD_ENV, "X_FORWARDED_EMAIL")}
-    full.update(env, CATENA_ADMIN_ACTIONS_FILE=str(runner.parent / "no-such-table"))
+    full.update(env)
     return subprocess.run(["bash", str(runner), "dispatch-path-proof", *argv],
                           capture_output=True, text=True, env=full, timeout=30)
 
@@ -342,6 +361,7 @@ def test_the_proof_names_its_generation_and_what_arrived_never_a_value(dispatch)
 def test_the_proof_answers_before_the_dispatch_table(dispatch):
     """A first install proves its path before reconcile/roles/catena-admin has
     written the dispatch table, so the proof cannot depend on it."""
+    (dispatch.runner.parent / "admin-actions").unlink()
     r = _proof(dispatch.runner)
     assert r.returncode == 0, r.stderr
     assert r.stdout.splitlines() == [f"dispatch-path-proof {dispatch.runner.parent.name}"]

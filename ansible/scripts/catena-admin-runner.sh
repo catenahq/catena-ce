@@ -54,7 +54,7 @@ if [ "$action" = "dispatch-path-proof" ]; then
     exit 0
 fi
 
-ACTIONS_FILE="${CATENA_ADMIN_ACTIONS_FILE:-/etc/catena/admin-actions}"
+ACTIONS_FILE=/etc/catena/admin-actions
 if [ ! -f "$ACTIONS_FILE" ]; then
     echo "catena-admin-runner: dispatch table missing at $ACTIONS_FILE" >&2
     exit 1
