@@ -183,10 +183,9 @@ catena_daily_env_path: /etc/catena/daily.env
 catena_stack_update_env_path: /etc/catena/stack-update.env
 catena_managed_services_path: /etc/catena/managed-services.json
 
-# Container-bump gates. Seven days of tag age because a withdrawn upstream
-# release is usually withdrawn within days and this lane runs unattended; two
-# minutes of stabilisation before the next service is bumped.
-catena_stack_update_min_tag_age_days: 7
+# Container-bump gates: two minutes of stabilisation before the next service is
+# bumped. The days a new version waits come from the config store (the
+# Schedules page).
 catena_stack_update_stabilize_seconds: 120
 catena_stack_update_cve_severity: "HIGH,CRITICAL"
 # ON-BOX base: the update lane is a unit running on the host, and the Portainer
