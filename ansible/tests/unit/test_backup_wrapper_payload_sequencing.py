@@ -31,7 +31,6 @@ PAYLOAD_SCRIPTS = (
     "backup_coverage_script",
     "backup_restic_env_script",
     "backup_snapshot_list_script",
-    "backup_disk_preflight_script",
 )
 
 
@@ -179,8 +178,7 @@ def test_validate_still_asserts_the_payload_scripts_once_any_is_present():
         "{{ backup_coverage_script }}",
         "{{ backup_restic_env_script }}",
         "{{ backup_snapshot_list_script }}",
-        "{{ backup_disk_preflight_script }}",
-    ], "all five, or the partial-install case cannot be seen"
+    ], "all four, or the partial-install case cannot be seen"
 
     assertion = _find("payload-shipped scripts installed + executable", VALIDATE)
     assert "_bk_payload_expected" in str(assertion["when"])

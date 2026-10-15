@@ -41,7 +41,6 @@
       - "{{ backup_coverage_script }}"
       - "{{ backup_restic_env_script }}"
       - "{{ backup_snapshot_list_script }}"
-      - "{{ backup_disk_preflight_script }}"
 
 - name: "validate/backup: pin the payload decision"
   ansible.builtin.set_fact:
@@ -64,7 +63,6 @@
     - "{{ backup_coverage_script }}"
     - "{{ backup_restic_env_script }}"
     - "{{ backup_snapshot_list_script }}"
-    - "{{ backup_disk_preflight_script }}"
   register: _bk_payload_scripts
   when: _bk_payload_expected | bool
 

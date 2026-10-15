@@ -434,15 +434,12 @@ backup_restic_check_timeout: 600
 # which controls enable/disable and OnCalendar for every lane out of
 # /etc/catena/config.json -- an Ansible default here would only relocate a
 # value the client still could not move, not make it configurable.
-# Disk-space preflight catena-backup-run calls before dumping.
-backup_disk_preflight_script: /usr/local/bin/catena-disk-preflight
 # FLOOR for free bytes at {{ storage_mount_point }}/backup-staging before a
 # backup run is allowed to start -- not the requirement. catena-backup-run sums
 # pg_database_size across every running postgres container at runtime and
-# demands that instead whenever it exceeds this, because pg_dumpall stages
-# UNCOMPRESSED SQL locally before gzip and a number sized for a reference host
-# cannot know when it stops being right. 5 GiB covers restic's temp/cache plus
-# a small stack; the derived value takes over from there.
+# demands that instead whenever it exceeds this, because a number sized for a
+# reference host cannot know when it stops being right. 5 GiB covers restic's
+# temp/cache plus a small stack; the derived value takes over from there.
 backup_preflight_min_bytes: 5368709120 # 5 GiB
 backup_env_file: /etc/catena/backup.env
 # The offsite-copy lane's dead-man endpoints, kept separate because backup.env

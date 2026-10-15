@@ -6,7 +6,7 @@
 # output and the host's own converge (the panel's Apply, the converge timer)
 # in its log and its failed status.
 #
-# Complements the backup's own free-bytes abort (catena-disk-preflight, in the
+# Complements the backup's own free-bytes abort (catena-backup-run, in the
 # catena-admin payload) and Beszel's threshold alerting, which report rather
 # than block. gather_facts already populated ansible_mounts; /srv/catena may be
 # absent on a fresh target (the storage role mounts it later), so the
