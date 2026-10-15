@@ -12,8 +12,10 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   dispatcher (`/usr/local/sbin/catena-admin-runner`) sources, from the
   canonical action catalog at [templates/actions.yml.j2](templates/actions.yml.j2)
   merged with per-inventory `catena_admin_extra_actions`. The runner
-  account, its forced-command SSH key and the dispatcher itself are
-  [../../../bootstrap/roles/catena_admin_host](../../../bootstrap/roles/catena_admin_host/README.md).
+  account and the panel's SSH key are
+  [../../../bootstrap/roles/catena_admin_host](../../../bootstrap/roles/catena_admin_host/README.md);
+  the forced command, the sudo and sshd rules and the dispatcher itself are
+  [../dispatch_path](../dispatch_path/README.md).
 - Creates `/etc/catena/admin-actions.d/`, root-owned, and reads nothing
   from it. The dispatcher offers a name this table does not carry to the
   drop-ins there before refusing it, which is how the actions that

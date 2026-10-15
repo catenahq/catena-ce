@@ -49,12 +49,14 @@ bootstrap_roles:
       that includes whatever would have repaired it.
   - name: catena_admin_host
     why: >-
-      The trust path the panel's dispatch arrives over: the runner account, the
-      sudoers drop-in, the forced command and its authorized_keys. And the one
-      a server taking this one over arrives through: the migration account
-      and its sshd rules. A reconcile
-      that could rewrite the way in could rewrite what a reconcile is, which is
-      question one in its purest form.
+      Who the panel's dispatch signs in as and with what: the runner account,
+      the panel's SSH key pair and the host key it trusts. And the way a server
+      taking this one over arrives: the migration account and its sshd rules,
+      which nothing on the host can prove without an open migration window. A
+      reconcile that could mint, move or trust another key could rewrite what a
+      reconcile is, which is question one in its purest form. The path a
+      dispatch crosses once signed in is dispatch_path's, under
+      proven_switches below.
   - name: ansible_runtime
     why: >-
       The ansible-core the host reconciles itself with. A fresh host has no
@@ -68,7 +70,10 @@ bootstrap_roles:
 
 # Roles the host can run against itself, once their inputs come from the store.
 # Order is converge.yml's order, which is a dependency order, not a preference.
+# dispatch_path is first so a proof that fails stops the converge before any
+# other role changes the host.
 reconcile_roles:
+  - dispatch_path
   - payload
   - public_ports
   - host_maintenance
@@ -110,9 +115,10 @@ own_playbook_roles:
 
 # NOTHING STRADDLES: straddling_roles is empty.
 #
-# The public-port registry's host wiring lives in reconcile/roles/public_ports
-# and the SSH trust path lives in bootstrap/roles/catena_admin_host. Both are
-# real roles on one side of the line, which is what a straddle is supposed to
+# The public-port registry's host wiring lives in reconcile/roles/public_ports,
+# the accounts and keys of the SSH trust path in bootstrap/roles/catena_admin_host,
+# and the path a dispatch crosses in reconcile/roles/dispatch_path. Each is a
+# real role on one side of the line, which is what a straddle is supposed to
 # become.
 #
 # The mechanism exists for a role that has to straddle. A role listed here
@@ -136,11 +142,47 @@ straddling_roles: {}
 # converge. Classifying one as reconcile would be saying a timer may run it.
 operator_only_files: []
 
+# Reconcile roles that write bootstrap-owned paths, each through one helper
+# that changes the live path only after a dispatch through the new one is
+# proven, the way the Lockdown closes public SSH only behind a proven tailnet.
+#
+# Question one still holds for them: a broken result never becomes the one in
+# use, because the helper installs it beside the running path, proves it, and
+# keeps the running path when the proof fails; and what a person or the install
+# holds -- the accounts, the panel's key, the host key and the panel's
+# known_hosts -- stays bootstrap-owned and is never written here. So a
+# reconcile still cannot remove the ability to run a reconcile, and an update
+# can change the way a dispatch arrives without an install re-run.
+#
+# `paths` is everything the helper may write, each inside bootstrap_owned_paths
+# so the literal rule keeps holding every other reconcile task to it.
+# test_converge_boundary.py holds the declaration to the tree and the helper to
+# its paths; tests/unit/test_dispatch_path.py holds the helper to its proof.
+proven_switches:
+  - role: dispatch_path
+    helper: helpers/dispatch_path.py
+    paths:
+      - /etc/ssh/sshd_config.d/30-catena-admin-runner-acceptenv.conf
+      - /etc/ssh/sshd_config.d/30-catena-admin-runner-next.conf
+      - /etc/sudoers.d/catena-admin-runner
+      - /etc/sudoers.d/catena-admin-runner-next
+      - authorized_keys
+      - /usr/local/sbin/catena-admin-runner
+      - /usr/local/lib/catena-dispatch/
+    why: >-
+      The path the panel's dispatch crosses once signed in: sshd's AcceptEnv
+      for the runner, the forced command on the panel key's line, the runner's
+      sudo rule and env_keep, and the dispatcher. A panel update that needs a
+      new variable, a new forced command or a new dispatcher brings it in its
+      image's tree, and the switch moves the panel to it only once a dispatch
+      through it has worked.
+
 # Paths a reconcile-side TASK may never write.
 #
 # This is question one turned into a list of literals, so it can be checked
-# rather than remembered. A reconcile that can rewrite the forced command is a
-# reconcile that can rewrite what a reconcile is.
+# rather than remembered. A reconcile that can rewrite the forced command
+# unproven is a reconcile that can rewrite what a reconcile is; the one that
+# rewrites it proven is declared under proven_switches above.
 #
 # Tasks only, deliberately. reconcile/roles/backup names /etc/ssh in its defaults because
 # restic READS it -- it is in the backup set, with the host keys excluded -- and
@@ -151,6 +193,7 @@ bootstrap_owned_paths:
   - /etc/sudoers.d/
   - authorized_keys
   - /usr/local/sbin/catena-admin-runner
+  - /usr/local/lib/catena-dispatch/
   - /etc/sysctl.d/
   - /etc/modprobe.d/
   - /etc/ansible/facts.d/

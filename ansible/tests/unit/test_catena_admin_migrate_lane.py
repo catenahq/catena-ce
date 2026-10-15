@@ -36,10 +36,9 @@ _ANSIBLE = Path(__file__).resolve().parents[2]
 _ROLE = _ANSIBLE / "reconcile" / "roles" / "catena-admin"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 LANES_TASKS = _ROLE / "tasks" / "lanes.yml"
-# The bootstrap-side half of the same panel: the runner account, the
-# sudoers drop-in, the forced command, and the migration account. A role of
-# its own, so the bootstrap/reconcile boundary it sits on is one the layout
-# can hold.
+# The bootstrap-side half of the same panel: the runner account, the panel's
+# SSH key, and the migration account. A role of its own, so the
+# bootstrap/reconcile boundary it sits on is one the layout can hold.
 _HOST_ROLE = _ANSIBLE / "bootstrap" / "roles" / "catena_admin_host"
 _HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
 _HOST_TASKS = _HOST_ROLE / "tasks" / "main.yml"
@@ -67,10 +66,10 @@ def _defaults() -> dict:
     """Every variable the panel's converge reads, from all three places it
     lives.
 
-    The trust path is bootstrap/roles/catena_admin_host, the container and the
-    lanes' configuration are reconcile/roles/catena-admin, and the values BOTH
-    halves need are in group_vars because a role default is only dependable
-    once that role has run. Merged here so an assertion is about the panel's
+    The accounts and the panel's key are bootstrap/roles/catena_admin_host, the
+    container and the lanes' configuration are reconcile/roles/catena-admin,
+    and the values both halves need are in group_vars because a role default is
+    only dependable once that role has run. Merged here so an assertion is about the panel's
     configuration rather than about which file holds a line.
     """
     merged: dict = {}

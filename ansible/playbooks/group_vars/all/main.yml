@@ -429,11 +429,12 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # dispatcher case + allow-list entry automatically.
 
 # --- The admin panel's shared identity ---
-# Read by BOTH halves of the panel's converge -- bootstrap/roles/catena_admin_host, which
-# sets up the trust path and the host lane env files, and reconcile/roles/catena-admin,
-# which deploys the container -- and by reconcile/roles/oauth2_proxy, which resolves
-# catena_admin_hostname by NAME at a point where neither role's defaults are
-# reliably in scope.
+# Read by the halves of the panel's converge -- bootstrap/roles/catena_admin_host,
+# which sets up the accounts and the panel's SSH key,
+# reconcile/roles/dispatch_path, which keeps the path a dispatch crosses, and
+# reconcile/roles/catena-admin, which deploys the container -- and by
+# reconcile/roles/oauth2_proxy, which resolves catena_admin_hostname by NAME at
+# a point where no role's defaults are reliably in scope.
 #
 # A role default is only dependable once that role has run, so a value two roles
 # on either side of the boundary share is the product's rather than one role's.
@@ -457,9 +458,24 @@ catena_admin_internal_port: 8000
 catena_container_uid: "65532"
 catena_container_gid: "65532"
 
-# Where bootstrap/roles/catena_admin_host installs the SSH forced command the
-# panel dispatches through; the admin-actions templates name it.
+# The dispatcher's stable path: reconcile/roles/dispatch_path links it to the
+# running generation's dispatcher, root lanes run it directly, and the
+# admin-actions templates name it.
 catena_admin_dispatcher_path: "/usr/local/sbin/catena-admin-runner"
+
+# The account the panel's dispatch signs in as, and its home, whose
+# authorized_keys holds the panel's key pinned to the forced command.
+# bootstrap/roles/catena_admin_host creates the account;
+# reconcile/roles/dispatch_path writes the key's line.
+catena_admin_runner_user: "catena-admin-runner"
+catena_admin_runner_home: "/home/catena-admin-runner"
+
+# The panel's SSH dir: its key pair, the host's known_hosts and its client
+# config, bind-mounted read-only into the container. Keep it in sync with the
+# mount (playbooks/filter_plugins/catena_admin_service.py).
+# bootstrap/roles/catena_admin_host writes it; reconcile/roles/dispatch_path
+# authorizes its key and proves dispatches with it.
+catena_admin_host_ssh_dir: "/etc/catena/admin-ssh"
 
 # The recovery export directory. reconcile/roles/backup owns what goes in it;
 # reconcile/roles/catena-admin BIND-MOUNTS it into the panel earlier, and swarm

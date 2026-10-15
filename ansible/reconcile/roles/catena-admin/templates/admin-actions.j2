@@ -28,9 +28,10 @@
 #
 # WHAT THE OVERLAY CANNOT DO, permanently and by design:
 # catena_admin_dispatch_env_passthrough gates both sshd's AcceptEnv and the
-# sudoers env_keep list. The image can own the dispatch table; it can never own
+# sudoers env_keep list. A drop-in can add a dispatch arm; it can never add to
 # the environment allow-list, so a payload action that needs a new env var
-# still requires a converge. That is the right boundary -- an env var is an
+# needs a converge, whose reconcile/roles/dispatch_path proves the new list
+# before the panel uses it. That is the right boundary -- an env var is an
 # input the panel controls, and the set of inputs root will accept is a
 # converge-owned decision.
 #

@@ -2,22 +2,24 @@
 converge saw.
 
     bootstrap_digests(finds, stats) -> {path: sha256}
-    bootstrap_drift(previous, current) -> {added, removed, changed}
+    bootstrap_drift(previous, current, switched) -> {added, removed, changed}
 
-WHAT THIS IS FOR. boundary.yml lists the paths a reconcile may never WRITE --
-the SSH trust path, the sudoers drop-in, the forced command, the kernel
-hardening. The rule behind that list is "a reconcile may not modify anything
-that would remove your ability to run a reconcile", and it is the right rule.
+WHAT THIS IS FOR. boundary.yml lists the paths a reconcile task may never
+WRITE -- the SSH trust path, the sudoers drop-in, the forced command, the
+kernel hardening. The rule behind that list is "a reconcile may not modify
+anything that would remove your ability to run a reconcile", and it is the
+right rule.
 
-But it left those six paths with no reader at all. Nothing on the host looked
-at them, so a change to any of them -- an edit, a package, an intrusion, a
-half-finished bootstrap re-run -- was invisible until somebody went looking,
-and the one thing that goes looking is an operator who already suspects
-something.
+A list nobody reads leaves those paths with no reader at all: a change to any
+of them -- an edit, a package, an intrusion, a half-finished bootstrap re-run
+-- is invisible until somebody goes looking, and the one thing that goes
+looking is an operator who already suspects something.
 
 NOT WRITING IS NOT THE SAME AS NOT NOTICING. This reports; it never repairs.
 Repairing is bootstrap's, and that is question one of the boundary. What it
-removes is the silence.
+removes is the silence. The one reconcile-side writer of some of these paths,
+a proven switch boundary.yml declares, reports its own writes; `switched` is
+that list, left out here so every other change is still reported.
 
 WHAT IT CANNOT TELL YOU. The baseline is what the last converge saw, so the
 first converge on a host records whatever is there -- including, if it comes to
@@ -63,8 +65,16 @@ def bootstrap_digests(finds, stats) -> dict:
     return dict(sorted(merged.items()))
 
 
-def bootstrap_drift(previous, current) -> dict:
-    """What moved since the last converge looked.
+def _switched_by(path: str, switched) -> bool:
+    """Whether a proven switch wrote `path` in this converge: the path itself,
+    or a directory it replaced or removed."""
+    return any(path == w or path.startswith(w.rstrip("/") + "/")
+               for w in (str(w) for w in (switched or [])) if w)
+
+
+def bootstrap_drift(previous, current, switched=None) -> dict:
+    """What moved since the last converge looked, less what a proven switch
+    wrote in this one.
 
     Three lists, kept apart because they mean different things. A REMOVED
     sudoers drop-in and an ADDED one are not the same event, and a report that
@@ -77,15 +87,18 @@ def bootstrap_drift(previous, current) -> dict:
     before = {str(k): str(v) for k, v in previous.items()}
     after = {str(k): str(v) for k, v in current.items()}
 
+    def keep(paths):
+        return sorted(p for p in paths if not _switched_by(p, switched))
+
     return {
-        "added": sorted(set(after) - set(before)),
-        "removed": sorted(set(before) - set(after)),
+        "added": keep(set(after) - set(before)),
+        "removed": keep(set(before) - set(after)),
         # An empty digest on either side means "recorded, but the content was
         # not readable". Reporting that as a change every converge would be
         # noise about the reader rather than about the file, so it counts only
         # when both sides carry a digest and the two differ.
-        "changed": sorted(p for p in (set(before) & set(after))
-                          if before[p] and after[p] and before[p] != after[p]),
+        "changed": keep(p for p in (set(before) & set(after))
+                        if before[p] and after[p] and before[p] != after[p]),
     }
 
 

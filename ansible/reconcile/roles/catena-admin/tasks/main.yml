@@ -10,10 +10,10 @@
 #                  swarm service (pulls the published GHCR image). Runs
 #                  after the host-side state its container binds to exists.
 #
-# The runner account, the sudoers drop-in, the forced command and its
-# authorized_keys are bootstrap/roles/catena_admin_host (bootstrap-side, as
-# boundary.yml says why), which runs immediately before this role in
-# converge.yml.
+# The runner account and the panel's SSH key are bootstrap/roles/catena_admin_host
+# (bootstrap-side, as boundary.yml says why); the forced command, the sudo and
+# sshd rules and the dispatcher are reconcile/roles/dispatch_path. Both run
+# before this role in converge.yml.
 
 - name: Catena-admin host lanes' configuration + UI port declaration
   ansible.builtin.import_tasks: lanes.yml

@@ -10,10 +10,15 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 
 import jinja2
 
-from ansible_tree import GROUP_VARS, PANEL_HOST_TASKS as HOST, panel_vars, role_dir
+from ansible_tree import ANSIBLE, GROUP_VARS, panel_vars, role_dir
+
+sys.path.insert(0, str(ANSIBLE / "helpers"))
+
+import dispatch_path  # noqa: E402
 
 _ROLE = role_dir("catena-admin")
 DEFAULTS = _ROLE / "defaults" / "main.yml"
@@ -83,11 +88,13 @@ def test_sshd_acceptenv_lists_the_dispatch_env_vars():
 
     cloudflared-check reads the candidate token out of the SSH environment
     rather than argv, so it never reaches $SSH_ORIGINAL_COMMAND or any process
-    log. AcceptEnv and the sudoers env_keep list are converge-owned permanently:
-    a drop-in may use a name that is already on them and can never add one."""
-    text = HOST.read_text()
-    assert "CATENA_CF_CANDIDATE_TOKEN" in text
-    assert "X_FORWARDED_EMAIL" in text
+    log. AcceptEnv and the sudoers env_keep list are converge-owned permanently
+    (reconcile/roles/dispatch_path): a drop-in may use a name that is already on
+    them and can never add one."""
+    accept = dispatch_path.acceptenv_rule(
+        "runner", panel_vars()["catena_admin_dispatch_env_passthrough"])
+    assert "CATENA_CF_CANDIDATE_TOKEN" in accept
+    assert "X_FORWARDED_EMAIL" in accept
 
 
 def test_the_passthrough_list_still_carries_the_candidate_token():

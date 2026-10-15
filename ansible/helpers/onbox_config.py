@@ -500,15 +500,16 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset(
 # holds, so the two rules are declared in one place.
 STORE_MAY_NOT_DECIDE: dict[str, str] = {
     # The env allow-list gates both sshd's AcceptEnv and the sudoers env_keep.
-    # It is the one thing the image can never own either (see the payload
+    # The payload's drop-ins can never add to it either (see the payload
     # overlay note in reconcile/roles/catena-admin/templates/admin-actions.j2): the set of
     # inputs root will accept is not an input.
     "catena_admin_dispatch_env_passthrough":
         "the set of environment values root accepts from a dispatch",
-    # What the forced command actually executes. A store key here would let the
-    # panel choose the program root runs for every action at once.
+    # The dispatcher root lanes run directly, linked to the one the forced
+    # command runs. A store key here would let the panel choose the program
+    # root runs for every action at once.
     "catena_admin_dispatcher_path":
-        "the program the SSH forced command runs",
+        "the dispatcher root runs for every action",
     # Where root sources action drop-ins from. The dispatcher already refuses a
     # group- or world-writable file; pointing it at another directory would
     # route around that check rather than fail it.
@@ -522,6 +523,10 @@ STORE_MAY_NOT_DECIDE: dict[str, str] = {
         "the account the dispatch authenticates as",
     "catena_admin_runner_home":
         "the home directory holding the forced command's authorized_keys",
+    # Whose key the forced command is authorized for, and the host key a
+    # dispatch is checked against.
+    "catena_admin_host_ssh_dir":
+        "the directory holding the key the dispatch path authorizes",
     # Who may open an SSH session at all.
     "ssh_allowed_users":
         "who may sign in to this host over SSH",

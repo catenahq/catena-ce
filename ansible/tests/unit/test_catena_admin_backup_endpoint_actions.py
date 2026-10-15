@@ -11,14 +11,21 @@ The ACTION is authorised by the panel image's dispatch drop-in, with the other
 Community ones, and what it has to look like is asserted there (catena-admin
 payload/actions.d/catena_actions_test.go). What stays here is the part that is
 about this host rather than about the command: sshd's AcceptEnv and the sudoers
-env_keep, which are converge-owned permanently. The image can own the dispatch
-table; the set of inputs root will accept is not a decision it gets to make.
+env_keep, which are converge-owned permanently (reconcile/roles/dispatch_path).
+The image's drop-ins can add a dispatch arm; the set of inputs root will
+accept is not a decision they get to make.
 
 Run: uv run pytest tests/unit/test_catena_admin_backup_endpoint_actions.py
 """
 from __future__ import annotations
 
-from ansible_tree import PANEL_HOST_TASKS as HOST, panel_vars
+import sys
+
+from ansible_tree import ANSIBLE, PANEL_HOST_TASKS as HOST, panel_vars
+
+sys.path.insert(0, str(ANSIBLE / "helpers"))
+
+import dispatch_path  # noqa: E402
 
 CANDIDATE_ENV_VARS = (
     "CATENA_BACKUP_CANDIDATE_REPO",
@@ -43,18 +50,21 @@ def test_the_candidate_env_survives_sudo_as_well_as_sshd():
 
     A var whitelisted on only one hop fails silently in the worst way: the
     action still runs, reads an empty string, and reports on nothing. That is
-    how a valid endpoint gets rejected -- the check never saw it."""
-    text = HOST.read_text()
-    assert "env_keep" in text, (
-        "the sudoers drop-in has no env_keep, so sudo's env_reset discards "
-        "every candidate credential before the dispatcher reads it"
+    how a valid endpoint gets rejected -- the check never saw it. Both hops
+    render from the one list, and the dispatch path's proof refuses a
+    generation that one of them drops."""
+    passthrough = panel_vars()["catena_admin_dispatch_env_passthrough"]
+    names = " ".join(passthrough)
+    sudo = dispatch_path.sudo_rule("runner", "/x/dispatcher", passthrough)
+    accept = dispatch_path.acceptenv_rule("runner", passthrough)
+    assert f'Defaults:runner env_keep += "{names}"' in sudo, (
+        "the sudo rule does not keep every passthrough variable, so sudo's "
+        "env_reset discards the candidate credentials before the dispatcher "
+        "reads them"
     )
-    # Both hops must render from the same list, or they drift apart and the
-    # drift is invisible until a live dispatch.
-    assert text.count("catena_admin_dispatch_env_passthrough | join(' ')") == 2, (
-        "AcceptEnv and env_keep must both render from "
-        "catena_admin_dispatch_env_passthrough"
-    )
+    assert f"    AcceptEnv {names}\n" in accept
+    for var in CANDIDATE_ENV_VARS:
+        assert var in passthrough
 
 
 def test_the_passthrough_list_stays_minimal():
@@ -79,7 +89,8 @@ def test_this_role_installs_no_dispatch_binary_of_its_own():
     reconcile/roles/payload also writes, and the loser is whichever image is
     staler. The two catena-ce scripts ride into the image through the
     vendored tree and are installed with the rest, which is what lets the panel
-    image authorise the commands that run them."""
+    image authorise the commands that run them. The dispatcher and the forced
+    command are reconcile/roles/dispatch_path's, outside /usr/local/bin."""
     text = HOST.read_text()
     for source in ("helpers/onbox_config.py", "scripts/catena-restic-key.py"):
         assert "src: " not in text.split(source)[0][-40:], (
@@ -90,6 +101,9 @@ def test_this_role_installs_no_dispatch_binary_of_its_own():
     assert "/usr/local/bin/" not in text, (
         "this role writes into /usr/local/bin, which reconcile/roles/payload owns"
     )
-    # The dispatcher is the one executable this role still installs, and it
-    # lives in /usr/local/sbin because it is the converge's, not the payload's.
-    assert "catena_admin_dispatcher_path" in text
+    assert "catena_admin_dispatcher_path" not in text, (
+        "this role installs the dispatcher again, beside the dispatch path's "
+        "proven switch"
+    )
+    assert not dispatch_path.GENERATIONS.startswith("/usr/local/bin/")
+    assert not panel_vars()["catena_admin_dispatcher_path"].startswith("/usr/local/bin/")

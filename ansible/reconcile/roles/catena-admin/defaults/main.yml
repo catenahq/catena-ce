@@ -325,5 +325,5 @@ catena_admin_ee_reserved_actions:
 # engine reads the token, the zones and the tunnel-name prefix from the store,
 # and names the tunnel after the box's own hostname. The one thing this repo
 # still owns for them is the sshd AcceptEnv entry that carries the candidate
-# token, in the passthrough list above -- a drop-in may read that name and can
-# never add to it.
+# token, in reconcile/roles/dispatch_path's passthrough list -- a drop-in may
+# read that name and can never add to it.

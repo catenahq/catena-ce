@@ -9,8 +9,8 @@ The roles only the install applies, run by a person through the
 installer and never by the host on a timer. A role is here when getting
 it wrong would leave nothing on the box able to fix it -- the account
 and the packages, the mesh the operator arrives over, the disk the data
-sits on, the container engine, the SSH trust path the panel dispatches
-through, and the ansible-core the server reconciles itself with.
+sits on, the container engine, the account and key the panel dispatches
+with, and the ansible-core the server reconciles itself with.
 
 The line is declared in `../../boundary.yml` and enforced by
 `../../tests/unit/test_converge_boundary.py`. The invariant that keeps
@@ -23,7 +23,7 @@ generated from the leading comment of each role's `tasks/main.yml`.
 | Role | What it does |
 | --- | --- |
 | `ansible_runtime` | Install the ansible-core the host reconciles itself with. |
-| `catena_admin_host` | Host-side state for catena-admin: the runner user + dispatcher + SSH keypair the Go shell container uses to dispatch actions on the host. |
+| `catena_admin_host` | Host-side state for catena-admin that only the install writes: the runner account the panel's dispatch signs in as, the SSH keypair the Go shell container dispatches with and the host key it trusts, the migration account, and the bind-mount sources the panel's service needs. |
 | `common` | Baseline host setup and the sshd hardening, run on the server by the install's second leg (playbooks/bootstrap.yml) and by every converge.yml. |
 | `docker` | Install Docker CE from the official apt repo (NOT distro's docker.io, which lags upstream by months-to-years and occasionally ships broken containerd combos). |
 | `host_hardening` | Drop two config files (sysctl + modprobe) and apply them. |

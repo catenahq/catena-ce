@@ -76,6 +76,10 @@
       tags: [stamp_version]
 
   roles:
+    # First, as in converge.yml: a proof that fails stops the converge before
+    # any other role changes the host, and a panel update gets the dispatch
+    # path it needs before the rest of its converge runs.
+    - { role: dispatch_path, tags: [dispatch_path] }
     - { role: payload, tags: [payload] }
     # Right after the payload that installs the reconciler, as in converge.yml:
     # every role below drops a fragment into the registry it wires up.
@@ -92,9 +96,9 @@
     - { role: keycloak, tags: [keycloak, auth] }
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
     - { role: infrastructure, tags: [infrastructure] }
-    # The panel's container and its action catalog. Its trust path -- the runner
-    # account, the sudoers drop-in, the forced command -- is the bootstrap-side
-    # bootstrap/roles/catena_admin_host.
+    # The panel's container and its action catalog. The path its dispatch
+    # crosses is dispatch_path, first above; the runner account and the
+    # panel's key are the bootstrap-side bootstrap/roles/catena_admin_host.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] }
     - { role: backup, tags: [backup] }

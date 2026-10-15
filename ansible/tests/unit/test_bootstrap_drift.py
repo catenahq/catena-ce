@@ -67,6 +67,28 @@ def test_a_first_converge_has_no_baseline_and_claims_no_drift():
     assert bootstrap_drift(None, None) == {"added": [], "removed": [], "changed": []}
 
 
+def test_what_the_dispatch_path_switch_wrote_is_left_out():
+    """The switch reports its own writes, proven before they were used; every
+    other change is still reported, including one beside them."""
+    previous = {"/home/r/.ssh/authorized_keys": "aa",
+                "/usr/local/lib/catena-dispatch/old/entry": "bb",
+                "/etc/sudoers.d/other": "cc"}
+    current = {"/home/r/.ssh/authorized_keys": "dd",
+               "/usr/local/lib/catena-dispatch/new/entry": "ee",
+               "/etc/sudoers.d/other": "ff"}
+    switched = ["/home/r/.ssh/authorized_keys", "/usr/local/lib/catena-dispatch/old",
+                "/usr/local/lib/catena-dispatch/new/entry"]
+    assert bootstrap_drift(previous, current, switched) == {
+        "added": [], "removed": [], "changed": ["/etc/sudoers.d/other"]}
+    assert bootstrap_drift(previous, current)["changed"] == [
+        "/etc/sudoers.d/other", "/home/r/.ssh/authorized_keys"]
+
+
+def test_the_report_reads_what_the_switch_wrote():
+    body = _TASKS.read_text(encoding="utf-8")
+    assert "catena_dispatch_path" in body and ".wrote" in body
+
+
 def test_an_unreadable_digest_is_not_reported_as_a_change():
     """An empty digest means the file was recorded but not read. Reporting that
     as drift every converge would be noise about the reader rather than about

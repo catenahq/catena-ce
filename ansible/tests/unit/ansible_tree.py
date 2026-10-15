@@ -25,19 +25,21 @@ def role_dir(name: str) -> Path:
     raise AssertionError(f"no role named {name} under {[str(r) for r in ROLE_ROOTS]}")
 
 
-# The bootstrap-side half of the panel: the runner account, the sudoers
-# drop-in, the forced command.
+# The bootstrap-side half of the panel: the runner account, the panel's SSH
+# key, the migration account.
 PANEL_HOST_TASKS = role_dir("catena_admin_host") / "tasks" / "main.yml"
 
 
 def panel_vars() -> dict:
     """Every variable the panel's converge reads, merged: group_vars (the
-    values both of its halves need), then reconcile/roles/catena-admin and
-    bootstrap/roles/catena_admin_host defaults. An assertion is then about the
-    panel's configuration rather than about which file holds a line."""
+    values its halves share), then reconcile/roles/catena-admin,
+    reconcile/roles/dispatch_path and bootstrap/roles/catena_admin_host
+    defaults. An assertion is then about the panel's configuration rather than
+    about which file holds a line."""
     merged: dict = {}
     for path in (GROUP_VARS,
                  role_dir("catena-admin") / "defaults" / "main.yml",
+                 role_dir("dispatch_path") / "defaults" / "main.yml",
                  role_dir("catena_admin_host") / "defaults" / "main.yml"):
         merged.update(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
     return merged

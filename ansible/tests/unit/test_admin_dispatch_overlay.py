@@ -80,6 +80,7 @@ def dispatch(tmp_path):
         )
 
     run.overlay = overlay  # type: ignore[attr-defined]
+    run.runner = runner  # type: ignore[attr-defined]
     return run
 
 
@@ -313,6 +314,43 @@ def test_the_payload_variable_crosses_both_hops():
     assert PAYLOAD_ENV in panel_vars()["catena_admin_dispatch_env_passthrough"]
     assert f'"${{{PAYLOAD_ENV}:-}}"' in RUNNER.read_text(), (
         f"the dispatcher does not read $PAYLOAD from {PAYLOAD_ENV}")
+
+
+# --- the dispatch path's proof ------------------------------------------------
+
+def _proof(runner: Path, *argv: str, **env: str) -> subprocess.CompletedProcess:
+    full = {k: v for k, v in os.environ.items() if k not in (PAYLOAD_ENV, "X_FORWARDED_EMAIL")}
+    full.update(env, CATENA_ADMIN_ACTIONS_FILE=str(runner.parent / "no-such-table"))
+    return subprocess.run(["bash", str(runner), "dispatch-path-proof", *argv],
+                          capture_output=True, text=True, env=full, timeout=30)
+
+
+def test_the_proof_names_its_generation_and_what_arrived_never_a_value(dispatch):
+    """helpers/dispatch_path.py sets every passthrough variable to the
+    payload's value and reads back which arrived: the generation answering is
+    the directory the dispatcher lives in, and a variable is named only when it
+    holds that value."""
+    r = _proof(dispatch.runner, **{PAYLOAD_ENV: "f00dfeed", "X_FORWARDED_EMAIL": "f00dfeed",
+                                   "CATENA_CF_CANDIDATE_TOKEN": "another"})
+    assert r.returncode == 0, r.stderr
+    lines = r.stdout.splitlines()
+    assert lines[0] == f"dispatch-path-proof {dispatch.runner.parent.name}"
+    assert sorted(lines[1:]) == [f"arrived {PAYLOAD_ENV}", "arrived X_FORWARDED_EMAIL"]
+    assert "f00dfeed" not in r.stdout and "another" not in r.stdout
+
+
+def test_the_proof_answers_before_the_dispatch_table(dispatch):
+    """A first install proves its path before reconcile/roles/catena-admin has
+    written the dispatch table, so the proof cannot depend on it."""
+    r = _proof(dispatch.runner)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == [f"dispatch-path-proof {dispatch.runner.parent.name}"]
+
+
+def test_the_proof_with_a_payload_on_the_command_line_is_refused(dispatch):
+    r = _proof(dispatch.runner, "c2VjcmV0")
+    assert r.returncode == 2
+    assert r.stdout == "" and "c2VjcmV0" not in r.stderr
 
 
 def test_the_overlay_directory_is_created_root_owned_by_the_converge():

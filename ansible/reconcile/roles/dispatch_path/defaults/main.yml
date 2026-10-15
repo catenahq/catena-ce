@@ -1,0 +1,23 @@
+---
+# Env vars the container may push into a root-run host action, for values
+# that must not appear in argv or the process table. Rendered TWICE by
+# helpers/dispatch_path.py -- sshd's AcceptEnv and the sudoers env_keep --
+# because the dispatch crosses both, and a name missing from either arrives as
+# an empty string rather than an error; the switch's proof sends every name
+# and refuses a generation one of them does not reach. Names must match what
+# the panel sends (catena-admin shell/actions/dispatcher.go,
+# shell/web/cloudflared.go and shell/web/backupendpoint.go).
+# CATENA_DISPATCH_PAYLOAD is every request's payload, which
+# scripts/catena-admin-runner.sh reads as $PAYLOAD.
+#
+# The list stays the minimum the dispatch needs: every name is a value the
+# container can push into a root-run host process. Changing it is a new
+# generation of the dispatch path, which an update installs beside the running
+# one and proves before the panel uses it.
+catena_admin_dispatch_env_passthrough:
+  - X_FORWARDED_EMAIL
+  - CATENA_DISPATCH_PAYLOAD
+  - CATENA_CF_CANDIDATE_TOKEN
+  - CATENA_BACKUP_CANDIDATE_REPO
+  - CATENA_BACKUP_CANDIDATE_ACCESS_KEY
+  - CATENA_BACKUP_CANDIDATE_SECRET_KEY

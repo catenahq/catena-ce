@@ -180,6 +180,16 @@
     - { role: host_hardening, tags: [host_hardening, hardening] }
     - { role: storage, tags: [storage] } # mount block volume at /srv/catena (+ optional bulk)
     - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
+    # The panel's runner account, its SSH key pair and the host key it trusts,
+    # and the bind-mount sources its service needs. Bootstrap-side (boundary.yml
+    # says why), right before the role that pins the key to the forced command.
+    - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
+    # The path a panel dispatch crosses: the forced command, the sudo and sshd
+    # rules, the dispatcher. Moved to this tree's generation beside the running
+    # one and proven before the switch; first of the roles the host also runs
+    # against itself, so a failed proof stops the converge before any of them
+    # changes the host.
+    - { role: dispatch_path, tags: [dispatch_path] }
     # Host engine payload (catena-cloudflared-sync, catena-recovery,
     # catena-schedule, catena-daily, the lanes + units), extracted from the
     # public catena-admin image. Needs docker and nothing else, and every role
@@ -228,10 +238,6 @@
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
     - { role: infrastructure, tags: [infrastructure] } # gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
-    # The panel's trust path: the runner account, the sudoers drop-in, the
-    # forced command and its authorized_keys. Bootstrap-side (boundary.yml says
-    # why), and immediately before the role it prepares for.
-    - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
     # catena-admin: the host lanes' configuration, the action catalog, AND the
     # Go shell container, created directly against the local swarm. It holds the API key
     # that drives Portainer, so it cannot depend on Portainer to run: the one
