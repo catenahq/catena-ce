@@ -16,7 +16,8 @@ password for a destination saved before it.
 While the backups wait after a whole-server restore (the record catena-admin
 payload/engines/backuphold writes), the repository is not re-keyed, and a new
 destination saved in the panel gets a new password in place of the stored one
-(`generate` with `replace`).
+(`generate` with `replace`), and so does the destination the restore adopted
+when the hold records the Restore page's choice of a fresh repository.
 
 Request (JSON on stdin):
   {"op": "generate"}
@@ -141,7 +142,11 @@ def cmd_generate(store: dict, store_path: str, replace: bool = False,
     With `replace`, the password minted takes the stored one's place: only
     while the backups wait after a restore, for a destination other than the
     one the restore adopted, which holds no repository yet. The old password
-    may be known to whoever compromised the server before the restore."""
+    may be known to whoever compromised the server before the restore.
+
+    The adopted destination itself gets a new password only when the Restore
+    page's choice recorded in the hold is "fresh": the repository there is
+    re-keyed to it (the stored password has to open it)."""
     if store["secrets"].get("backup_restic_password"):
         if not replace:
             return {"ok": False, "error": "a backup encryption password already "
@@ -152,11 +157,19 @@ def cmd_generate(store: dict, store_path: str, replace: bool = False,
                     "replaces the stored one only while the backups wait after "
                     "a restore; rotate it instead"}
         repo = store["config"].get("BACKUP_RESTIC_REPO", "")
-        if _location(repo) is None or \
-                _location(repo) == _location(str(hold.get("settings") or "")):
-            return {"ok": False, "error": "the backup destination is the one the "
-                    "restore brought back; a new password is made for a new "
-                    "destination only"}
+        here = _location(repo)
+        if here is None:
+            return {"ok": False, "error": "the backup destination is not a "
+                    "repository address; save one in Settings"}
+        if here == _location(str(hold.get("settings") or "")):
+            if hold.get("choice") != "fresh":
+                return {"ok": False, "error": "the backup destination is the "
+                        "one the restore brought back; a new password is made "
+                        "for a new destination, or when the Restore page's "
+                        "choice is a fresh repository"}
+            password = base64.b64encode(os.urandom(48)).decode("ascii")
+            result = _set_password(store, password, store_path, pass_file)
+            return {"ok": True, "password": password} if result["ok"] else result
     password = base64.b64encode(os.urandom(48)).decode("ascii")
     env = _restic_env(store)
     if env["RESTIC_REPOSITORY"]:
@@ -306,6 +319,13 @@ def cmd_rotate(store: dict, req: dict, store_path: str, pass_file: str,
     new_password = str(req.get("new_password") or "")
     if not new_password:
         return {"ok": False, "error": "no new password supplied"}
+    return _set_password(store, new_password, store_path, pass_file)
+
+
+def _set_password(store: dict, new_password: str, store_path: str,
+                  pass_file: str) -> dict:
+    """Re-key the repository the store names from the stored password to
+    new_password, then persist it in the store and the runtime pass file."""
     current = store["secrets"].get("backup_restic_password", "")
     if not current:
         return {"ok": False, "error": "no current restic password on-box to re-key from"}

@@ -334,6 +334,48 @@ def test_a_password_is_replaced_only_for_a_new_empty_destination_while_held(
         assert json.loads(store.read_text())["secrets"]["backup_restic_password"] == "old-pw", name
 
 
+def test_the_adopted_destination_gets_a_new_password_only_on_a_fresh_choice(
+        rk, tmp_path, monkeypatch, capsys):
+    """Confirming the destination the restore brought back re-keys it when the
+    Restore page's choice is fresh, and leaves the password alone otherwise."""
+    for choice, minted in (("fresh", True), ("continuity", False), (None, False)):
+        store = _store(tmp_path, backup_restic_password="old-pw")
+        held = tmp_path / "backup-held.json"
+        hold = {"at": "2026-10-10T14:00:00Z", "settings": "s3:ep/bucket"}
+        if choice:
+            hold["choice"] = choice
+        held.write_text(json.dumps(hold))
+        monkeypatch.setenv("CATENA_BACKUP_HELD_FILE", str(held))
+        passfile = tmp_path / "restic.pass"
+        monkeypatch.setenv("CATENA_RESTIC_PASS_FILE", str(passfile))
+        code, out, log = _run(rk, monkeypatch, capsys, store,
+                              {"op": "generate", "replace": True}, rc=0, tmp_path=tmp_path)
+        saved = json.loads(store.read_text())["secrets"]["backup_restic_password"]
+        if minted:
+            assert code == 0 and out["ok"] and out["password"] != "old-pw", choice
+            assert saved == out["password"] and passfile.read_text().strip() == saved, choice
+            assert "key passwd" in log.read_text(), choice
+        else:
+            assert code == 1 and "new destination" in out["error"], choice
+            assert saved == "old-pw", choice
+            assert not log.exists(), choice
+        if log.exists():
+            log.unlink()
+
+
+def test_a_fresh_re_key_that_restic_refuses_keeps_the_stored_password(
+        rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="old-pw")
+    held = tmp_path / "backup-held.json"
+    held.write_text(json.dumps({"settings": "s3:ep/bucket", "choice": "fresh"}))
+    monkeypatch.setenv("CATENA_BACKUP_HELD_FILE", str(held))
+    monkeypatch.setenv("CATENA_RESTIC_PASS_FILE", str(tmp_path / "restic.pass"))
+    code, out, _ = _run(rk, monkeypatch, capsys, store,
+                        {"op": "generate", "replace": True}, rc=1, tmp_path=tmp_path)
+    assert code == 1 and "key passwd failed" in out["error"]
+    assert json.loads(store.read_text())["secrets"]["backup_restic_password"] == "old-pw"
+
+
 def test_rotate_refuses_without_current_password(rk, tmp_path, monkeypatch, capsys):
     store = _store(tmp_path)  # no backup_restic_password on-box
     binp, _ = _fake_restic(tmp_path, rc=0)
