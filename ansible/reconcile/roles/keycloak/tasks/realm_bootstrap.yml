@@ -771,7 +771,9 @@
 # a declared group's role mappings exact, so the realm file declares neither and
 # this task only adds: a missing tier role is created, a group without its tier
 # role gets it back, and a role an admin maps to /admin or /staff, or adds to a
-# tier role, stays. Runs on the kcadm session the login above opened.
+# tier role, stays. Runs on the kcadm session the login above opened. The
+# group is found by its path first: kcadm's --gpath looks only among the realm's
+# first two groups (OperationUtils.getAttrForType, Keycloak 26.6.7).
 - name: "Keycloak realm: each tier group holds its tier role"
   ansible.builtin.shell: |
     set -euo pipefail
@@ -783,9 +785,10 @@
       kc create roles -r "$realm" -s "name=$role" -s {{ ('description=' ~ item.description) | quote }}
       echo "created: $role"
     fi
-    held=$(kc get-roles -r "$realm" --gpath "$group" --fields name --format csv --noquotes)
+    gid=$(kc get "group-by-path$group" -r "$realm" --fields id --format csv --noquotes)
+    held=$(kc get-roles -r "$realm" --gid "$gid" --fields name --format csv --noquotes)
     if ! grep -qxF "$role" <<<"$held"; then
-      kc add-roles -r "$realm" --gpath "$group" --rolename "$role"
+      kc add-roles -r "$realm" --gid "$gid" --rolename "$role"
       echo "granted: $role to $group"
     fi
   args:

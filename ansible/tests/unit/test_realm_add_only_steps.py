@@ -71,11 +71,11 @@ FAKE_DOCKER = textwrap.dedent('''\
         done()
     if verb == "get-roles":
         assert opt("--fields") == "name" and opt("--format") == "csv" and "--noquotes" in kc
-        print("\\n".join(state["groups"][opt("--gpath")]["roles"]))
+        print("\\n".join(group(opt("--gid"))["roles"]))
         done()
     if verb == "add-roles":
         assert opt("--rolename") in state["roles"], kc
-        state["groups"][opt("--gpath")]["roles"].append(opt("--rolename"))
+        group(opt("--gid"))["roles"].append(opt("--rolename"))
         done()
     if verb == "get" and uri == "default-default-client-scopes":
         assert opt("--fields") == "name"
