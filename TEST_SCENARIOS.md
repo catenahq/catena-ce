@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 205 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 206 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -190,6 +190,7 @@ The 205 scenarios the maintainers' test bench carries, and the behaviour each on
 | `restic_password_rotation_round_trip` | The backup repository password is rotated with an overlap where both keys open it, and the backup chain stays unbroken across the change. |
 | `rocketchat_backup_mode_round_trip` | A workspace backed up while people keep posting comes back from the backup whole, with every message posted before the backup in it, and a backup that fails does not leave the database holding its writes. |
 | `rotate_all_secrets_sequencer` | Every secret a host holds is rotated in dependency order by one resumable sequence. |
+| `s3_backup_keys_rotation_offsite_copy` | Rotating the backup's object-store key pair leaves the offsite copy of the backup repository working once the copy's own source keys are updated to the new pair. |
 | `s3_backup_keys_rotation_round_trip` | The backup's object-store key pair is replaced in the panel's settings and the old pair revoked, and backups keep running on the new pair while neither secret ever shows on a panel page or in a server log. |
 | `s3_reconcile_orphan_cleanup` | A database row whose object-store file is missing is reported rather than passed over in silence. |
 | `scheduler_easyappointments` | The default appointment scheduler deploys from the catalogue and serves its public booking page. |
