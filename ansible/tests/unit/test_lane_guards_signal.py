@@ -13,7 +13,7 @@ It means the on-box store did not load when the env file was rendered.
 
 The same rule covers catena-backup-run's not-due gate and
 catena-backup-coverage's unrendered-paths gate, asserted beside those scripts in
-catena-admin payload/lanes/backup_guards_signal_test.go. This repo ships the
+catena-admin payload/lanes/backup_coverage_test.go. This repo ships the
 clamav-watch and mail-canary lanes, so their half is asserted here.
 
 Run: uv run pytest tests/unit/test_lane_guards_signal.py

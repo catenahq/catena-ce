@@ -23,7 +23,7 @@ This role renders the per-host CONFIGURATION -- `backup.env`,
 `offsite.env`, `backup-paths`, the exclude patterns and the coverage
 paths. The code that reads them is not here: `catena-backup-run`,
 `catena-backup-coverage`, `catena-disk-preflight`, `catena-restic-env`,
-`catena-restic-mount`, `catena-restic-unmount`, `catena-restic-short-id`,
+`catena-restic-mount`, `catena-restic-unmount`,
 `catena-snapshot-export` and `catena-snapshot-list` are lane scripts in
 the catena-admin image payload, installed by `reconcile/roles/payload` right after
 `bootstrap/roles/docker`, together with the static units
