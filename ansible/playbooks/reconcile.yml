@@ -6,8 +6,8 @@
 # checks.
 #
 # Same roles as converge.yml, in the same order, minus the bootstrap roles,
-# which only the install applies, and minus the converge's preflights. What is
-# left is the work a host can do to itself: render config from the image,
+# which only the install applies, and minus the converge's external-service
+# preflights. What is left is the work a host can do to itself: render config from the image,
 # reconcile swarm services, install units, apply the schedule. Both end on the
 # same tail, the tier-1 oracle render included. boundary.yml declares which
 # roles belong here, and tests/unit/test_converge_boundary.py holds the two
@@ -65,6 +65,16 @@
         apply:
           tags: [always, onbox]
       tags: [always, onbox]
+
+    # Refuse a critically full filesystem before any role writes, with the
+    # check and message converge.yml uses. The panel shows the refusal in the
+    # converge's failed status and log tail; the converge timer's log carries it.
+    - name: "Preflight (disk): refuse to converge on a critically full filesystem"
+      ansible.builtin.include_tasks:
+        file: tasks/disk_preflight.yml
+        apply:
+          tags: [always, disk_preflight]
+      tags: [always, disk_preflight]
 
     # The version this converge applies, from the image's vendor record, before
     # any role writes. The same file converge.yml includes.

@@ -1,0 +1,44 @@
+---
+# Hard disk-space preflight, SHARED BY BOTH CONVERGE PATHS: refuse to converge
+# onto a filesystem at or above the ceiling, before any role writes. A converge
+# onto a critically full filesystem fails deep inside a role (image pull ENOSPC,
+# container write failure) 10-30 min in; the install sees this refusal in its
+# output and the host's own converge (the panel's Apply, the converge timer)
+# in its log and its failed status.
+#
+# Complements the backup's own free-bytes abort (catena-disk-preflight, in the
+# catena-admin payload) and Beszel's threshold alerting, which report rather
+# than block. gather_facts already populated ansible_mounts; /srv/catena may be
+# absent on a fresh target (the storage role mounts it later), so the
+# selectattr filter checks only mounts that exist now.
+#
+# Bypass for dev with -e skip_disk_preflight=true.
+- name: "Preflight (disk): refuse to converge on a critically full filesystem"
+  ansible.builtin.assert:
+    that:
+      - >-
+        ((mnt.size_total - mnt.size_available) / mnt.size_total * 100)
+        < (converge_disk_preflight_crit_pct | int)
+    fail_msg: >-
+      Disk preflight: {{ mnt.mount }} is
+      {{ ((mnt.size_total - mnt.size_available) / mnt.size_total * 100)
+         | round(1) }}% full
+      ({{ (mnt.size_available / 1073741824) | round(2) }} GiB free),
+      at or above the {{ converge_disk_preflight_crit_pct }}% converge
+      ceiling. Free space before re-running -- a converge onto a full
+      disk fails mid-role with no space left on device. Bypass (NOT
+      recommended): -e skip_disk_preflight=true
+    quiet: true
+  vars:
+    converge_disk_preflight_paths: ["/", "/srv/catena"]
+    converge_disk_preflight_crit_pct: 90
+  loop: >-
+    {{ ansible_mounts
+       | selectattr('mount', 'in', converge_disk_preflight_paths)
+       | selectattr('size_total', 'gt', 0)
+       | list }}
+  loop_control:
+    loop_var: mnt
+    label: "{{ mnt.mount }}"
+  when: not (skip_disk_preflight | default(false) | bool)
+  tags: [always, disk_preflight]
