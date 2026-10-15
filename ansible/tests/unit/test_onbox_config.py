@@ -476,6 +476,18 @@ def test_dispatch_read_prints_store(oc, tmp_path, capsys, monkeypatch):
     assert got["config"]["BACKUP_RESTIC_REPO"] == "s3:x/y"
 
 
+def test_dispatch_write_stores_the_error_reports_switch(oc, tmp_path, monkeypatch, capsys):
+    """The panel's error reports section writes the switch, a store knob with
+    no settings field, and a read hands it back."""
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {}, "config": {}}, p)
+    for value in ("on", "off"):
+        request = {"op": "write", "config": {"ERROR_REPORTS_TO_SUPPORT": value}}
+        assert _dispatch(oc, p, request, monkeypatch, capsys) == {"ok": True}
+        got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
+        assert got["config"]["ERROR_REPORTS_TO_SUPPORT"] == value
+
+
 # --- the panel's view -------------------------------------------------------
 # catena-admin reads the store through `read`. It is the most exposed component
 # on the host, so it is handed the secrets it uses and no others.
