@@ -74,6 +74,32 @@
     "alert_slug": "{{ healthchecks_hostname | lower | replace('.', '-') }}",
     "version_key": "healthchecks"
   },
+{# The Keycloak and Beszel consoles at the hosts their panel tiles link to: the
+   panel pairs a tile with the endpoint whose newest probe asked the tile's
+   host. The version sits on the in-network probes below, so these carry none
+   (two endpoints cannot share a name). Keycloak's realm discovery document is
+   public by design and answers 200 while it serves; Beszel's host sits behind
+   oauth2-proxy and answers the sign-in redirect. #}
+  {
+    "label": "{{ keycloak_hostname }}",
+    "url": "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/.well-known/openid-configuration",
+    "group": "Infrastructure",
+    "accepted": [200],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ keycloak_hostname | lower | replace('.', '-') }}",
+    "version_key": null
+  },
+  {
+    "label": "{{ beszel_hostname }}",
+    "url": "https://{{ beszel_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ beszel_hostname | lower | replace('.', '-') }}",
+    "version_key": null
+  },
 {# The tunnel, through a name under the domain's wildcard that nothing routes:
    the Cloudflare edge hands it to this host's connector, which passes it to
    Traefik, and Traefik answers 404 for a host it has no route for. A connector
@@ -105,9 +131,9 @@
     "alert_slug": "keycloak",
     "version_key": "phasetwo-keycloak"
   },
-{# Beszel's hub, by its alias on beszel_network. Its public host sits behind
-   oauth2-proxy and answers 302 whatever the hub's state, so the hub itself
-   is asked: /api/health answers 200 while it serves. #}
+{# Beszel's hub, by its alias on beszel_network. Its public host answers 302
+   from oauth2-proxy whatever the hub's state, so the hub itself is asked too:
+   /api/health answers 200 while it serves. #}
   {
     "label": "Beszel hub",
     "url": "http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}/api/health",

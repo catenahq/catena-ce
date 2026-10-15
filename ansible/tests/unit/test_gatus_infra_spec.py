@@ -40,6 +40,9 @@ def _spec(edge_up: bool = True, zone: str = ZONE) -> list[dict]:
         "catena_admin_hostname": f"dash.{zone}",
         "portainer_admin_hostname": f"portainer.{zone}",
         "healthchecks_hostname": f"healthchecks.{zone}",
+        "keycloak_hostname": f"auth.{zone}",
+        "beszel_hostname": f"beszel.{zone}",
+        "keycloak_realm": keycloak["keycloak_realm"],
         "keycloak_server_alias": keycloak_vars["keycloak_server_alias"],
         "keycloak_management_port": keycloak["keycloak_management_port"],
         "keycloak_health_path": keycloak["keycloak_health_path"],
@@ -114,4 +117,26 @@ def test_the_edge_probes_arrive_with_the_edge():
     through it, the tunnel's included."""
     public = {e["label"] for e in _spec() if e["url"].startswith("https://")}
     assert public == {f"gatus.{ZONE}", f"dash.{ZONE}", f"portainer.{ZONE}",
-                      f"healthchecks.{ZONE}", "cloudflared"}
+                      f"healthchecks.{ZONE}", f"auth.{ZONE}", f"beszel.{ZONE}",
+                      "cloudflared"}
+
+
+def test_the_keycloak_and_beszel_hosts_the_panel_tiles_link_to_are_probed():
+    """The panel pairs a console tile with the endpoint whose newest probe
+    asked the tile's host, so each of the two has an endpoint on that host
+    beside its in-network probe. Keycloak's discovery document answers 200
+    without a sign-in; Beszel's host answers oauth2-proxy's redirect."""
+    keycloak = _entry(f"auth.{ZONE}")
+    assert keycloak["url"] == f"https://auth.{ZONE}/realms/vps/.well-known/openid-configuration"
+    assert keycloak["accepted"] == [200]
+    beszel = _entry(f"beszel.{ZONE}")
+    assert beszel["url"] == f"https://beszel.{ZONE}"
+    assert beszel["accepted"] == [302]
+    assert beszel["ignore_redirect"] is True
+
+
+def test_the_public_console_probes_carry_no_version():
+    """The in-network probe names the service with its version; a second
+    endpoint with the same name would collide in Gatus."""
+    for host in (f"auth.{ZONE}", f"beszel.{ZONE}"):
+        assert _entry(host)["version_key"] is None
