@@ -14,18 +14,19 @@
 #     declares, with the client scope named after that flow as a default
 #     scope (catena-admin payload/lib/oidc_clients.py).
 #
-# Scope: a confidential client with serviceAccountsEnabled and a SINGLE
-# realm-management role -- `manage-clients`, the least privilege for both
-# jobs. It canNOT manage users, groups, flows or other realm config, so a
-# leaked host token cannot escalate beyond client edits. It authenticates
-# with the client-credentials grant (client_id + client_secret -> token).
+# Scope: a confidential client with serviceAccountsEnabled and two
+# realm-management roles. `manage-clients` serves both jobs above; `view-users`
+# lets the mailbox sync list the realm's groups and their members (read-only).
+# It canNOT manage users, groups, flows or other realm config, so a leaked host
+# token cannot escalate beyond client edits and reads. It authenticates with the
+# client-credentials grant (client_id + client_secret -> token).
 
 realm: {{ keycloak_realm }}
 
 clients:
   - clientId: "dashboard-sync"
     name: "catena dashboard-sync"
-    description: "Host settings sync: per-app oauth2-proxy redirect URIs and the applications' own sign-in entries (manage-clients only)."
+    description: "Host settings sync: per-app oauth2-proxy redirect URIs and the applications' own sign-in entries (manage-clients and view-users)."
     enabled: true
     publicClient: false
     standardFlowEnabled: false
@@ -51,3 +52,4 @@ users:
     clientRoles:
       realm-management:
         - manage-clients
+        - view-users

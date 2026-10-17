@@ -207,10 +207,11 @@ def test_subgroups_are_left_to_the_client():
             )
 
 
-def test_the_two_service_accounts_hold_different_roles():
-    """dashboard-sync manages CLIENTS; the panel manages PEOPLE. One credential
-    holding both would mean a leak intended to add a user could rewrite what an
-    application trusts instead."""
+def test_the_sync_holds_no_manage_users_and_the_panel_no_manage_clients():
+    """dashboard-sync manages CLIENTS and only reads people (the mailbox sync
+    lists groups and members); the panel manages PEOPLE. A leaked sync
+    credential cannot add a user, and a leaked panel credential cannot rewrite
+    what an application trusts."""
     panel = _doc(PANEL)
     sync = _doc(TEMPLATES / "realm-dashboard-sync.yaml.j2")
 
@@ -220,10 +221,9 @@ def test_the_two_service_accounts_hold_different_roles():
             out |= set((u.get("clientRoles") or {}).get("realm-management") or [])
         return out
 
-    assert not (roles(panel) & roles(sync)), (
-        "the two service accounts share a realm-management role; the split is "
-        "the point of having two"
-    )
+    assert roles(sync) == {"manage-clients", "view-users"}
+    assert "manage-users" not in roles(sync)
+    assert "manage-clients" not in roles(panel)
 
 
 def test_the_client_is_confidential_and_has_no_interactive_flow():
