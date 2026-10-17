@@ -395,7 +395,8 @@
     #     would pair that provider's host and user with the new password.
     #   - the sender (mail.from_email, from_name, their force flags, and
     #     return_path) is seeded once per site, on the first converge with mail
-    #     on, and is the site admin's from then on.
+    #     on, and is the site admin's from then on. A from_email equal to the
+    #     site's admin_email is WP Mail SMTP's own default and is seeded over.
     # With mail off nothing here writes, and the site keeps what it has.
     #
     # The password stays out of the option and the WP database: WP Mail SMTP
@@ -476,6 +477,20 @@
       changed_when: false
       when: _wp_mail_wire | bool
 
+    # WP Mail SMTP fills mail.from_email with the site's admin_email when it is
+    # activated, before any seed runs. On the seeding run a from_email equal to
+    # the site's admin_email therefore counts as unset; any other value is an
+    # admin's edit and is kept.
+    - name: "WordPress plugins: get the site's admin email"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker exec --user 82 {{ _wp_ct.stdout | quote }} wp option get admin_email 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: _wp_site_admin_email
+      changed_when: false
+      when: _wp_mail_seed | bool
+
     # Recursive (mail.*, smtp.*), and each combine lets its RIGHT-hand side
     # win: the sender, on the run that seeds it, goes under whatever the site
     # carries, so a sender the site already has is kept; the relay goes over
@@ -485,10 +500,20 @@
       ansible.builtin.set_fact:
         _wp_mail_smtp_merged: >-
           {{ (_wp_mail_smtp_sender if (_wp_mail_seed | bool) else {})
-             | combine(_parsed if _parsed is mapping else {}, recursive=True)
+             | combine(_kept, recursive=True)
              | combine(_wp_mail_smtp_relay, recursive=True) }}
       vars:
         _parsed: "{{ _wp_mail_smtp_current.stdout | from_json }}"
+        _current: "{{ _parsed if _parsed is mapping else {} }}"
+        _site_admin: "{{ (_wp_site_admin_email.stdout | default('')) | trim | lower }}"
+        _site_from: "{{ ((_current.get('mail') or {}).get('from_email') | default('')) | trim | lower }}"
+        _from_is_default: "{{ (_wp_mail_seed | bool) and (_site_admin | length > 0) and _site_from == _site_admin }}"
+        _kept: >-
+          {{ _current | combine({'mail': (_current.get('mail') or {})
+                                 | dict2items
+                                 | rejectattr('key', 'equalto', 'from_email')
+                                 | list | items2dict})
+             if (_from_is_default | bool) else _current }}
       when: _wp_mail_wire | bool
 
     - name: "WordPress plugins: update wp_mail_smtp option (only on diff)"

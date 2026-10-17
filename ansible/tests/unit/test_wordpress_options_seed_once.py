@@ -178,13 +178,15 @@ _STEP_7 = (
     "WP Mail SMTP sender already seeded",
     "declare wp-mail-smtp relay and sender",
     "get current wp_mail_smtp option",
+    "get the site's admin email",
     "seed the sender, put the relay back",
     "update wp_mail_smtp option",
     "mark this site's WP Mail SMTP sender as seeded",
 )
 
 
-def _converge(site: dict | None, *, seeded: bool, provider="", user="", sender="") -> dict:
+def _converge(site: dict | None, *, seeded: bool, provider="", user="", sender="",
+              site_admin="admin@acme.test") -> dict:
     """Step 7 as one converge runs it on an installed site.
 
     `site` is the wp_mail_smtp option the site holds (None: never set),
@@ -212,7 +214,10 @@ def _converge(site: dict | None, *, seeded: bool, provider="", user="", sender="
         if _uses(task, "set_fact"):
             v.update(_render(_module(task, "set_fact"), scope))
         elif _uses(task, "shell"):
-            v[task["register"]] = {"stdout": json.dumps(site if site is not None else {})}
+            if task["register"] == "_wp_site_admin_email":
+                v[task["register"]] = {"stdout": site_admin + "\n"}
+            else:
+                v[task["register"]] = {"stdout": json.dumps(site if site is not None else {})}
         elif _uses(task, "command"):
             argv = _render(_module(task, "command")["argv"], scope)
             run["written"] = json.loads(argv[argv.index("wp_mail_smtp") + 1])
@@ -275,6 +280,30 @@ def test_the_first_seed_keeps_a_sender_the_site_already_has():
     mail = run["written"]["mail"]
     assert (mail["from_email"], mail["from_name"]) == ("shop@acme.test", "Acme Shop")
     assert mail["from_email_force"] is True
+
+
+def test_a_sender_that_is_the_plugins_default_admin_email_is_seeded_over():
+    """WP Mail SMTP stores from_email = the site's admin_email when it is
+    activated, so the seed would otherwise never land. Case differences do not
+    make it an edit."""
+    run = _converge({"mail": {"from_email": "Admin@Acme.test", "from_name": "Acme Shop"}},
+                    seeded=False, **RESEND)
+    assert run["marked"]
+    mail = run["written"]["mail"]
+    assert mail["from_email"] == "no-reply@acme.test"
+    assert mail["from_name"] == "Acme Shop"
+
+
+def test_a_sender_the_admin_chose_is_kept_even_when_it_differs_from_admin_email():
+    run = _converge({"mail": {"from_email": "shop@acme.test"}}, seeded=False, **RESEND)
+    assert run["written"]["mail"]["from_email"] == "shop@acme.test"
+
+
+def test_a_sender_equal_to_admin_email_is_kept_once_seeded():
+    """After the seed the site's from_email is the admin's, whatever it reads."""
+    site = {"mail": {"from_email": "admin@acme.test", "mailer": "smtp"}}
+    run = _converge(site, seeded=True, **RESEND)
+    assert run["written"]["mail"]["from_email"] == "admin@acme.test"
 
 
 def test_a_converge_with_nothing_to_change_writes_nothing():
