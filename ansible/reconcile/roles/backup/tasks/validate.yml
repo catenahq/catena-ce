@@ -135,12 +135,21 @@
   # failing cleanly on wrong password, unreachable bucket, or missing
   # credentials. Doesn't require any snapshots to exist.
   #
+  # restic retries a missing bucket or a revoked key for about fifteen
+  # minutes, so `timeout` ends the attempt after 120 seconds and the assert
+  # below reports it. The status is 124 when restic stops at the TERM; after
+  # the KILL that follows ten seconds later it is 137 from timeout, or -9 when
+  # Ansible reports the signal that ended the process.
+  #
   # Gated on the entrypoint existing for the same reason as the block above --
   # it is itself a payload script, so before the payload lands this would be
   # reporting on a repository it never managed to ask about.
   ansible.builtin.command:
     argv:
       - "{{ backup_restic_env_script }}"
+      - timeout
+      - --kill-after=10
+      - "120"
       - restic
       - cat
       - config
@@ -162,7 +171,10 @@
       {% if _bk_restic_cat.rc == 10 %}No restic repository exists at the
       backup destination, and a backup never creates one. Saving a backup
       destination in catena-admin > Settings > Backup creates one
-      there.{% else %}restic cat config failed
+      there.{% elif _bk_restic_cat.rc in [124, 137, -9] %}restic cat config did not
+      answer within 120 seconds, so the backup destination is unreachable (no
+      such bucket, a revoked key or no network route). Check the destination
+      in catena-admin > Settings > Backup.{% else %}restic cat config failed
       (rc={{ _bk_restic_cat.rc }}, stderr={{ _bk_restic_cat.stderr }}){% endif %}
   when:
     - _bk_payload_expected | bool
