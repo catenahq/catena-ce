@@ -332,22 +332,23 @@
     # is a host fact from the Vantage-1 load_onbox_config pre_task.
     #
     # A token alone is not an edge: the tunnel also defers while its engine is
-    # not on the host. Vantage 1's reconcile/roles/infrastructure validate
+    # not on the host, and while the host has no domain. Vantage 1's reconcile/roles/infrastructure validate
     # resolves both into _infra_edge_up, a host fact that outlives its play;
     # token presence is the fallback for a run that skipped Vantage 1.
     - name: "Resolve whether the edge should be up"
       ansible.builtin.set_fact:
         _v2_edge_up: >-
-          {{ _infra_edge_up
-             | default((cloudflare_api_token | default('')) | length > 0)
-             | bool }}
+          {{ (_infra_edge_up
+              | default((cloudflare_api_token | default('')) | length > 0)
+              | bool)
+             and not (catena_public_surface_deferred | default(false) | bool) }}
 
     - name: "Tunnel probes deferred"
       ansible.builtin.debug:
         msg: >-
           Skipping the via-tunnel probes (auth.<zone>, /oauth2/start) -- the
-          tunnel is deferred (no Cloudflare token in the on-box store yet, or
-          the tunnel engine is not on the host yet).
+          tunnel is deferred (no Cloudflare token or no domain in the on-box
+          store yet, or the tunnel engine is not on the host yet).
       when: not (_v2_edge_up | bool)
 
     - name: "Probe Keycloak (auth.<zone>) login page via CF"

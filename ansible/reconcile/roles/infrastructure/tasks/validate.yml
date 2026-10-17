@@ -29,6 +29,7 @@
   ansible.builtin.set_fact:
     _infra_edge_up: >-
       {{ (_infra_cf_token_present | bool)
+         and not (catena_public_surface_deferred | default(false) | bool)
          and (catena_payload_missing | length == 0
               or catena_payload_expected | bool) }}
 
@@ -159,6 +160,8 @@
       Skipping the cloudflared swarm-service asserts -- the tunnel is deferred
       ({{ 'no Cloudflare token in the on-box store yet'
           if not (_infra_cf_token_present | bool)
+          else 'no domain is set yet'
+          if (catena_public_surface_deferred | default(false) | bool)
           else 'the tunnel engine is not on the host yet' }}).
   when: not (_infra_edge_up | bool)
 

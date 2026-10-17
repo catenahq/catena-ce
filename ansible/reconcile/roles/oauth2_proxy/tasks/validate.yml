@@ -24,8 +24,9 @@
 # earlier in converge.yml and this block runs normally.
 #
 # The tunnel is also deferred when its engine was staged out of band and is not
-# on the host yet. A token in the store does not bring the edge up on its own,
-# so both reasons skip. Where that is known depends on the play:
+# on the host yet, and a host with no domain has no auth.<zone> to probe. A
+# token in the store does not bring the edge up on its own, so all three reasons
+# skip. Where that is known depends on the play:
 #
 #   converge   reconcile/roles/cloudflare_tunnel ran earlier and pinned
 #              _cf_sync_present.
@@ -37,7 +38,8 @@
   ansible.builtin.set_fact:
     _oauth2_edge_up: >-
       {{ (cloudflare_api_token | default('')) | length > 0
-         and (_cf_sync_present | default(_infra_edge_up | default(true)) | bool) }}
+         and (_cf_sync_present | default(_infra_edge_up | default(true)) | bool)
+         and not (catena_public_surface_deferred | default(false) | bool) }}
 
 - name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation"
   ansible.builtin.debug:
@@ -45,6 +47,8 @@
       The Cloudflare tunnel is deferred
       ({{ 'no Cloudflare API token in the on-box store'
           if (cloudflare_api_token | default('')) | length == 0
+          else 'no domain is set yet'
+          if (catena_public_surface_deferred | default(false) | bool)
           else 'the tunnel engine is not on the host yet' }}), so
       auth.{{ cloudflare_zone | default('<zone>') }} is not resolvable and
       oauth2-proxy is expected to be in OIDC-discovery restart-backoff until the

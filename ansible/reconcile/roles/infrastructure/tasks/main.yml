@@ -21,7 +21,7 @@
 - name: "Resolve the tunnel-deferred gate"
   ansible.builtin.set_fact:
     # Tunnel-deferred gate. reconcile/roles/cloudflare_tunnel brings the edge up
-    # only with a token in the on-box store AND its engine on the host; it pins
+    # only with a token and a domain in the on-box store AND its engine on the host; it pins
     # the second as _cf_sync_present and defers when the engine was staged out
     # of band and has not landed yet. Without both, no *.<zone> public hostname
     # serves, so everything below that needs the edge waits for the converge
@@ -29,6 +29,7 @@
     # reads as present.
     _infra_edge_up: >-
       {{ (cloudflare_api_token | default('')) | length > 0
+         and not (catena_public_surface_deferred | default(false) | bool)
          and (_cf_sync_present | default(true) | bool) }}
   tags: [always]
 

@@ -57,6 +57,12 @@ def test_a_play_with_neither_role_still_validates():
     assert "_infra_edge_up | default(true)" in _edge()
 
 
+def test_a_host_with_no_domain_has_no_edge_to_probe():
+    """A token with no zone still leaves auth.<zone> as auth., which resolves
+    nowhere: the validation must not wait 60 times on it."""
+    assert "not (catena_public_surface_deferred" in _edge()
+
+
 def test_the_skip_and_the_probes_read_the_one_verdict():
     assert "_oauth2_edge_up" in _when(_task("tunnel deferred"))
     assert "_oauth2_edge_up" in _when(_task("per-app container probes"))
@@ -106,3 +112,22 @@ def test_the_via_tunnel_probes_follow_the_edge():
         block = text[text.index(name):]
         when = block[:block.index("\n    - name:")] if "\n    - name:" in block else block
         assert "_v2_edge_up" in when, name
+
+
+def test_every_edge_verdict_defers_on_a_missing_domain():
+    """The three places that decide whether the edge is up each count a host
+    with no domain as deferred, or a tokened install without a zone probes
+    https://auth./ and fails."""
+    infra_validate = next(
+        t for t in yaml.safe_load(INFRA_VALIDATE.read_text())
+        if "resolve whether the edge should be up" in (t.get("name") or ""))
+    infra_main = next(t for t in yaml.safe_load(INFRA_MAIN.read_text())
+                      if t.get("name") == "Resolve the tunnel-deferred gate")
+    access = next(p for p in yaml.safe_load(PLAYBOOK_VALIDATE.read_text())
+                  if p["name"].startswith("Vantage 2"))
+    play = next(t for t in access["tasks"]
+                if t.get("name") == "Resolve whether the edge should be up")
+    for expr in (infra_validate["ansible.builtin.set_fact"]["_infra_edge_up"],
+                 infra_main["ansible.builtin.set_fact"]["_infra_edge_up"],
+                 play["ansible.builtin.set_fact"]["_v2_edge_up"]):
+        assert "not (catena_public_surface_deferred" in expr, expr
