@@ -1,0 +1,22 @@
+---
+# The zones the Cloudflare token reaches, for _mailserver_names.yml. Included
+# under the `edge` tag, since it calls the Cloudflare API.
+#
+# Sets _ms_names_zones: the API answer (status, json). A status other than 200
+# means the listing is unknown, and the names file then counts cloudflare_zone
+# alone.
+
+- name: "Mailserver zones: list the zones the Cloudflare token reaches"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones?per_page=50"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+    status_code: [200, 400, 401, 403]
+    return_content: true
+  register: _ms_names_zones
+  delegate_to: localhost
+  become: false
+  failed_when: false
+  changed_when: false
+  no_log: true

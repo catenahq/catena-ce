@@ -1,5 +1,6 @@
 ---
-# TLS cert lifecycle for the self-hosted mailserver (mail.<zone>).
+# TLS cert lifecycle for the self-hosted mailserver (the hostname its stack
+# runs under, mail.<zone> on a fresh deploy).
 # Clones the reconcile/roles/coturn cert pattern: Let's Encrypt DNS-01 against the
 # Cloudflare API (cloudflared owns port 80, so HTTP-01 is out),
 # certbot.timer for renewal, and a deploy hook that injects the cert into
@@ -35,13 +36,49 @@
       domain in the dashboard's Settings.
   when: catena_public_surface_deferred | default(false) | bool
 
-# Deployed AND a domain to issue for. certbot is asked for mailserver_hostname
-# (mail.<zone>); with no zone that is a request for "mail.", which no authority
-# issues and which burns an ACME rate-limit slot to find out.
+# Deployed AND a domain to issue for. certbot is asked for mailserver_stack_hostname;
+# with no zone that is a request for "mail.", which no authority issues and
+# which burns an ACME rate-limit slot to find out.
+#
+# The certificate is for the name the mailserver stack runs under: the webmail
+# verifies the IMAP/SMTP certificate against that name, and a primary-domain
+# change does not move the stack. The service spec holds the hostname for as
+# long as the service exists, whether or not dms is up. The zones the
+# Cloudflare token reaches decide whether a certificate can be issued for that
+# name (DNS-01 writes a TXT record in the name's zone).
+- name: "Mailserver cert: the zones the Cloudflare token reaches"
+  ansible.builtin.include_tasks:
+    file: _mailserver_zones.yml
+    apply:
+      tags: [edge]
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+  tags: [edge]
+
+- name: "Mailserver cert: the names the mailserver stack runs under"
+  ansible.builtin.include_tasks: _mailserver_names.yml
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+
+- name: "Mailserver cert: the stack's names could not be read"
+  ansible.builtin.debug:
+    msg: >-
+      docker could not describe the catena-mailserver_dms service
+      ({{ _ms_names_stack.stderr | default('no output') | trim }}), so the name
+      the mail server runs under is unknown. No certificate is issued and none
+      is injected on this converge.
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+    - not (_ms_names_known | bool)
+
 - name: "Mailserver cert: issue + inject (only when dms is deployed)"
   when:
     - (mailserver_dms_ct | length) > 0
     - not (catena_public_surface_deferred | default(false) | bool)
+    - _ms_names_known | bool
   block:
     - name: "Mailserver cert: install certbot + Cloudflare DNS plugin"
       ansible.builtin.apt:
@@ -120,30 +157,48 @@
              '--dns-cloudflare-propagation-seconds', '30']
             + (['--server', mailserver_acme_server]
                if (mailserver_acme_server | length) > 0 else [])
-            + ['-d', mailserver_hostname]
+            + ['-d', mailserver_stack_hostname]
           }}
       # The combined system bundle, which carries the local ACME CA when one
       # is set. Empty on a client install.
       environment: "{{ {'REQUESTS_CA_BUNDLE': acme_system_ca_bundle}
                        if (acme_local_ca_bundle_b64 | length) > 0 else {} }}"
       register: _ms_cert_issue
-      when: not _ms_cert_stat.stat.exists
+      when:
+        - not _ms_cert_stat.stat.exists
+        - _ms_host_reachable | bool
       changed_when: _ms_cert_issue.rc == 0
       retries: 5
       delay: 60
       until: _ms_cert_issue is succeeded
 
+    - name: "Mailserver cert: keep the existing certificate (name outside the token's zones)"
+      ansible.builtin.debug:
+        msg: >-
+          The mailserver stack runs under {{ mailserver_stack_hostname }}, which
+          is in none of the zones this Cloudflare token reaches
+          ({{ _ms_zone_index | map(attribute='name') | join(', ') }}), so no certificate is issued
+          for it. {{ 'The existing certificate for that name stays in place.'
+          if _ms_cert_stat.stat.exists else 'There is no certificate for that
+          name yet.' }} A certificate is never issued for a name the stack does
+          not use.
+      when: not (_ms_host_reachable | bool)
+
     - name: "Mailserver cert: confirm cert is now present"
       ansible.builtin.stat:
         path: "{{ mailserver_cert_live_dir }}/fullchain.pem"
       register: _ms_cert_after
-      failed_when: not _ms_cert_after.stat.exists
+      # A name the token reaches has a certificate once the issue step has run.
+      # A name it does not reach may have none: the report above is the
+      # outcome, and the converge goes on.
+      failed_when: (_ms_host_reachable | bool) and not _ms_cert_after.stat.exists
 
     - name: "Mailserver cert: enable certbot.timer for renewal"
       ansible.builtin.systemd:
         name: certbot.timer
         enabled: true
         state: started
+      when: _ms_cert_after.stat.exists
 
     # Run the deploy hook now so first-issuance lands in the dms
     # container immediately (the renewal hook otherwise only fires on
@@ -162,3 +217,4 @@
         argv: [/etc/letsencrypt/renewal-hooks/deploy/mailserver-reload.sh]
       register: _ms_cert_inject
       changed_when: "'reloaded' in (_ms_cert_inject.stdout | default(''))"
+      when: _ms_cert_after.stat.exists

@@ -351,7 +351,13 @@ clamav_watch_schedule: "*:0/5"
 # mounted custom-certs dir through a certbot deploy hook. certbot.timer
 # renews; the hook re-injects + reloads Postfix/Dovecot.
 mailserver_hostname: "mail.{{ cloudflare_zone }}"
-mailserver_cert_live_dir: "/etc/letsencrypt/live/{{ mailserver_hostname }}"
+# The hostname the deployed mailserver stack runs under (_mailserver_names.yml
+# reads it from the stack). The certificate and the mail DNS records are for this
+# name, because the webmail verifies the certificate against it and a
+# primary-domain change does not move the stack. Until the stack is read, the
+# default is mail.<zone>.
+mailserver_stack_hostname: "{{ mailserver_hostname }}"
+mailserver_cert_live_dir: "/etc/letsencrypt/live/{{ mailserver_stack_hostname }}"
 # Distinct from coturn's cloudflare.ini so the two roles never contend
 # for one file (identical content -- the same Cloudflare API token).
 mailserver_cloudflare_creds_path: "/etc/letsencrypt/cloudflare-mail.ini"
@@ -371,8 +377,8 @@ mailserver_acme_server: >-
 
 # --- Mailserver DNS (MTA-STS / TLS-RPT + the mail A record) -----------
 # The converge writes ONLY the safe, mail-specific records via the Cloudflare
-# API: the gray-cloud A record for mail.<zone> (the mail plane cannot
-# ride the CF tunnel) and the MTA-STS + TLS-RPT TXT records. MX, SPF,
+# API: the gray-cloud A record for the stack's hostname (the mail plane cannot
+# ride the CF tunnel) and the MTA-STS + TLS-RPT TXT records of its mail domain. MX, SPF,
 # DKIM, DMARC, and rDNS stay manual:
 #   - MX is a deliberate cutover (auto-creating it would hijack a
 #     domain's existing inbound mail) -- never automated.
@@ -383,7 +389,7 @@ mailserver_acme_server: >-
 # MTA-STS policy id (RFC 8461): must change when the policy changes so
 # caching MTAs re-fetch. Derived from the policy-defining value
 # (hostname); changes automatically if the mail host changes.
-mailserver_mta_sts_policy_id: "{{ ('STSv1-enforce-' ~ mailserver_hostname) | hash('md5') }}"
+mailserver_mta_sts_policy_id: "{{ ('STSv1-enforce-' ~ mailserver_stack_hostname) | hash('md5') }}"
 mailserver_tlsrpt_rua: "mailto:{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
 
 # Mail canary. Host timer that docker-execs into dms to check ports

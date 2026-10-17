@@ -3,15 +3,21 @@
 # the Cloudflare API, with the same upsert idiom as reconcile/roles/coturn
 # dns.yml (look up -> create-if-absent -> update-if-drift).
 #
+# The records follow the names the mailserver stack runs under
+# (_mailserver_names.yml): a primary-domain change does not move the stack, so
+# its hostname and mail domain keep their zones. A name in a zone the token does
+# not reach is left as it is and reported in the converge output.
+#
 # Written here:
-#   - mail.<zone>  A   (gray-cloud) -> VPS public IP. The mail plane
-#                      (25/465/587/993) cannot ride the CF tunnel, so the
-#                      MX/mail FQDN must resolve straight to the VPS.
-#   - _mta-sts.<zone>     TXT -> MTA-STS policy id (RFC 8461). The policy
+#   - <stack hostname>  A   (gray-cloud) -> VPS public IP (mail.<zone> on a
+#                      fresh deploy). The mail plane (25/465/587/993) cannot
+#                      ride the CF tunnel, so the MX/mail FQDN must resolve
+#                      straight to the VPS.
+#   - _mta-sts.<mail domain>  TXT -> MTA-STS policy id (RFC 8461). The policy
 #                      file itself is served by the mta-sts nginx in the
-#                      template at mta-sts.<zone>/.well-known/mta-sts.txt
+#                      template at mta-sts.<mail domain>/.well-known/mta-sts.txt
 #                      (which resolves via the existing wildcard CNAME).
-#   - _smtp._tls.<zone>   TXT -> TLS-RPT (RFC 8460) reporting address.
+#   - _smtp._tls.<mail domain>  TXT -> TLS-RPT (RFC 8460) reporting address.
 #
 # Left to the domain's owner, by hand:
 #   - MX     -- a cutover decision; auto-creating it would hijack a
@@ -44,54 +50,96 @@
       anything. Enter one in the dashboard's Settings.
   when: catena_public_surface_deferred | default(false) | bool
 
-# Deployed AND a domain to publish under. The records below are written
-# straight against the Cloudflare API from mailserver_hostname, which is
-# mail.<zone> -- so on a zone-less host this reaches the API with "mail." and
-# an unresolved zone id.
-- name: "Mailserver DNS: publish mail A + MTA-STS + TLS-RPT (dms deployed)"
+# Deployed AND a domain to publish under.
+#
+# cloudflare_zone_id is resolved by whichever Ansible-side Cloudflare caller
+# needs it first in the run (this file, or reconcile/roles/coturn/tasks/dns.yml)
+# and reused after, so a `--tags infrastructure` run resolves it here.
+- name: "Mailserver DNS: resolve cloudflare_zone_id (when not resolved yet)"
   when:
     - (mailserver_dms_ct | length) > 0
     - not (catena_public_surface_deferred | default(false) | bool)
+    - cloudflare_zone_id is not defined
   delegate_to: localhost
   become: false
   block:
-    # cloudflare_zone_id is resolved by whichever Ansible-side Cloudflare
-    # caller needs it first in the run (this file, or
-    # reconcile/roles/coturn/tasks/dns.yml) and reused after, so a
-    # `--tags infrastructure` run resolves it here.
-    - name: "Mailserver DNS: resolve cloudflare_zone_id (when not resolved yet)"
-      when: cloudflare_zone_id is not defined
-      block:
-        - name: "Mailserver DNS: look up zone_id for {{ cloudflare_zone }}"
-          ansible.builtin.uri:
-            url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
-            method: GET
-            headers:
-              Authorization: "Bearer {{ cloudflare_api_token }}"
-            status_code: 200
-            return_content: true
-          register: _ms_dns_zones
-          retries: 5
-          delay: 6
-          until: _ms_dns_zones.status == 200
-          no_log: true
-
-        - name: "Mailserver DNS: assert the zone is visible to this token"
-          ansible.builtin.assert:
-            that:
-              - _ms_dns_zones.json.result | length == 1
-            fail_msg: >-
-              Zone '{{ cloudflare_zone }}' not found (or token lacks access).
-              Mail DNS records need an API token with Zone:DNS:Edit scope.
-
-        - name: "Mailserver DNS: capture zone_id"
-          ansible.builtin.set_fact:
-            cloudflare_zone_id: "{{ _ms_dns_zones.json.result[0].id }}"
-
-    # --- mail.<zone> A (gray-cloud) ----------------------------------
-    - name: "Mailserver DNS: look up A record for {{ mailserver_hostname }}"
+    - name: "Mailserver DNS: look up zone_id for {{ cloudflare_zone }}"
       ansible.builtin.uri:
-        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=A&name={{ mailserver_hostname }}"
+        url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+        status_code: 200
+        return_content: true
+      register: _ms_dns_zones
+      retries: 5
+      delay: 6
+      until: _ms_dns_zones.status == 200
+      no_log: true
+
+    - name: "Mailserver DNS: assert the zone is visible to this token"
+      ansible.builtin.assert:
+        that:
+          - _ms_dns_zones.json.result | length == 1
+        fail_msg: >-
+          Zone '{{ cloudflare_zone }}' not found (or token lacks access).
+          Mail DNS records need an API token with Zone:DNS:Edit scope.
+
+    - name: "Mailserver DNS: capture zone_id"
+      ansible.builtin.set_fact:
+        cloudflare_zone_id: "{{ _ms_dns_zones.json.result[0].id }}"
+
+- name: "Mailserver DNS: the zones the Cloudflare token reaches"
+  ansible.builtin.include_tasks: _mailserver_zones.yml
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+
+- name: "Mailserver DNS: the names the mailserver stack runs under"
+  ansible.builtin.include_tasks: _mailserver_names.yml
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+
+- name: "Mailserver DNS: the stack's names could not be read"
+  ansible.builtin.debug:
+    msg: >-
+      docker could not describe the catena-mailserver_dms service
+      ({{ _ms_names_stack.stderr | default('no output') | trim }}), so the name
+      and mail domain the mail server runs under are unknown. No mail DNS record
+      is published on this converge.
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+    - not (_ms_names_known | bool)
+
+- name: "Mailserver DNS: report the records left alone"
+  ansible.builtin.debug:
+    msg: >-
+      Mail DNS left alone: {{ skipped | join('; ') }}. The Cloudflare token
+      reaches no zone that holds the name, so those records stay as they are.
+  vars:
+    skipped: >-
+      {{ ([] if (_ms_host_reachable | bool) else ['the A record for ' ~ mailserver_stack_hostname])
+         + ([] if (_ms_domain_reachable | bool) else ['_mta-sts.' ~ mailserver_stack_domain ~ ' and _smtp._tls.' ~ mailserver_stack_domain]) }}
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+    - _ms_names_known | bool
+    - not (_ms_host_reachable | bool) or not (_ms_domain_reachable | bool)
+
+# --- <stack hostname> A (gray-cloud) -------------------------------------
+- name: "Mailserver DNS: publish the mail A record (dms deployed)"
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+    - _ms_host_reachable | bool
+  delegate_to: localhost
+  become: false
+  block:
+    - name: "Mailserver DNS: look up A record for {{ mailserver_stack_hostname }}"
+      ansible.builtin.uri:
+        url: "{{ cloudflare_api_base }}/zones/{{ _ms_host_zone_id }}/dns_records?type=A&name={{ mailserver_stack_hostname }}"
         method: GET
         headers:
           Authorization: "Bearer {{ cloudflare_api_token }}"
@@ -105,14 +153,14 @@
 
     - name: "Mailserver DNS: create mail A record (gray-cloud) if absent"
       ansible.builtin.uri:
-        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records"
+        url: "{{ cloudflare_api_base }}/zones/{{ _ms_host_zone_id }}/dns_records"
         method: POST
         headers:
           Authorization: "Bearer {{ cloudflare_api_token }}"
         body_format: json
         body:
           type: A
-          name: "{{ mailserver_hostname }}"
+          name: "{{ mailserver_stack_hostname }}"
           content: "{{ public_ip }}"
           proxied: false
           ttl: 1
@@ -123,14 +171,14 @@
 
     - name: "Mailserver DNS: update mail A record if content/proxy drifted"
       ansible.builtin.uri:
-        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records/{{ _ms_dns_a.json.result[0].id }}"
+        url: "{{ cloudflare_api_base }}/zones/{{ _ms_host_zone_id }}/dns_records/{{ _ms_dns_a.json.result[0].id }}"
         method: PUT
         headers:
           Authorization: "Bearer {{ cloudflare_api_token }}"
         body_format: json
         body:
           type: A
-          name: "{{ mailserver_hostname }}"
+          name: "{{ mailserver_stack_hostname }}"
           content: "{{ public_ip }}"
           proxied: false
           ttl: 1
@@ -147,10 +195,19 @@
           or _ms_dns_a.json.result[0].proxied | default(false)
       no_log: true
 
-    # --- _mta-sts.<zone> TXT (policy id) -----------------------------
+# --- _mta-sts and _smtp._tls under the stack's mail domain ---------------
+- name: "Mailserver DNS: publish MTA-STS + TLS-RPT (dms deployed)"
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
+    - _ms_domain_reachable | bool
+  delegate_to: localhost
+  become: false
+  block:
+    # --- _mta-sts.<mail domain> TXT (policy id) -----------------------
     - name: "Mailserver DNS: look up _mta-sts TXT"
       ansible.builtin.uri:
-        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=TXT&name=_mta-sts.{{ cloudflare_zone }}"
+        url: "{{ cloudflare_api_base }}/zones/{{ _ms_domain_zone_id }}/dns_records?type=TXT&name=_mta-sts.{{ mailserver_stack_domain }}"
         method: GET
         headers:
           Authorization: "Bearer {{ cloudflare_api_token }}"
@@ -162,7 +219,7 @@
     - name: "Mailserver DNS: set _mta-sts TXT (create or update on drift)"
       ansible.builtin.uri:
         url: >-
-          {{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records{{
+          {{ cloudflare_api_base }}/zones/{{ _ms_domain_zone_id }}/dns_records{{
             '/' ~ _ms_dns_stsid.json.result[0].id if (_ms_dns_stsid.json.result | length > 0) else '' }}
         method: "{{ 'PUT' if (_ms_dns_stsid.json.result | length > 0) else 'POST' }}"
         headers:
@@ -170,7 +227,7 @@
         body_format: json
         body:
           type: TXT
-          name: "_mta-sts.{{ cloudflare_zone }}"
+          name: "_mta-sts.{{ mailserver_stack_domain }}"
           content: "v=STSv1; id={{ mailserver_mta_sts_policy_id }};"
           ttl: 1
           comment: "Managed by catena -- mail plane, MTA-STS policy id"
@@ -180,10 +237,10 @@
         or _ms_dns_stsid.json.result[0].content != ('v=STSv1; id=' ~ mailserver_mta_sts_policy_id ~ ';')
       no_log: true
 
-    # --- _smtp._tls.<zone> TXT (TLS-RPT) -----------------------------
+    # --- _smtp._tls.<mail domain> TXT (TLS-RPT) -----------------------
     - name: "Mailserver DNS: look up _smtp._tls TXT"
       ansible.builtin.uri:
-        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=TXT&name=_smtp._tls.{{ cloudflare_zone }}"
+        url: "{{ cloudflare_api_base }}/zones/{{ _ms_domain_zone_id }}/dns_records?type=TXT&name=_smtp._tls.{{ mailserver_stack_domain }}"
         method: GET
         headers:
           Authorization: "Bearer {{ cloudflare_api_token }}"
@@ -195,7 +252,7 @@
     - name: "Mailserver DNS: set _smtp._tls TXT (create or update on drift)"
       ansible.builtin.uri:
         url: >-
-          {{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records{{
+          {{ cloudflare_api_base }}/zones/{{ _ms_domain_zone_id }}/dns_records{{
             '/' ~ _ms_dns_tlsrpt.json.result[0].id if (_ms_dns_tlsrpt.json.result | length > 0) else '' }}
         method: "{{ 'PUT' if (_ms_dns_tlsrpt.json.result | length > 0) else 'POST' }}"
         headers:
@@ -203,7 +260,7 @@
         body_format: json
         body:
           type: TXT
-          name: "_smtp._tls.{{ cloudflare_zone }}"
+          name: "_smtp._tls.{{ mailserver_stack_domain }}"
           content: "v=TLSRPTv1; rua={{ mailserver_tlsrpt_rua }}"
           ttl: 1
           comment: "Managed by catena -- mail plane, TLS reporting"
