@@ -243,7 +243,7 @@ actions:
     title_fr: "Synchroniser tout (apps + moniteurs)"
     category: Ops
     icon: "&#128257;" # 🔁
-    timeout: 45
+    timeout: 90
     # Single button, non-destructive by design -- safe to spam.
     #
     # Covers both sync paths operators actually need after a Portainer
@@ -254,17 +254,37 @@ actions:
     #     sync step.
     #   - gatus-sync: Gatus endpoint catalog + restart Gatus if changed.
     #
+    # A run already in flight (systemd joins a start of an active oneshot)
+    # may have begun before the change this press is for, so each sync
+    # first waits for that run to end and then starts a fresh one; the log
+    # shown is the journal of that fresh run alone, selected by the
+    # invocation id of the unit after its start returns.
+    #
     # Backgrounded + `wait` gives the union of runtimes (~10-15s), not
     # the sum. Dispatcher runs with `set -euo pipefail`, so capturing
     # non-zero `wait` exit codes requires `set +e` first -- a plain
     # `wait; RC=$?` aborts on errexit before the assignment.
     shell: |
       set +e
-      systemctl start --wait catena-dashboard-sync.service & PID_DASH=$!
-      systemctl start --wait gatus-sync.service & PID_GATUS=$!
+      LOGDIR=$(mktemp -d)
+      sync_fresh() {
+        while [ "$(systemctl is-active "$1")" = activating ]; do sleep 1; done
+        systemctl start --wait "$1"
+        rc=$?
+        id=$(systemctl show -p InvocationID --value "$1")
+        if [ -n "$id" ]; then
+          journalctl "_SYSTEMD_INVOCATION_ID=$id" --no-pager -n 80 > "$LOGDIR/$1" 2>&1
+        else
+          journalctl -u "$1" --no-pager -n 20 > "$LOGDIR/$1" 2>&1
+        fi
+        return $rc
+      }
+      sync_fresh catena-dashboard-sync.service & PID_DASH=$!
+      sync_fresh gatus-sync.service & PID_GATUS=$!
       wait "$PID_DASH"; RC_DASH=$?
       wait "$PID_GATUS"; RC_GATUS=$?
-      journalctl -u catena-dashboard-sync.service -u gatus-sync.service --since '60 seconds ago' --no-pager -n 80
+      cat "$LOGDIR/catena-dashboard-sync.service" "$LOGDIR/gatus-sync.service"
+      rm -rf "$LOGDIR"
       echo
       echo "exit codes: dashboard-sync=$RC_DASH gatus-sync=$RC_GATUS"
       [ "$RC_DASH" -eq 0 ] && [ "$RC_GATUS" -eq 0 ]
