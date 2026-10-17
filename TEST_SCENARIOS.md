@@ -27,7 +27,7 @@ The 206 scenarios the maintainers' test bench carries, and the behaviour each on
 | `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing at all. |
 | `catalog_app_sign_in` | Every catalog application that offers single sign-on in its free edition signs a new staff account in with Keycloak, and the others create no sign-in entry. |
 | `catalog_apps_read_green_in_gatus` | Every catalog application deployed in a run reads green in Gatus on its own address or addresses, and the Apps tab shows it healthy. |
-| `catena_admin_resources_tab_links_beszel` | The panel's System tab shows the processor load it reads from the resource monitor itself and links out to the monitor, and the Resources address leads there. |
+| `catena_admin_resources_tab_links_beszel` | The panel's System tab shows this server's own processor readings and links out to the resource monitor, and the Resources address leads there. |
 | `catena_admin_self_update` | The administration panel updates itself as one unit -- the container, the engines it installs on the host and the host configuration the new version carries -- and restores all three if the new version is bad. |
 | `ce_admin_actions` | Pressing a maintenance button in the Community administration panel dispatches the action and streams its result back. |
 | `ce_admin_smoke` | A Community host carries the host-side state its administration panel needs, and the panel answers. |
@@ -117,7 +117,7 @@ The 206 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_s3_placeholder_inert` | An unreplaced placeholder left in a lower-precedence configuration file has no effect on a converged host. |
 | `fi_s4_tailscale_oauth_revoked` | A revoked private network credential entered in the panel is refused by the check its save runs on the host, and never stored. |
 | `fi_s7_smtp_creds_invalid` | Invalid outbound mail credentials surface as an authentication failure from a live probe at the moment they are saved. |
-| `fi_s8_s3_hot_revoked` | A revoked object-store key aborts the backup converge cleanly rather than failing halfway through. |
+| `fi_s8_s3_hot_revoked` | A revoked object-store key stops the backup cleanly rather than failing halfway through. |
 | `fi_s9_resend_rate_limit` | A rate-limited transactional mail provider degrades the maintainers test bench cleanup gracefully rather than aborting it. |
 | `fi_t3_start_sweep_failure` | A failure during the maintainers test bench start-up sweep is reported with enough context to act on rather than swallowed. |
 | `fi_t4_resend_quota_zero` | An exhausted mail-provider quota makes the maintainers test bench refuse to start rather than run scenarios that cannot assert delivery. |
