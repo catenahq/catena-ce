@@ -30,6 +30,8 @@ import paramiko
 
 KNOWN_HOSTS = Path.home() / ".ssh" / "known_hosts"
 TIMEOUT = 15.0
+KEEPALIVE = 15
+POLL = 1.0
 
 # The host key algorithms a known_hosts key type is offered under.
 _ALGORITHMS = {"ssh-rsa": ("rsa-sha2-512", "rsa-sha2-256", "ssh-rsa")}
@@ -136,6 +138,7 @@ def _transport(host: str, port: int, *, known_hosts: Path, reinstalled: bool,
             raise HostKeyChanged(name, [_describe(k) for k in trusted],
                                  "none of the trusted key types") from exc
         raise RemoteError(f"{name}: SSH negotiation failed: {exc}") from exc
+    transport.set_keepalive(KEEPALIVE)
     key = transport.get_remote_server_key()
     if not trusted:
         if record:
@@ -174,10 +177,15 @@ class Session:
         (stdout and stderr together) to `on_line`; return its exit status."""
         chan = self.transport.open_session()
         chan.set_combine_stderr(True)
+        chan.settimeout(POLL)
         chan.exec_command(command)
         pending = b""
         while True:
-            data = chan.recv(65536)
+            try:
+                data = chan.recv(65536)
+            except socket.timeout:
+                self._require_alive()
+                continue
             if not data:
                 break
             pending += data
@@ -186,7 +194,17 @@ class Session:
                 on_line(line.decode("utf-8", "replace").rstrip("\r"))
         if pending:
             on_line(pending.decode("utf-8", "replace").rstrip("\r"))
+        while not chan.exit_status_ready():
+            self._require_alive()
+            time.sleep(POLL)
         return chan.recv_exit_status()
+
+    def _require_alive(self) -> None:
+        """A silent channel is only waited on while the connection lives; the
+        keepalive closes a connection the network has stopped carrying."""
+        if not self.transport.is_active():
+            raise RemoteError(f"the connection to {self.host} was lost while a "
+                              "command was running")
 
     def output(self, command: str) -> tuple[int, str]:
         lines: list[str] = []

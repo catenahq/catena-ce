@@ -147,6 +147,62 @@ def test_a_command_streams_its_lines_and_its_status(server, client_key):
     session.close()
 
 
+class _SilentChannel:
+    """A channel whose close never arrived: recv times out forever and no exit
+    status comes."""
+
+    def set_combine_stderr(self, flag): pass
+    def settimeout(self, timeout): pass
+    def exec_command(self, command): pass
+    def exit_status_ready(self): return False
+
+    def recv(self, n):
+        raise socket.timeout()
+
+
+class _DyingTransport:
+    """Active for `lives` checks, then inactive."""
+
+    def __init__(self, lives):
+        self.lives = lives
+
+    def open_session(self):
+        return _SilentChannel()
+
+    def is_active(self):
+        self.lives -= 1
+        return self.lives >= 0
+
+
+def test_a_command_on_a_dead_connection_is_a_remote_error(monkeypatch):
+    monkeypatch.setattr(remote, "POLL", 0.01)
+    session = remote.Session(_DyingTransport(2), "ops", "203.0.113.10")
+    with pytest.raises(remote.RemoteError, match="connection to 203.0.113.10 was lost"):
+        session.run("anything", lambda line: None)
+
+
+def test_a_missing_exit_status_on_a_dead_connection_is_a_remote_error(monkeypatch):
+    monkeypatch.setattr(remote, "POLL", 0.01)
+
+    class Ended(_SilentChannel):
+        def recv(self, n):
+            return b""
+
+    transport = _DyingTransport(2)
+    transport.open_session = Ended
+    with pytest.raises(remote.RemoteError, match="was lost"):
+        remote.Session(transport, "ops", "203.0.113.10").run("anything", lambda line: None)
+
+
+def test_a_connection_sends_keepalives(server, client_key, monkeypatch):
+    seen: list[int] = []
+    original = paramiko.Transport.set_keepalive
+    monkeypatch.setattr(paramiko.Transport, "set_keepalive",
+                        lambda self, interval: (seen.append(interval), original(self, interval)))
+    _connect(server, client_key).close()
+    assert seen == [remote.KEEPALIVE]
+
+
 def test_files_go_up_through_the_shell(server, client_key):
     session = _connect(server, client_key)
     directory = session.upload({"env": b"HOST_PUBLIC_IP=203.0.113.10\n"})
