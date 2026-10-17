@@ -352,8 +352,9 @@ class _Hub:
             self.user = body["email"]
             return {}
         if "/users/records?" in url:
-            found = f"email='{self.user}'" in urllib.parse.unquote(url)
-            return {"items": [{"id": "u1"}] if found else []}
+            needle = urllib.parse.unquote(url).split("email~'", 1)[1].split("'")[0]
+            found = self.user is not None and needle.lower() in self.user.lower()
+            return {"items": [{"id": "u1", "email": self.user}] if found else []}
         if "/universal_tokens/" in url:
             return {"items": [{"id": "t1", "token": "tok"}]}
         if url.endswith("/api/collections/users"):
@@ -398,6 +399,17 @@ def test_an_admin_email_change_moves_the_hubs_records(monkeypatch, tmp_path, cap
     assert out.count("ok-exists") == 4 and "smtp: no-mail" in out
     assert json.loads((tmp_path / "state.json").read_text())["admin_email"] == "new@example.test"
     assert oct((tmp_path / "state.json").stat().st_mode & 0o777) == "0o600"
+
+
+def test_a_users_record_in_another_letter_case_is_moved_on_every_run(
+        monkeypatch, tmp_path):
+    """The superuser holds the lowercase address and the users record a
+    capitalised one: the run after the superuser moved still moves the
+    record."""
+    hub = _Hub("Admin@example.test")
+    hub.superuser = "admin@example.test"
+    assert _run_main(monkeypatch, tmp_path, hub, "admin@example.test") == 0
+    assert hub.superuser == hub.user == "admin@example.test"
 
 
 def test_an_unknown_admin_email_fails_loudly(monkeypatch, tmp_path):

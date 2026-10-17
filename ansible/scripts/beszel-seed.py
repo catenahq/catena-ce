@@ -34,7 +34,7 @@ serves its first-user endpoint until someone calls it. The seed calls it first,
 as the admin (claim_first_run), so the hub's spec never carries the password.
 The seed keeps the admin email it last signed in with in its state file, and
 after an admin email change signs in with that one and moves both records to
-the new address (follow_admin_email).
+the new address (move_superuser, follow_admin_user).
 
 Config is one JSON object on stdin, so no credential is in the process's argv
 or environment, which `ps` shows every local user (KeyErrors loudly on any
@@ -139,30 +139,46 @@ def claim_first_run(base: str, email: str, password: str) -> None:
              body={"email": email, "password": password})
 
 
-def follow_admin_email(base: str, auth: dict, old: str, new: str) -> None:
-    """Move the superuser and the admin's users record from `old` to `new`.
-    The users record keeps its id, so the universal token, the alert settings
-    and the rules that point at it stay attached."""
-    su_token = auth["token"]
+def move_superuser(base: str, auth: dict, new: str) -> None:
+    """Move the superuser to the email `new`."""
     _req(
         "PATCH",
         f"{base}/api/collections/_superusers/records/{auth['record']['id']}",
-        token=su_token,
+        token=auth["token"],
         body={"email": new},
     )
-    flt = urllib.parse.quote(f"email='{old}'")
-    users = _req(
+
+
+def find_user(base: str, su_token: str, email: str) -> dict | None:
+    """The users record holding `email`, whatever its letter case: an address
+    is one mailbox however it is capitalised, and the hub compares it exactly."""
+    flt = urllib.parse.quote(f"email~'{email}'")
+    items = _req(
         "GET",
-        f"{base}/api/collections/users/records?perPage=1&filter=({flt})",
+        f"{base}/api/collections/users/records?perPage=50&filter=({flt})",
         token=su_token,
     ).get("items") or []
-    if users:
-        _req(
-            "PATCH",
-            f"{base}/api/collections/users/records/{users[0]['id']}",
-            token=su_token,
-            body={"email": new},
-        )
+    return next((u for u in items
+                 if str(u.get("email", "")).lower() == email.lower()), None)
+
+
+def follow_admin_user(base: str, su_token: str, new: str, olds: list[str]) -> dict | None:
+    """The admin's users record, moved onto `new` unless it already holds it
+    letter for letter. It is found under `new` or else under one of `olds`, and
+    keeps its id, so the universal token, the alert settings and the rules that
+    point at it stay attached."""
+    for email in [new] + [o for o in olds if o]:
+        user = find_user(base, su_token, email)
+        if user:
+            if user.get("email") != new:
+                _req(
+                    "PATCH",
+                    f"{base}/api/collections/users/records/{user['id']}",
+                    token=su_token,
+                    body={"email": new},
+                )
+            return user
+    return None
 
 
 def main() -> int:
@@ -207,25 +223,22 @@ def main() -> int:
         base, [email] + ([recorded] if recorded and recorded != email else []),
         password)
     if signed_in_as != email:
-        follow_admin_email(base, auth, signed_in_as, email)
+        move_superuser(base, auth, email)
         auth, _ = sign_in(base, [email], password)
     su_token = auth.get("token")
     if not su_token:
         die("superuser auth returned no token")
+
+    # 2. Resolve the users record id for the relation, moving the record onto
+    # the current email whenever it is not on it. The record is checked on every
+    # run, not only the one that moved the superuser, so a run that stopped
+    # between the two is finished by the next.
+    user = follow_admin_user(base, su_token, email, [recorded, signed_in_as])
+    if not user:
+        die(f"no users record for {email!r} (hub bootstrap incomplete?)")
+    user_id = user["id"]
     state["admin_email"] = email
     write_state(state_file, state)
-
-    # 2. Resolve the users record id for the relation.
-    flt = urllib.parse.quote(f"email='{email}'")
-    users = _req(
-        "GET",
-        f"{base}/api/collections/users/records?perPage=1&filter=({flt})",
-        token=su_token,
-    )
-    items = users.get("items") or []
-    if not items:
-        die(f"no users record for {email!r} (hub bootstrap incomplete?)")
-    user_id = items[0]["id"]
 
     # 3. Find-or-update the universal_tokens row (unique on user).
     user_flt = urllib.parse.quote(f"user='{user_id}'")
