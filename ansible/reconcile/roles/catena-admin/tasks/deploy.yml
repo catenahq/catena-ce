@@ -61,13 +61,11 @@
       name: "{{ catena_admin_service_name }}"
       image: "{{ catena_admin_image }}"
       # catena-network for its gate, Keycloak and Gatus; healthchecks_network
-      # for Healthchecks, beszel_network for Beszel's hub and portainer_network
-      # for Portainer, which reads its App Templates catalog here, each on no
-      # other.
+      # for Healthchecks and portainer_network for Portainer, which reads its
+      # App Templates catalog here, each on no other.
       networks:
         - "{{ catena_network_name | default('catena-network') }}"
         - "{{ healthchecks_network }}"
-        - "{{ beszel_network }}"
         - "{{ portainer_network }}"
       ui_port: "{{ catena_admin_ui_port }}"
       direct_port: "{{ catena_admin_direct_port }}"
@@ -158,13 +156,6 @@
         # holds as Catena's (catena-admin shell/appcheck OwnHosts), as
         # dashboard-sync's app checker does.
         CATENA_HOSTNAMES: "{{ catena_hostnames | to_json }}"
-        # The hub's CLUSTER-internal address, not the public hostname above.
-        # Same reason KEYCLOAK_ADMIN_BASE is internal: the public name is behind
-        # oauth2-proxy, so a server-side read there meets the SSO gate instead of
-        # the API. The port is a host fact (the alias and the scheme are not),
-        # which is why this is passed rather than defaulted in the image.
-        BESZEL_API_BASE: >-
-          http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}
         # The app catalog the marketplace reads. Blank, as on every client
         # host, reads the published one; a development host names its own
         # (helpers/knobs.yml CATENAHQ_TEMPLATES_BASE).

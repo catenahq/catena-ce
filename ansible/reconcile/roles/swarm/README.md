@@ -25,7 +25,7 @@ Beszel and Portainer, and the `catena-network-nudge` self-heal.
   services that call it: its sign-in gate, the panel, Gatus and the Beszel
   alert shim. Beszel's hub signs in any realm user who reaches it and its
   superuser holds the shared admin password, so the hub and its alert shim are
-  on theirs, with the hub's gate, the panel and Gatus. Portainer's login takes
+  on theirs, with the hub's gate and Gatus. Portainer's login takes
   the shared admin password, so it is on its own, with its gate and the panel,
   whose App Templates catalog it reads. Not attachable, so no standalone
   container joins any of them.

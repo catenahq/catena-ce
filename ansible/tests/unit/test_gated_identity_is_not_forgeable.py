@@ -219,13 +219,14 @@ def test_the_hubs_address_follows_its_hostname():
 
 
 def test_every_caller_of_the_hub_joins_its_network():
-    """Its gate, Gatus's probe and the panel's API reads reach the hub, which
-    calls the alert shim."""
+    """Its gate and Gatus's probe reach the hub, which calls the alert shim.
+    The panel reads its gauges from the host and links to the hub, so it
+    stays off the hub's network."""
     hub_gate = _gates()["services"]["oauth2-proxy-beszel"]["networks"]
     assert "catena-network" in hub_gate and BESZEL_NETWORK in hub_gate
     assert BESZEL_NETWORK in _compose("gatus.compose.yml.j2")["services"]["app"]["networks"]
     deploy = (ROLES / "catena-admin" / "tasks" / "deploy.yml").read_text()
-    assert '- "{{ beszel_network }}"' in deploy
+    assert '- "{{ beszel_network }}"' not in deploy
 
 
 def test_the_alert_shim_is_reached_by_the_hub_alone():

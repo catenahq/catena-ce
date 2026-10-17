@@ -44,7 +44,7 @@ on `catena-network`, where every client app is. Its gate, the panel, Gatus
 
 Beszel's hub signs in any realm user who reaches it, and its superuser's
 password is the shared admin password, so the hub is on `beszel_network`
-alone, with its gate, the panel and Gatus (its probe). The Beszel shim, whose
+alone, with its gate and Gatus (its probe). The Beszel shim, whose
 only caller is the hub, is there too, and on `healthchecks_network` to ping.
 The hub's spec carries no credential: the seed makes the admin its first user
 through its first-user endpoint on the loopback publish.

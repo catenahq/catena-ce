@@ -75,8 +75,7 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   identity only from a request carrying that secret. A secret of the panel's
   that no service mounts is removed after the deploy. The service
   also joins the private overlays of Healthchecks (`healthchecks_network`),
-  to read its checks, of Beszel's hub (`beszel_network`), to read its API,
-  and of Portainer (`portainer_network`), which reads its App Templates
+  to read its checks, and of Portainer (`portainer_network`), which reads its App Templates
   catalog here, and the spec's networks are reconciled like its env and
   secrets. No
   Traefik route is written here (oauth2-proxy owns the gated `dash.<zone>`
