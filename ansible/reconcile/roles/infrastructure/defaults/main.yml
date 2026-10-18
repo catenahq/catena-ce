@@ -144,7 +144,7 @@ healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}
 
 # Outgoing mail, from the one choice in Settings > Mail, resolved by the
 # filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
-# smtp_resolve.py): {enabled, host, port, user, sender}. Healthchecks sends
+# smtp_resolve.py): {enabled, host, port, implicit_tls, user, sender}. Healthchecks sends
 # its alerts through it, to the admin email channel healthchecks-seed.py
 # keeps, Beszel its own mail and WordPress its sites' mail
 # (tasks/wordpress_plugins.yml). The credential is smtp_password. With mail

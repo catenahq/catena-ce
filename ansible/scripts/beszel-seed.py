@@ -52,7 +52,8 @@ wiring break):
     oidc_userinfo_url   .../protocol/openid-connect/userinfo
     oidc_display_name   label on the hub's sign-in button
     alert_webhook       the shim's Shoutrrr URL
-    smtp_*              outgoing mail (optional; blank host = none)
+    smtp_*              outgoing mail (optional; blank host = none);
+                        smtp_implicit_tls is true for port 465
 
 Exit 0 on success, printing one line carrying every outcome so the caller's
 changed_when can read it. Any failure exits non-zero with a stderr message so
@@ -205,6 +206,8 @@ def main() -> int:
         smtp = {
             "host": cfg.get("smtp_host", ""),
             "port": cfg.get("smtp_port", "587"),
+            "implicit_tls": str(cfg.get("smtp_implicit_tls", "false")).strip().lower()
+            in ("true", "1"),
             "user": cfg.get("smtp_user", ""),
             "password": cfg.get("smtp_password", ""),
             "sender": cfg.get("smtp_sender", ""),
@@ -464,11 +467,10 @@ def configure_alert_rules(base: str, su_token: str, user_id: str) -> str:
 # authMethod / tls / localName, and core.MetaConfig tags senderName /
 # senderAddress. The endpoint is PATCH /api/settings, which merges.
 #
-# `tls: false` is CORRECT and not a downgrade. PocketBase's own comment: "When
-# set to false StartTLS command is send, leaving the server to decide whether
-# to upgrade the connection or not." True means implicit TLS from the first
-# byte, which is port 465; every path this product resolves is STARTTLS on the
-# port given, and both known providers expect that on 587.
+# `tls` follows the port (smtp_implicit_tls, from catena_smtp_resolve). PocketBase's
+# own comment: "When set to false StartTLS command is send, leaving the server
+# to decide whether to upgrade the connection or not." True means implicit TLS
+# from the first byte, which is port 465; every other port is STARTTLS.
 
 # Compared to decide whether a write is needed. `password` is not among them:
 # PocketBase blanks it in every settings read (core/settings_model.go
@@ -495,8 +497,8 @@ def _desired_smtp(cfg: dict) -> dict:
         "password": str(cfg.get("password") or ""),
         # PLAIN is PocketBase's default and what both known relays accept.
         "authMethod": "PLAIN",
-        # STARTTLS, not implicit TLS. See the note above.
-        "tls": False,
+        # Implicit TLS on port 465, STARTTLS otherwise. See the note above.
+        "tls": bool(cfg.get("implicit_tls")),
     }
 
 

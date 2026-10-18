@@ -454,7 +454,7 @@
           smtp:
             host: "{{ _wp_smtp_host }}"
             port: "{{ _wp_smtp_port | int }}"
-            encryption: tls
+            encryption: "{{ 'ssl' if infrastructure_smtp.implicit_tls else 'tls' }}"
             autotls: true
             auth: true
             user: "{{ _wp_smtp_user }}"

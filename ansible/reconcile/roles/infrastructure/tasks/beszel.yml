@@ -214,6 +214,7 @@
       alert_webhook: "{{ _beszel_alert_webhook }}"
       smtp_host: "{{ infrastructure_smtp.host }}"
       smtp_port: "{{ infrastructure_smtp.port | string }}"
+      smtp_implicit_tls: "{{ infrastructure_smtp.implicit_tls | bool }}"
       smtp_user: "{{ infrastructure_smtp.user }}"
       smtp_sender: "{{ infrastructure_smtp.sender }}"
       smtp_password: "{{ smtp_password | default('') }}"

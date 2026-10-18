@@ -186,7 +186,7 @@ _STEP_7 = (
 
 
 def _converge(site: dict | None, *, seeded: bool, provider="", user="", sender="",
-              site_admin="admin@acme.test") -> dict:
+              host="", port="", site_admin="admin@acme.test") -> dict:
     """Step 7 as one converge runs it on an installed site.
 
     `site` is the wp_mail_smtp option the site holds (None: never set),
@@ -199,6 +199,7 @@ def _converge(site: dict | None, *, seeded: bool, provider="", user="", sender="
     v = {
         "infrastructure_smtp": trust_as_template(_INFRA_SMTP),
         "cfg_smtp_provider": provider, "cfg_smtp_user": user, "cfg_smtp_sender": sender,
+        "cfg_smtp_host": host, "cfg_smtp_port": port,
         "admin_email": "admin@acme.test",
         "_wp_installed": {"rc": 0},
         "_wp_ct": {"stdout": "catena-wordpress_wp.1.abc"},
@@ -245,6 +246,16 @@ def test_a_site_installed_before_mail_is_chosen_is_wired_once_it_is():
         "smtp": {"host": "smtp.resend.com", "port": 587, "encryption": "tls",
                  "autotls": True, "auth": True, "user": "resend"},
     }
+
+
+def test_the_port_decides_the_encryption():
+    """465 is implicit TLS (PHPMailer's 'ssl'); every other port is STARTTLS
+    ('tls')."""
+    for port, encryption in (("465", "ssl"), ("587", "tls"), ("2525", "tls")):
+        run = _converge(None, seeded=False, provider="server", host="mail.acme.test",
+                        port=port, user="u", sender="no-reply@acme.test")
+        assert run["written"]["smtp"]["port"] == int(port)
+        assert run["written"]["smtp"]["encryption"] == encryption, port
 
 
 def test_the_relay_follows_settings_while_the_sender_stays_the_sites():

@@ -70,7 +70,7 @@ def _smtp_server(*, smtp_enabled: bool = True, display_name: str = "acme.test") 
         smtp_port=587,
         smtp_user="resend",
         smtp_from="no-reply@acme.test",
-        smtp_use_starttls=True,
+        _smtp={"implicit_tls": False},
         keycloak_realm_display_name=display_name,
     ))
 

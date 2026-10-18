@@ -48,9 +48,9 @@ def _jinja() -> jinja2.Environment:
     return env
 
 
-def _render(provider: str) -> tuple[str, dict]:
-    smtp = resolve(provider, sender="no-reply@acme.test",
-                   fallback_sender="admin@acme.test")
+def _render(provider: str, port: str = "") -> tuple[str, dict]:
+    smtp = resolve(provider, host="mail.acme.test", port=port,
+                   sender="no-reply@acme.test", fallback_sender="admin@acme.test")
     specs = yaml.safe_load((INFRA / "defaults" / "main.yml").read_text())[
         "healthchecks_swarm_secrets"]
     secrets = secret_entries([
@@ -75,8 +75,8 @@ def _render(provider: str) -> tuple[str, dict]:
     return text, yaml.safe_load(text)
 
 
-def _environment(provider: str) -> dict:
-    return _render(provider)[1]["services"]["app"]["environment"]
+def _environment(provider: str, port: str = "") -> dict:
+    return _render(provider, port)[1]["services"]["app"]["environment"]
 
 
 def test_mail_on_sends_through_the_chosen_relay():
@@ -86,6 +86,15 @@ def test_mail_on_sends_through_the_chosen_relay():
     assert env["EMAIL_HOST_USER"] == "resend"
     assert env["EMAIL_USE_TLS"] == "True" and env["EMAIL_USE_SSL"] == "False"
     assert env["DEFAULT_FROM_EMAIL"] == "no-reply@acme.test"
+
+
+def test_the_port_decides_the_connection_security():
+    """465 is implicit TLS (Django's EMAIL_USE_SSL); the two are exclusive."""
+    for port, tls, ssl in (("587", "True", "False"), ("2525", "True", "False"),
+                           ("465", "False", "True")):
+        env = _environment("server", port)
+        assert env["EMAIL_PORT"] == port
+        assert (env["EMAIL_USE_TLS"], env["EMAIL_USE_SSL"]) == (tls, ssl), port
 
 
 def test_no_credential_is_in_the_service_environment():

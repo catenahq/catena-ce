@@ -168,17 +168,59 @@ def test_wordpress_sends_from_the_admin_email_when_no_sender_is_set():
     assert "from_email: '{{ _wp_smtp_from }}'" in flat
 
 
-def test_implicit_tls_is_not_offered_and_not_stored():
-    """The keycloak role's keycloak_smtp_server (rendered into the realm) pins
-    starttls on and ssl off as literals, so an SMTP_USE_TLS key would be
-    collected, validated, stored and read by nothing. A key that accepts a value
-    and changes nothing answers "is TLS configured" with a yes."""
+@pytest.mark.parametrize("port,implicit", [
+    ("465", True), ("587", False), ("2525", False), ("", False), ("25", False)])
+def test_the_port_decides_implicit_tls(port, implicit):
+    got = _resolve()("server", host="mail.acme.test", port=port)
+    assert got["implicit_tls"] is implicit
+
+
+def test_the_known_relays_and_no_mail_are_not_implicit_tls():
+    for provider in ("resend", "brevo", "none"):
+        assert _resolve()(provider)["implicit_tls"] is False, provider
+
+
+def test_the_implicit_tls_port_is_465():
+    module = importlib.util.module_from_spec(
+        importlib.util.spec_from_file_location("smtp_resolve", PLUGIN))
+    module.__spec__.loader.exec_module(module)
+    assert module._IMPLICIT_TLS_PORT == 465
+
+
+def _keycloak_realm_smtp(port: str) -> dict:
+    """keycloak_smtp_server as the role's defaults render it for a custom
+    server on `port`."""
+    import ast
+
+    import jinja2
+    import yaml
+
+    smtp = _resolve()("server", host="mail.acme.test", port=port, user="u",
+                      sender="no-reply@acme.test")
+    expr = yaml.safe_load(KEYCLOAK_DEFAULTS.read_text())["keycloak_smtp_server"]
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["bool"] = lambda v: str(v).lower() in ("1", "true", "yes", "on")
+    text = env.from_string(expr).render(
+        _smtp=smtp, smtp_enabled=smtp["enabled"], smtp_host=smtp["host"],
+        smtp_port=smtp["port"], smtp_user=smtp["user"], smtp_from=smtp["sender"],
+        keycloak_realm_display_name="Acme")
+    return ast.literal_eval(text)
+
+
+@pytest.mark.parametrize("port,starttls,ssl", [
+    ("465", "false", "true"), ("587", "true", "false"), ("2525", "true", "false")])
+def test_the_realm_mail_settings_follow_the_port(port, starttls, ssl):
+    realm = _keycloak_realm_smtp(port)
+    assert realm["port"] == port
+    assert (realm["starttls"], realm["ssl"]) == (starttls, ssl)
+
+
+def test_no_tls_setting_is_stored():
+    """The port is the only input: an SMTP_USE_TLS key would be collected,
+    stored and read by nothing."""
     assert "SMTP_USE_TLS" not in ONBOX_CONFIG.read_text(), (
         "SMTP_USE_TLS is back in the store registry")
-    defaults = KEYCLOAK_DEFAULTS.read_text()
-    assert "'ssl': 'false'" in defaults and "\nsmtp_use_starttls: true\n" in defaults, (
-        "the realm no longer pins implicit TLS off; if that became configurable, "
-        "this file's reasoning about the deleted key no longer holds")
+    assert "smtp_use_starttls" not in KEYCLOAK_DEFAULTS.read_text()
 
 
 @pytest.mark.parametrize("gone", [

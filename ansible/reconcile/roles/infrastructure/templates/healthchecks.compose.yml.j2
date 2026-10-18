@@ -64,15 +64,16 @@ services:
       DB_NAME: "/data/hc.sqlite"
       # Mail goes out through the outgoing mail chosen in Settings > Mail
       # (infrastructure_smtp), to the admin email channel healthchecks-seed.py
-      # keeps. Always STARTTLS on the port given, as every sender on the host.
+      # keeps. Port 465 is implicit TLS, any other port STARTTLS, as every
+      # sender on the host.
       # Mail turned off leaves EMAIL_HOST empty, which gives Healthchecks no
       # mailer, and the seed removes the email channel.
 {% if infrastructure_smtp.enabled | bool %}
       EMAIL_HOST: "{{ infrastructure_smtp.host }}"
       EMAIL_PORT: "{{ infrastructure_smtp.port }}"
       EMAIL_HOST_USER: "{{ infrastructure_smtp.user }}"
-      EMAIL_USE_TLS: "True"
-      EMAIL_USE_SSL: "False"
+      EMAIL_USE_TLS: "{{ not infrastructure_smtp.implicit_tls }}"
+      EMAIL_USE_SSL: "{{ infrastructure_smtp.implicit_tls }}"
 {% else %}
       EMAIL_HOST: ""
 {% endif %}

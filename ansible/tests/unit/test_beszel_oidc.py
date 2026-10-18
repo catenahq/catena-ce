@@ -305,6 +305,28 @@ def test_an_unchanged_mail_password_writes_nothing(monkeypatch):
     assert writes == []
 
 
+def test_implicit_tls_follows_the_resolved_port(monkeypatch):
+    """PocketBase `tls: true` is implicit TLS; a hub on STARTTLS is moved over
+    when the relay becomes a port-465 one, and written once."""
+    assert seed._desired_smtp(_MAIL)["tls"] is False
+    assert seed._desired_smtp({**_MAIL, "port": "465", "implicit_tls": True})["tls"] is True
+
+    settings = _hub_settings()
+    writes = []
+
+    def fake(method, url, *, token=None, body=None):
+        if method == "PATCH":
+            writes.append(body)
+            settings["smtp"].update(body["smtp"])
+            settings["meta"].update(body.get("meta") or {})
+        return settings
+    monkeypatch.setattr(seed, "_req", fake)
+    mail = {**_MAIL, "port": "465", "implicit_tls": True}
+    state, fp = seed.configure_smtp("http://h", "tok", mail, seed._fingerprint("re_new"))
+    assert state == "updated"
+    assert writes[0]["smtp"]["tls"] is True and writes[0]["smtp"]["port"] == 465
+
+
 def test_mail_turned_off_turns_the_hubs_off(monkeypatch):
     fake, writes = _smtp_hub(_hub_settings())
     monkeypatch.setattr(seed, "_req", fake)
