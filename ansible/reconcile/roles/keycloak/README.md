@@ -77,6 +77,8 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 
 - `admin_email`, `admin_password` -- the master-realm bootstrap admin
   and the seed of the realm's copy of that account.
+- `admin_first_name`, `admin_last_name` -- the administrator's name, written
+  into both accounts while their names are empty (`realm_bootstrap.yml`).
 - `keycloak_automation_client_secret` -- the automation client's secret,
   minted on the box.
 - `keycloak_db_password` -- written into the catena-postgres user.
@@ -112,6 +114,9 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
   the realm admin's account, and the realm's Enabled switch: a realm an
   administrator switched off stays off, and the converge completes on it and
   says so.
+- The administrator's first and last name are written into the admin's account
+  in the master realm and in the realm while that name is empty; a name set in
+  Keycloak stays. A name the realm's profile refuses is a warning.
 - The sign-in page name (`displayName` and `displayNameHtml`) follows the
   domain while it still holds the name Catena wrote, which the realm records
   in its `catenaDisplayName` attribute: a converge with another domain writes

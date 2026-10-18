@@ -373,6 +373,39 @@ config:
     var: cfg_admin_email
     env: {section: admin, default: "", example: "you@example.com"}
 
+  # The administrator's name, written into the sign-in service accounts while
+  # their names are empty. Seeded once from the `.env`, no panel field.
+  - key: ADMIN_FIRST_NAME
+    step: configuration
+    label:
+      en: Admin first name
+      fr: Prénom de l'administrateur
+    help:
+      en: >-
+        The administrator's first name, shown in the sign-in service.
+      fr: >-
+        Le prénom de l'administrateur, affiché dans le service de connexion.
+    required: true
+    residence: store
+    var: cfg_admin_first_name
+    env: {section: admin, default: "", example: "Alex"}
+
+  - key: ADMIN_LAST_NAME
+    step: configuration
+    label:
+      en: Admin last name
+      fr: Nom de l'administrateur
+    help:
+      en: >-
+        The administrator's last name, shown in the sign-in service.
+      fr: >-
+        Le nom de famille de l'administrateur, affiché dans le service de
+        connexion.
+    required: true
+    residence: store
+    var: cfg_admin_last_name
+    env: {section: admin, default: "", example: "Tremblay"}
+
   # ---- resident on the installer's machine ----
   #
   # A dedicated pair per project makes revocation one file delete. The

@@ -201,6 +201,8 @@ portainer_network: "catena-portainer-net"
 # host has before anyone has said who to contact -- and the roles that use it
 # (ACME registration, the Keycloak admin account) already handle blank.
 admin_email: "{{ cfg_admin_email | default('') }}"
+admin_first_name: "{{ cfg_admin_first_name | default('') }}"
+admin_last_name: "{{ cfg_admin_last_name | default('') }}"
 
 # SMTP -- resolved by reconcile/roles/keycloak from the store. SMTP_PROVIDER
 # (resend | brevo | server) decides where mail goes, SMTP_SENDER is the address

@@ -143,6 +143,27 @@ def test_an_env_with_only_installer_lines_says_nothing(seed, tmp_path, capsys):
     assert capsys.readouterr().err == ""
 
 
+def _structural_problems(seed, env):
+    inp = {"inventory": "prod", "host": {}, "env": env, "secrets": {}}
+    return seed.validate_install_structural(inp, seed.ENV_KEYS)
+
+
+def test_an_install_without_the_administrators_name_is_refused(seed):
+    base = {key: (default or "x") for key, default in seed.ENV_KEYS}
+    base["ADMIN_FIRST_NAME"] = base["ADMIN_LAST_NAME"] = ""
+    assert _structural_problems(seed, base) == 2
+    for blank in ("ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"):
+        env = {**base, "ADMIN_FIRST_NAME": "Alex", "ADMIN_LAST_NAME": "Tremblay", blank: ""}
+        assert _structural_problems(seed, env) == 1, blank
+
+
+def test_an_install_with_the_administrators_name_writes_it_to_the_env(seed, tmp_path):
+    target = seed.write_env(tmp_path / "clientco", {"ADMIN_FIRST_NAME": "Alex",
+                                                    "ADMIN_LAST_NAME": "Tremblay"})
+    env = seed.read_existing_env(target)
+    assert env["ADMIN_FIRST_NAME"] == "Alex" and env["ADMIN_LAST_NAME"] == "Tremblay"
+
+
 # --- the question list comes from the registry ------------------------------
 def test_the_prompts_are_the_registrys_env_knobs(seed):
     """Which keys seed asks about, and what each defaults to, is the registry's."""

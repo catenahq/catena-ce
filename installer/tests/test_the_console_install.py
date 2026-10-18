@@ -21,6 +21,7 @@ def key(tmp_path):
 
 def _input(tmp_path, key, **extra) -> str:
     lines = [f"HOST_PUBLIC_IP: 203.0.113.10", "ADMIN_EMAIL: admin@client.test",
+             "ADMIN_FIRST_NAME: Alex", "ADMIN_LAST_NAME: Tremblay",
              f"SSH_PRIVATE_KEY: {key}", "host_name: clientco1",
              *(f"{k}: {v}" for k, v in extra.items())]
     path = tmp_path / "install.yaml"

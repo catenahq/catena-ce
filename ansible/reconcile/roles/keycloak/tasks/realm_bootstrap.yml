@@ -869,6 +869,58 @@
   register: _keycloak_admin_rejoin
   changed_when: "'joined:' in _keycloak_admin_rejoin.stdout"
 
+# The administrator's first and last name are the person's own data, seeded once
+# from the store: a name is written only while empty, so one changed in the
+# Account Console stays. The vps realm's user profile requires both names, and
+# the master admin's console shows them. Names go in over stdin, never argv. A
+# write kcadm refuses (a name the realm's profile rejects, or a session that
+# ended) leaves the account as it is, with a warning carrying kcadm's error.
+- name: "Keycloak realm: the administrator's accounts carry the administrator's name"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    IFS= read -r first
+    IFS= read -r last
+    export first last
+    kc() { docker exec -i {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    admin={{ admin_email | quote }}
+    for realm in master {{ keycloak_realm | quote }}; do
+      id=$(kc get users -r "$realm" -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
+      [ -n "$id" ] || continue
+      cur=$(kc get "users/$id" -r "$realm" --fields firstName,lastName)
+      payload=$(CUR="$cur" python3 - <<'PY'
+    import json, os
+    cur = json.loads(os.environ["CUR"])
+    want = {"firstName": os.environ["first"], "lastName": os.environ["last"]}
+    print(json.dumps({k: v for k, v in want.items() if not cur.get(k)}))
+    PY
+      )
+      [ "$payload" != "{}" ] || continue
+      if err=$(printf '%s' "$payload" | kc update "users/$id" -r "$realm" -m -f - 2>&1); then
+        echo "named: $realm"
+      else
+        echo "refused: $realm: $(printf '%s' "$err" | tr '\r\n' '  ')"
+      fi
+    done
+  args:
+    executable: /bin/bash
+    stdin: "{{ admin_first_name }}\n{{ admin_last_name }}"
+  register: _keycloak_admin_name
+  changed_when: "'named:' in _keycloak_admin_name.stdout"
+  when:
+    - admin_email | length > 0
+    - admin_first_name | length > 0
+    - admin_last_name | length > 0
+
+- name: "Keycloak realm: a realm refused the administrator's name"
+  ansible.builtin.debug:
+    msg: >-
+      The administrator's name was not written in realm
+      {{ item | regex_replace('^refused: ', '') }}
+      (ADMIN_FIRST_NAME, ADMIN_LAST_NAME in the store); its account keeps the
+      names it has. The first part is the realm, the rest kcadm's error.
+  loop: "{{ _keycloak_admin_name.stdout_lines | default([]) | select('match', '^refused: ') | list }}"
+  when: _keycloak_admin_name is not skipped
+
 # A sign-in through an external identity provider finishes in Keycloak's broker
 # flows and never returns to the application's sign-in flow, so its tier check
 # does not run (IdentityBrokerService, Keycloak 26.6.7). The post-broker-login

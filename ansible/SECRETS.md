@@ -160,7 +160,7 @@ change afterwards.
 `STORAGE_BULK_*` (the bulk mount is applied by an install-only role, so the
 panel could not change it).
 
-**Store, seeded from the `.env`:** `ADMIN_EMAIL`, `APT_PROXY_URL`,
+**Store, seeded from the `.env`:** `ADMIN_EMAIL`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `APT_PROXY_URL`,
 `DOCKER_REGISTRY_MIRROR_URL` and the reseeded keys below. The first converge
 needs them before the panel exists, so the `.env` seeds them fill-only on that
 converge.

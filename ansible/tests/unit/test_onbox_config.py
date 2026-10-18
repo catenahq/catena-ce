@@ -857,14 +857,14 @@ def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path,
     assert rc == 0
     assert not p.exists(), "a pure query must not create the store"
     names = json.loads(capsys.readouterr().out)
-    assert "ADMIN_EMAIL" in names
+    assert {"ADMIN_EMAIL", "ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"} <= set(names)
     assert not {"BACKUP_RESTIC_REPO", "CLOUDFLARE_ZONE", "PORTAINER_SUBDOMAIN"} & set(names)
 
 
 def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_path, capsys):
     """The development keys (ACME, staging, the app catalog), which the
-    `.env` keeps editing. ADMIN_EMAIL is seeded and never reseeded: the panel
-    owns it afterwards."""
+    `.env` keeps editing. ADMIN_EMAIL and the administrator's names are seeded
+    and never reseeded: they have no editor after install."""
     p = tmp_path / "config.json"
     rc = oc.main(["--path", str(p), "--emit", "env-reseed-names"])
     assert rc == 0
@@ -877,6 +877,25 @@ def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_pat
         "CATENA_ACME_CA_BUNDLE_PEM_B64", "CATENAHQ_TEMPLATES_BASE",
     }
     assert set(names) <= oc.ENV_SEEDED_CONFIG
+    assert not {"ADMIN_EMAIL", "ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"} & set(names)
+
+
+def test_the_administrators_name_is_seeded_once_and_never_reseeded(oc, tmp_path):
+    p = tmp_path / "config.json"
+    store = oc.load(p)
+    oc.apply_inputs(store, config_in={"ADMIN_FIRST_NAME": "Alex",
+                                      "ADMIN_LAST_NAME": "Tremblay"})
+    oc.dump(store, p)
+
+    store = oc.load(p)
+    store["config"]["ADMIN_FIRST_NAME"] = "Alexandre"
+    oc.dump(store, p)
+
+    store = oc.load(p)
+    oc.apply_inputs(store, config_in={"ADMIN_FIRST_NAME": "Alex",
+                                      "ADMIN_LAST_NAME": "Other"})
+    assert store["config"]["ADMIN_FIRST_NAME"] == "Alexandre"
+    assert store["config"]["ADMIN_LAST_NAME"] == "Tremblay"
 
 
 def test_a_reseed_replaces_the_stored_value_and_a_blank_keeps_it(oc, tmp_path):

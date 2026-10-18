@@ -62,7 +62,8 @@ def started(monkeypatch):
     return calls
 
 
-_REQUIRED = {"HOST_PUBLIC_IP": "203.0.113.10", "ADMIN_EMAIL": "admin@client.test"}
+_REQUIRED = {"HOST_PUBLIC_IP": "203.0.113.10", "ADMIN_EMAIL": "admin@client.test",
+             "ADMIN_FIRST_NAME": "Alex", "ADMIN_LAST_NAME": "Tremblay"}
 _INSTALL = {"install": "yes"}
 
 
@@ -248,6 +249,15 @@ def test_an_example_is_shown_and_never_filled_in(client):
     page = request("GET", "/")[2]
     assert f'placeholder="{field.example}"' in page
     assert f'name="{field.key}" value=""' in page
+
+
+def test_the_configuration_section_asks_for_the_administrators_name(client):
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    section = _section(request("GET", "/")[2], "configuration")
+    for key in ("ADMIN_EMAIL", "ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"):
+        assert f'data-key="{key}"' in section, key
+    assert section.index('data-key="ADMIN_EMAIL"') < section.index('data-key="ADMIN_FIRST_NAME"')
 
 
 def test_the_form_is_saved_even_when_verification_fails(client, started, monkeypatch):

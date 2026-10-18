@@ -83,7 +83,7 @@ turns on the lanes set on the panel's Schedules page.
 
 An inventory lives on the client's machine and holds non-secret files only:
 its `.env` (the server's address, its SSH port and initial login, the key
-file, the admin email, the site settings) and `hosts.yml` (the server's
+file, the admin email and name, the site settings) and `hosts.yml` (the server's
 name). `seed.py` is their one reader and writer, for the installer page and
 the console alike, and `skel/` is the `hosts.yml` it scaffolds. The installer
 sends the `.env` with each leg, and install-host.sh puts it beside the run's

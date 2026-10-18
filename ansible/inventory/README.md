@@ -14,7 +14,7 @@ file instead (the bench / operator path).
 
 | File | What it holds |
 | --- | --- |
-| `.env` | What the installer needs to reach and install the server: its address and login, the SSH key, the admin email, the storage layout. Everything else is set in the panel. The installer sends it with each leg of the install, and the server reads it for that run only. |
+| `.env` | What the installer needs to reach and install the server: its address and login, the SSH key, the admin email and name, the storage layout. Everything else is set in the panel. The installer sends it with each leg of the install, and the server reads it for that run only. |
 | `hosts.yml` | The server's name (the first host of the `vps` group), which becomes its hostname, and an address there when one is written in (the bench repoints a copy at another machine that way). Auto-created from `../skel/hosts.yml.example`. |
 | `.catena-installer.json` | Written by the installer page: the install's state and the installer that runs it. |
 
