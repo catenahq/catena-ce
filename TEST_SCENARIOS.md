@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 206 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 204 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -118,9 +118,7 @@ The 206 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_s4_tailscale_oauth_revoked` | A revoked private network credential entered in the panel is refused by the check its save runs on the host, and never stored. |
 | `fi_s7_smtp_creds_invalid` | Invalid outbound mail credentials surface as an authentication failure from a live probe at the moment they are saved. |
 | `fi_s8_s3_hot_revoked` | A revoked object-store key stops the backup cleanly rather than failing halfway through. |
-| `fi_s9_resend_rate_limit` | A rate-limited transactional mail provider degrades the maintainers test bench cleanup gracefully rather than aborting it. |
 | `fi_t3_start_sweep_failure` | A failure during the maintainers test bench start-up sweep is reported with enough context to act on rather than swallowed. |
-| `fi_t4_resend_quota_zero` | An exhausted mail-provider quota makes the maintainers test bench refuse to start rather than run scenarios that cannot assert delivery. |
 | `fi_u1_compose_lint_reject` | The template linter accepts every shipped application template and rejects a malformed one. |
 | `fi_u3_gatus_baseline_down` | A service already unhealthy when an update cycle begins aborts the update rather than being read as a regression the update caused. |
 | `fi_u4_ovh_rate_limited` | A rate-limited provider snapshot declines the pre-update snapshot tier without disturbing the tier below it. |
