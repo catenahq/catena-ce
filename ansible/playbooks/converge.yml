@@ -43,7 +43,7 @@
 
     # Refuse to converge onto a critically full filesystem; the same file
     # reconcile.yml includes.
-    - name: "Preflight (disk): refuse to converge on a critically full filesystem"
+    - name: "Preflight (disk): the install's converge checks its filesystems"
       ansible.builtin.include_tasks:
         file: tasks/disk_preflight.yml
         apply:

@@ -69,7 +69,7 @@
     # Refuse a critically full filesystem before any role writes, with the
     # check and message converge.yml uses. The panel shows the refusal in the
     # converge's failed status and log tail; the converge timer's log carries it.
-    - name: "Preflight (disk): refuse to converge on a critically full filesystem"
+    - name: "Preflight (disk): the host's own converge checks its filesystems"
       ansible.builtin.include_tasks:
         file: tasks/disk_preflight.yml
         apply:

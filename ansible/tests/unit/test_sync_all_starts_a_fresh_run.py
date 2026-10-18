@@ -78,7 +78,8 @@ def test_an_idle_unit_is_started_once(tmp_path):
 
 def test_the_log_shown_is_the_fresh_runs_journal_alone(tmp_path):
     """The journal is selected by the invocation id read after the start
-    returned, so the end of a run that was waited out is not in it."""
+    returns, so it holds the fresh run alone, never the tail of a run the
+    start waited for."""
     r, calls = _press(tmp_path, in_flight=True)
     journals = [c for c in calls if c.startswith("journalctl")]
     assert sorted(journals) == sorted([
