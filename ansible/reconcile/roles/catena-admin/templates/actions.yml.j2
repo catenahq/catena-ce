@@ -260,12 +260,24 @@ actions:
     # shown is the journal of that fresh run alone, selected by the
     # invocation id of the unit after its start returns.
     #
+    # Both syncs change the server, so the press holds /run/catena.lock (fd 9)
+    # for its whole run, as every job that changes the server does. While
+    # another job holds it, `flock -n -E 75` answers 75 at once and the log
+    # says the server is busy.
+    #
     # Backgrounded + `wait` gives the union of runtimes (~10-15s), not
     # the sum. Dispatcher runs with `set -euo pipefail`, so capturing
     # non-zero `wait` exit codes requires `set +e` first -- a plain
     # `wait; RC=$?` aborts on errexit before the assignment.
     shell: |
       set +e
+      exec 9>/run/catena.lock
+      /usr/bin/flock -n -E 75 9
+      if [ $? -eq 75 ]; then
+        echo "The server is busy with another job, such as a backup or an update. Nothing was synchronised; try again in a moment."
+        echo "Le serveur est occupé par une autre tâche, comme une sauvegarde ou une mise à jour. Rien n'a été synchronisé ; réessayez dans un instant."
+        exit 75
+      fi
       LOGDIR=$(mktemp -d)
       sync_fresh() {
         while [ "$(systemctl is-active "$1")" = activating ]; do sleep 1; done

@@ -1,11 +1,14 @@
 """The sync-all action waits for a sync run already in flight to end, starts a
 fresh one and reports that one: systemd joins a start of an active oneshot,
-so a bare `start --wait` can report a run that began before the press.
+so a bare `start --wait` can report a run that began before the press. It
+holds the host lock for its run, and answers 75, busy, while another job
+holds it.
 
 Run: uv run pytest tests/unit/test_sync_all_starts_a_fresh_run.py
 """
 from __future__ import annotations
 
+import fcntl
 import os
 import subprocess
 
@@ -17,11 +20,12 @@ from ansible_tree import role_dir
 TEMPLATE = role_dir("catena-admin") / "templates" / "actions.yml.j2"
 
 
-def _shell() -> str:
+def _shell(lock) -> str:
+    """The action's shell, with the host lock pointed at the test's own file."""
     text = jinja2.Template(TEMPLATE.read_text()).render(ansible_managed="")
     for a in yaml.safe_load(text)["actions"]:
         if a["name"] == "sync-all":
-            return a["shell"]
+            return a["shell"].replace("/run/catena.lock", str(lock))
     raise AssertionError("sync-all not found")
 
 
@@ -50,7 +54,7 @@ def _press(tmp_path, in_flight: bool):
     for f in bindir.iterdir():
         f.chmod(0o755)
     r = subprocess.run(
-        ["bash", "-c", "set -euo pipefail\n" + _shell()],
+        ["bash", "-c", "set -euo pipefail\n" + _shell(tmp_path / "lock")],
         capture_output=True, text=True, timeout=30,
         env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
     )
@@ -104,10 +108,51 @@ def test_a_failed_sync_fails_the_action_and_keeps_its_log(tmp_path):
     for f in bindir.iterdir():
         f.chmod(0o755)
     r = subprocess.run(
-        ["bash", "-c", "set -euo pipefail\n" + _shell()],
+        ["bash", "-c", "set -euo pipefail\n" + _shell(tmp_path / "lock")],
         capture_output=True, text=True, timeout=30,
         env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
     )
     assert r.returncode != 0
     assert "dashboard-sync=0 gatus-sync=1" in r.stdout
     assert "journal of" in r.stdout
+
+
+def _press_while_another_job_holds_the_lock(tmp_path, hold: bool):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    log = tmp_path / "calls"
+    (bindir / "systemctl").write_text(
+        f'#!/bin/bash\necho "systemctl $*" >> "{log}"\n'
+        '[ "$1" = show ] && echo inv-x\nexit 0\n')
+    (bindir / "journalctl").write_text('#!/bin/bash\necho "journal of $*"\n')
+    for f in bindir.iterdir():
+        f.chmod(0o755)
+    lock = tmp_path / "lock"
+    holder = open(lock, "w")
+    if hold:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        r = subprocess.run(
+            ["bash", "-c", "set -euo pipefail\n" + _shell(lock)],
+            capture_output=True, text=True, timeout=30,
+            env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
+        )
+    finally:
+        holder.close()
+    return r, log
+
+
+def test_a_press_while_another_job_holds_the_lock_answers_busy_and_syncs_nothing(tmp_path):
+    r, log = _press_while_another_job_holds_the_lock(tmp_path, hold=True)
+    assert r.returncode == 75, r.stderr
+    assert "The server is busy with another job" in r.stdout
+    assert "Le serveur est occup" in r.stdout
+    assert not log.exists(), "a sync started without the lock"
+
+
+def test_a_press_with_the_lock_free_holds_it_for_its_run_and_lets_go(tmp_path):
+    r, log = _press_while_another_job_holds_the_lock(tmp_path, hold=False)
+    assert r.returncode == 0, r.stderr
+    assert "start --wait catena-dashboard-sync.service" in log.read_text()
+    with open(tmp_path / "lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
