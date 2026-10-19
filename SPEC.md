@@ -567,16 +567,15 @@ name.
 | --- | --- | --- |
 | `ci.yml` | `installer`, `entry-points`, `syntax`, `duplication`, `sentences`, `prose` | the Ansible tree's and the installer's unit tests, the one entry point a client runs (`catena-installer`) with its locks and its wheel, Ansible syntax, copy-paste against a ratchet threshold, duplicate sentences, and comment prose |
 | `publish-installer.yml` | `publish` | on a release tag on main, the installer's tests, then its wheel published to PyPI as `catena-installer` through trusted publishing, versioned from the tag |
-| `security.yml` | `scanctl` | secrets, dependency vulnerabilities, static analysis, and the container images pinned in role defaults. A finding in this tree fails every run; a CVE in a pinned image fails the change that introduces it. A pin that stops matching fails the scan |
+| `security.yml` | `scanctl` | secrets, dependency vulnerabilities, static analysis, and the container images pinned in role defaults. A finding in this tree fails every run; a CVE in a pinned image fails the change that introduces it, and the weekly scheduled run whenever a fix exists, until a bump clears it or the committed baseline accepts it until a date. A pin that stops matching fails the scan |
 
 Every workflow runs on each pull request and on each push, except pushes to
 the Renovate and engine-bump branches, whose pull requests test every push.
 
 Images pinned in role defaults move through the catena-admin update engine,
-run from the [renovate](https://github.com/catenahq/renovate) repository's
-engine-bump workflow (seven-day soak, CVE gate, upgrade stops), one pull
-request per defaults file. Every other dependency follows
-[renovate](https://github.com/catenahq/renovate) and
+run nightly from catena-admin's engine-bump workflow (seven-day soak, CVE
+gate, upgrade stops), one pull request per defaults file. Every other
+dependency follows [renovate](https://github.com/catenahq/renovate) and
 [renovate-config](https://github.com/catenahq/renovate-config) under a
 seven-day cooldown, with GitHub Actions pinned by digest. The container
 engine's version pin follows the same path under a fourteen-day cooldown; a
@@ -588,7 +587,8 @@ merges.
 | --- | --- |
 | No secret is in the tree or its history | `scanctl:gitleaks`, `workflow:security.yml#scanctl`, `threat:CP1` |
 | No licensed source and no Go in this tree | `audit:check-port`, `audit:check-grid`, `threat:CP3` |
-| Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:govulncheck`, `scanctl:trivy`, `workflow:security.yml#scanctl` |
+| Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:trivy`, `workflow:security.yml#scanctl` |
+| A CVE with a fix in a pinned image fails the weekly scheduled scan until a bump clears it or a dated acceptance covers it | `scanctl:trivy`, `workflow:security.yml#scanctl` |
 | Static analysis runs on every change | `scanctl:semgrep`, `scanctl:zizmor` |
 | The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication`, `workflow:ci.yml#sentences` |
 | Code comments describe the tree as it stands, not its history | `workflow:ci.yml#prose` |
