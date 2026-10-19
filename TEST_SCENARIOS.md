@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 204 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 205 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -148,6 +148,7 @@ The 204 scenarios the maintainers' test bench carries, and the behaviour each on
 | `mailserver_webmail_failed_update_rolls_back` | When a webmail update fails, the previous Roundcube version and its database from before the update are put back, the webmail signs in again, the mail server runs again, and the failed version is held back. |
 | `malformed_catalog_rejection` | The panel's app list keeps the last good application catalogue when a malformed one is published, and leaves out an entry the catalogue does not describe while it offers the others. |
 | `marketplace_catalog_resolved` | The application catalogue a client browses is the one this host resolved, with every published placeholder filled in. |
+| `measure_converge` | Measures, on a converged server, how much of the on-host reconcile is spent outside its 25 slowest tasks. |
 | `migrate` | A host is replaced end to end by another machine, with the source quiesced and the destination serving what it served. |
 | `migrate_lane_auth_denied` | The migration endpoint refuses every unauthenticated and unauthorised caller, and is absent entirely on a host that is not migrating. |
 | `migrate_preseed_no_split_brain` | The bulk pre-copy leg of a migration starts nothing on the destination, so two hosts can never serve at once. |
