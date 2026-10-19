@@ -15,7 +15,8 @@ restore's converge skips the first snapshot (tag `first_backup`;
   licence.
 - `validate.yml` -- the role's checks, which `playbooks/validate.yml` runs:
   the configuration files, the payload's scripts and units, and the
-  repository answering.
+  repository answering, or, while the backups wait after a restore,
+  reports that it does not.
 
 ## Where the scripts come from
 

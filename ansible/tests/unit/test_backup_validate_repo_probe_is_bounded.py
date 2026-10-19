@@ -36,7 +36,7 @@ def test_repo_probe_runs_restic_under_timeout():
 
 
 def _fail_msg(rc: int) -> str:
-    template = _find("restic cat config exited 0")["ansible.builtin.assert"]["fail_msg"]
+    template = _find("say why restic cat config")["ansible.builtin.set_fact"]["_bk_repo_reason"]
     return jinja2.Template(template).render(_bk_restic_cat={"rc": rc, "stderr": "boom"})
 
 

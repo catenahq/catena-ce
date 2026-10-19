@@ -463,6 +463,10 @@ backup_managed_paths: []
 backup_stats_dir: /var/lib/catena
 backup_stats_file: "{{ backup_stats_dir }}/backup-stats.json"
 
+# Written by the restore engine when a restore leaves the backups waiting for
+# the destination; its presence alone holds them.
+backup_held_record: /var/lib/catena/backup-held.json
+
 # Snapshot-export mode (catena-admin Recovery-tab button: "Export latest snapshot")
 # Streams `restic dump latest /` through gzip into a single tarball under
 # backup_export_dir for the operator/client to scp off-host. No S3 or

@@ -231,7 +231,9 @@ def test_validate_fails_on_a_destination_with_no_repository():
 
     task = _find("restic cat config exited 0", VALIDATE)
     assert task["ansible.builtin.assert"]["that"] == ["_bk_restic_cat.rc == 0"]
-    msg = jinja2.Environment().from_string(task["ansible.builtin.assert"]["fail_msg"])
+    assert task["ansible.builtin.assert"]["fail_msg"].strip() == "{{ _bk_repo_reason }}"
+    reason = _find("say why restic cat config", VALIDATE)["ansible.builtin.set_fact"]["_bk_repo_reason"]
+    msg = jinja2.Environment().from_string(reason)
 
     def say(rc: int) -> str:
         return msg.render(_bk_restic_cat={"rc": rc, "stderr": "Fatal: boom"})

@@ -130,6 +130,14 @@
       > Backup, and catena-backup-run self-gates until they are.
   when: not (_bk_configured | bool)
 
+- name: "validate/backup: do the backups wait after a restore"
+  ansible.builtin.stat:
+    path: "{{ backup_held_record }}"
+  register: _bk_held
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool
+
 - name: "validate/backup: restic can reach the repo"
   # End-to-end reachability check: cat config decrypts the repo header,
   # failing cleanly on wrong password, unreachable bucket, or missing
@@ -163,11 +171,9 @@
 # The repository exists from the moment the destination is saved in
 # catena-admin > Settings, and a backup never creates one, so restic's 10 (no
 # repository there) is a failure like any other, with its own remedy.
-- name: "validate/backup: restic cat config exited 0"
-  ansible.builtin.assert:
-    that:
-      - _bk_restic_cat.rc == 0
-    fail_msg: >-
+- name: "validate/backup: say why restic cat config did not open the repo"
+  ansible.builtin.set_fact:
+    _bk_repo_reason: >-
       {% if _bk_restic_cat.rc == 10 %}No restic repository exists at the
       backup destination, and a backup never creates one. Saving a backup
       destination in catena-admin > Settings > Backup creates one
@@ -179,3 +185,27 @@
   when:
     - _bk_payload_expected | bool
     - _bk_configured | bool
+
+# While the hold record exists the backups wait for the destination to be
+# confirmed or replaced, so a destination that does not open is the wait.
+- name: "validate/backup: restic cat config exited 0"
+  ansible.builtin.assert:
+    that:
+      - _bk_restic_cat.rc == 0
+    fail_msg: "{{ _bk_repo_reason }}"
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool
+    - not (_bk_held.stat.exists | default(false))
+
+- name: "validate/backup: the backups wait and the destination does not open"
+  ansible.builtin.debug:
+    msg: >-
+      The backups wait after a restore until the destination is confirmed or
+      replaced in catena-admin > Settings > Backup; until then a destination
+      that does not open is reported here, not failed: {{ _bk_repo_reason }}
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool
+    - _bk_held.stat.exists | default(false)
+    - _bk_restic_cat.rc != 0
