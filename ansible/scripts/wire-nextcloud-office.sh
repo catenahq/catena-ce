@@ -3,7 +3,8 @@
 # one office editor into a deployed Nextcloud instance. Backs the "Wire
 # Nextcloud Collabora" and "Wire Nextcloud OnlyOffice" catena-admin actions;
 # the operator runs the one matching the office template deployed from the
-# app catalog (both serve office.<base>, so one is deployed at a time).
+# app catalog (both serve the same office address, so one is deployed at a
+# time).
 #
 # Idempotent: re-running after a redeploy, a config change or a JWT rotation
 # converges to the same state. occ app:install no-ops when present;
@@ -15,10 +16,13 @@
 # configured. Running either action leaves the other editor's Nextcloud-side
 # state cleanly removed.
 #
-# Probe-before-mutate: refuses to run if office.<base> is serving the OTHER
-# editor (the templates need swapping in Portainer), says how to fix it, and
-# exits non-zero without changing state. The wrong action on the wrong
+# Probe-before-mutate: refuses to run if the OTHER editor is the one serving
+# (the templates need swapping in Portainer), says how to fix it, and exits
+# non-zero without changing state. The wrong action on the wrong
 # template never corrupts Nextcloud config.
+#
+# The office address is the vps.route.host label of the office container, so
+# it follows the route the app was deployed with.
 #
 # OnlyOffice's JWT secret is read from the running documentserver container's
 # env, so it never travels through host argv or files: the catalog mints
@@ -37,8 +41,9 @@ case "$EDITOR" in
 esac
 
 NC_ROOT=/var/www/html
+CATENA_CONTAINER="${CATENA_CONTAINER:-/usr/local/bin/catena-container}"
 
-ct=$(/usr/local/bin/catena-container --required catena-nextcloud app)
+ct=$("$CATENA_CONTAINER" --required catena-nextcloud app)
 echo "Found Nextcloud container: $ct"
 
 get_env() {
@@ -74,22 +79,7 @@ nc_has_app() {
     occ app:list --output=json | grep -q "\"$1\":"
 }
 
-# --- 1. Resolve OFFICE_URL from NEXTCLOUD_HOSTNAME ----------------------
-NC_HOSTNAME=$(get_env "$ct" NEXTCLOUD_HOSTNAME)
-if [ -z "$NC_HOSTNAME" ]; then
-    echo "error: NEXTCLOUD_HOSTNAME is not set in the Nextcloud container env." >&2
-    echo "       Check the stack environment for nextcloud-s3 in Portainer." >&2
-    exit 2
-fi
-
-# Drop the leading nextcloud. label to derive the base zone.
-BASE=$(echo "$NC_HOSTNAME" | sed -e 's/^nextcloud\.//')
-if [ -z "$BASE" ] || [ "$BASE" = "$NC_HOSTNAME" ]; then
-    BASE="$NC_HOSTNAME"
-fi
-OFFICE_URL="https://office.$BASE"
-
-# --- 2. Probe office.<base> to detect which editor is deployed ----------
+# --- 1. Probe the office editors to detect which one is deployed --------
 # Internal aliases on catena-network, probed from inside Nextcloud so the
 # right error can be given before any occ command runs:
 #   - Collabora:  collabora:9980     /hosting/discovery -> XML <wopi-discovery>
@@ -111,7 +101,7 @@ alive() {
 
 if alive "$OTHER" && ! alive "$EDITOR"; then
     cat >&2 <<EOF
-error: this button wires $NAME, but office.$BASE is serving $OTHER_NAME.
+error: this button wires $NAME, but $OTHER_NAME is the office editor running.
 
 To switch:
   1. Portainer > App Templates > $OTHER > Stop
@@ -146,9 +136,28 @@ EOF
     exit 4
 fi
 
+# --- 2. Resolve OFFICE_URL from the office container's route -----------
+case "$EDITOR" in
+    collabora)  office_ct=$("$CATENA_CONTAINER" catena-collabora collabora) ;;
+    onlyoffice) office_ct=$("$CATENA_CONTAINER" catena-onlyoffice documentserver) ;;
+esac
+if [ -z "$office_ct" ]; then
+    echo "error: the $NAME container was not found despite the probe passing." >&2
+    echo "       Check Portainer > App Templates > $EDITOR > status." >&2
+    exit 5
+fi
+
+OFFICE_HOST=$(docker inspect -f '{{index .Config.Labels "vps.route.host"}}' "$office_ct")
+if [ -z "$OFFICE_HOST" ]; then
+    echo "error: the $NAME container has no vps.route.host label, so its address is unknown." >&2
+    echo "       Redeploy the $EDITOR template from the app catalog and retry." >&2
+    exit 7
+fi
+OFFICE_URL="https://$OFFICE_HOST"
+
 if alive "$OTHER"; then
     echo "warning: BOTH $NAME and $OTHER_NAME are running. Traefik may"
-    echo "         pick either route for office.$BASE. Stop $OTHER_NAME in"
+    echo "         pick either route for $OFFICE_HOST. Stop $OTHER_NAME in"
     echo "         Portainer to avoid the conflict. Continuing with $NAME..."
 fi
 
@@ -159,15 +168,7 @@ esac
 
 # --- 3. OnlyOffice: read JWT_SECRET from the running documentserver -----
 if [ "$EDITOR" = onlyoffice ]; then
-    ds=$(/usr/local/bin/catena-container catena-onlyoffice documentserver)
-
-    if [ -z "$ds" ]; then
-        echo "error: documentserver container not found despite the healthcheck probe passing." >&2
-        echo "       Check Portainer > App Templates > onlyoffice > status." >&2
-        exit 5
-    fi
-
-    JWT_SECRET=$(get_env "$ds" JWT_SECRET)
+    JWT_SECRET=$(get_env "$office_ct" JWT_SECRET)
     if [ -z "$JWT_SECRET" ]; then
         echo "error: JWT_SECRET is not set in the documentserver container env." >&2
         echo "       Open Portainer > App Templates > onlyoffice > Edit > Environment" >&2
