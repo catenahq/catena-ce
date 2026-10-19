@@ -223,9 +223,10 @@
     _backup_wrapper_present: "{{ catena_payload_missing | length == 0 }}"
 
 - name: Remove the catena-acquire-lock.sh helper
-  # Every unit sharing /run/catena.lock takes it via
-  # `flock -w <t> /run/catena.lock <cmd>` (held for the command's
-  # lifetime, kernel-released on exit or crash). catena-acquire-lock.sh
+  # Every unit sharing /run/catena.lock takes it with a kernel flock
+  # (`flock -w <t> /run/catena.lock <cmd>` or `catena-recovery host-lock -w <t>
+  # -unit %n -- <cmd>`), held for the command's lifetime and released on exit
+  # or crash. catena-acquire-lock.sh
   # treats the file's EXISTENCE as the lock, and against the empty lock file
   # flock leaves it finds no pid to stale-check and spins to its full timeout,
   # so a copy on a host is removed before anything reaches for it.
@@ -340,9 +341,9 @@
     - _backup_wrapper_present | default(false)
   tags: [first_backup]
 
-# Queued, not waited for: the backup unit takes /run/catena.lock (flock in its
-# ExecStart), the lock catena-converge holds while it runs this play from the
-# panel, so waiting here would hold both until the backup's flock timeout. The
+# Queued, not waited for: the backup unit takes /run/catena.lock (host-lock in
+# its ExecStart), the lock catena-converge holds while it runs this play from
+# the panel, so waiting here would hold both until the backup's lock timeout. The
 # queued run starts once the converge releases the lock, and reports like any
 # backup run (its Healthchecks pings, the Backups page).
 - name: "Run first backup inline: queue it for when this converge releases the lock"  # noqa: command-instead-of-module
