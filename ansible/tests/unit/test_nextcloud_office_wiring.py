@@ -85,6 +85,13 @@ def test_onlyoffice_is_wired_to_the_route_of_its_container(tmp_path: Path) -> No
     out, calls = _wire(tmp_path, "onlyoffice", "edit.cloud.example.com")
     assert out.returncode == 0, out.stderr
     assert "config:app:set onlyoffice DocumentServerUrl --value=https://edit.cloud.example.com/" in calls
+    assert "exec --user 33 -e JWT_SECRET nextcloud-ct" in calls
+
+
+def test_the_onlyoffice_jwt_secret_never_reaches_an_argv(tmp_path: Path) -> None:
+    out, calls = _wire(tmp_path, "onlyoffice", "edit.cloud.example.com")
+    assert out.returncode == 0, out.stderr
+    assert "a-jwt-secret" not in calls
 
 
 @pytest.mark.parametrize("editor", ["collabora", "onlyoffice"])

@@ -236,9 +236,9 @@ case "$EDITOR" in
         # StorageUrl="" makes Nextcloud derive the storage URL from its own
         # overwrite.cli.url (its public URL).
         occ config:app:set onlyoffice StorageUrl --value="" >/dev/null
-        # Passed through the exec environment so the secret never appears in
-        # this script's argv on the host.
-        docker exec --user 33 -e JWT_SECRET="$JWT_SECRET" "$ct" \
+        # docker reads the secret from its own environment (-e JWT_SECRET with
+        # no value), so it never appears in an argv on the host.
+        JWT_SECRET="$JWT_SECRET" docker exec --user 33 -e JWT_SECRET "$ct" \
             sh -c "php $NC_ROOT/occ config:app:set onlyoffice jwt_secret --value=\"\$JWT_SECRET\"" \
             >/dev/null
 
