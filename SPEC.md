@@ -370,7 +370,8 @@ them from their backup mode and brings the server up to date with a converge:
 a restore cannot tell whether their data was compromised before the backup was
 taken. A one-application restore holds that application the same way; a move
 to another server holds nothing. After a whole-server restore, backups wait
-until an administrator confirms the backup destination or saves a new one, and
+until an administrator confirms the backup destination or saves a new one (a
+converge meanwhile reports them waiting, not failed), and
 the daily chain's updates and engine upgrade are turned off, with a warning
 on every page, until an administrator turns them back on: a restore never
 treats the repository it read, or the one its settings name, as safe to write
@@ -385,16 +386,19 @@ locked bucket at another provider, and refuses a destination that holds a
 different repository from its source. A bucket comes back from its offsite
 copy into a bucket and keys the administrator names, new ones after a
 compromise, never into the bucket it came from, and the application that used
-it is switched to that bucket. The backup repository comes back the same way:
-backups then either continue in it, with its offsite copy continuing in the
-same locked bucket, or start in a new repository whose copy goes to a new
-folder of that bucket.
+it is switched to that bucket, its settings put back if the switch fails. The
+restore page lists the repositories a locked bucket holds. The backup
+repository comes back the same way: backups then either continue in it, with
+its offsite copy continuing in the same locked bucket once that copy proves to
+hold the same repository, or start in a new repository whose copy goes to a
+new folder of that bucket.
 
 | Invariant | Enforced by |
 | --- | --- |
 | A server rebuilds from only the backup endpoint and key | `bench:dr_suite#stage-19-onbox-store`, `bench:ce_restore`, `bench:recover_secrets_from_running_host`, `threat:CV9` |
 | Backups are encrypted on the host before upload, under a password also kept off the host | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
-| Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore` |
+| Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore`, `bench:erpnext_restore_round_trip` |
+| A bucket put back into a new bucket switches the application that used it | `bench:worm_round_trip` |
 | A restore writes nothing to the repository it reads | `bench:worm_round_trip` |
 | After a restore, the client applications stay stopped until an administrator starts them | `bench:inplace_restore_suite`, `bench:dr_suite` |
 | After a whole-server restore, backups wait for a confirmed or new destination | `bench:rebuild_backs_up_after_restore`, `bench:dr_suite` |
@@ -440,8 +444,10 @@ the maintenance log says no backup stands behind them. The dashboard's
 Schedules page chooses the chain's steps; a server that never chose runs them
 all except the vulnerability watch and the restore test. The restore test
 restores the latest backup into a scratch area and checks it, on its own weekly
-lane or as a step of the chain, never both. An offsite copy of the host's backup
-repository always runs behind a repository check and is refused when it fails;
+lane or as a step of the chain, never both. Once a week it also starts the
+restored databases, Postgres and MariaDB, and Nextcloud on a network of their
+own with no published port, and checks that each opens. An offsite copy of the
+host's backup repository always runs behind a repository check and is refused when it fails;
 an option makes it wait for a restore test of the newest backup too. Leaving
 out the backup or its repository check, scheduling no restore test, leaving out
 the health check before the updates, or leaving out the offsite check is
@@ -456,6 +462,15 @@ including the operating system updates, also after a night that stopped before
 any change, and checks afterwards that every service came back. The chain
 reports to its own alert check and records its result, or the step that
 failed, in the maintenance log.
+
+Jobs that change the server or its backup repository run one at a time:
+backups and their checks, the offsite copy, updates, converges, access changes,
+restores, the daily chain from its first step to its last, the scheduled
+dashboard and firewall syncs, and the backup password and repository actions.
+A scheduled job waits for the one running; a night that cannot start within an
+hour is skipped, reported, and runs again the next night; a change made in the
+dashboard meanwhile answers that the server is busy. Firewall rules are
+reapplied on every container engine start without waiting.
 
 The vulnerability watch runs on its own schedule or as a step of the daily
 chain, never both. It checks the software lists of every running image against
@@ -481,6 +496,8 @@ on every page until it is taken.
 | An unlicensed host schedules no lane at all | `bench:unlicensed_schedules_nothing` |
 | A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
 | A failed backup verification stops the daily chain before any update, while the restore test is in the chain | `bench:daily_chain_verify_hot_fail_aborts_updates` |
+| The weekly restore test starts the restored databases and Nextcloud and checks that each opens | `bench:verify_hot_bootprobe_weekly`, `bench:erpnext_restore_round_trip` |
+| Jobs that change the server or its backup repository run one at a time, and a dashboard change made meanwhile answers busy | `bench:concurrent_backup_lock_contention`, `bench:daily_chain_step_list` |
 | An emergency patch moves a service only to a release within its policy that a host scan shows free of the vulnerability | `threat:CV16` |
 | The applications are in their backup mode for the whole nightly backup and out of it after a failed one | `bench:daily_chain_quiesce_invoked` |
 | The external heartbeat calls out while the monitors answer, names a silent one, and stops when turned off | `bench:external_heartbeat_round_trip` |
