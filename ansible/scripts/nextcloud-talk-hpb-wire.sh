@@ -6,6 +6,9 @@
 # every `occ talk:*:add` is an upsert keyed on the URL/host. Re-clicking
 # the button after a config change picks up the new values.
 #
+# Talk (the spreed app) is installed from Nextcloud's app store when it is
+# missing. An unreachable store ends the run with exit 5 and changes nothing.
+#
 # Auto-detect: the talk-hpb service in the Nextcloud template
 # (catena-templates blueprints/nextcloud-s3-oidc/docker-compose.yml) may be
 # commented out to disable HPB. Probe whether the `signaling` service is
@@ -35,6 +38,29 @@ TURN_HOSTNAME=$(get_env TURN_HOSTNAME)
 TURN_SECRET=$(get_env TURN_STATIC_AUTH_SECRET)
 STUN_HOSTNAME="$TURN_HOSTNAME" # coturn STUN + TURN share the host
 
+run_occ() {
+    docker exec --user 33 "$ct" php /var/www/html/occ "$@"
+}
+
+# Install Talk when it is absent, then enable it (an administrator may have
+# disabled it). A lost store answer after a successful install is covered by
+# checking for the app again.
+ensure_talk() {
+    local out
+    if ! run_occ app:getpath spreed >/dev/null 2>&1; then
+        if ! out=$(run_occ app:install spreed 2>&1); then
+            if ! run_occ app:getpath spreed >/dev/null 2>&1; then
+                echo "Nextcloud could not install Talk from its app store" >&2
+                echo "(apps.nextcloud.com): $(printf '%s\n' "$out" | tail -n 1)" >&2
+                echo "Nothing has been changed. Press this button again once" >&2
+                echo "the server reaches the app store." >&2
+                exit 5
+            fi
+        fi
+    fi
+    run_occ app:enable spreed
+}
+
 # Auto-detect: is the signaling service alive on catena-network? The
 # Nextcloud container is on catena-network so a short curl from inside
 # it is the cheapest probe. aio-talk's signaling layer listens on
@@ -42,6 +68,7 @@ STUN_HOSTNAME="$TURN_HOSTNAME" # coturn STUN + TURN share the host
 # points at the talk-hpb service (set in the Nextcloud template).
 if ! docker exec "$ct" /bin/sh -c \
         "curl -fsS --max-time 3 http://signaling:8081/api/v1/welcome >/dev/null 2>&1"; then
+    ensure_talk
     echo
     echo "HPB signaling service not reachable from Nextcloud."
     echo "If the talk-hpb service in the Nextcloud template is commented"
@@ -92,15 +119,13 @@ if [ "${#missing[@]}" -gt 0 ]; then
     exit 2
 fi
 
+ensure_talk
+
 echo "Wiring Talk + HPB:"
 echo "  signaling:    https://$SIGNALING_HOSTNAME"
 echo "  TURN host:    $TURN_HOSTNAME (UDP+TCP 5349)"
 echo "  STUN host:    $STUN_HOSTNAME:3478"
 echo
-
-run_occ() {
-    docker exec --user 33 "$ct" php /var/www/html/occ "$@"
-}
 
 # Idempotent upserts. `occ talk:turn:add` returns rc=0 even if the
 # entry already exists; the entry is deduplicated by host+port+protocol.
