@@ -112,7 +112,9 @@ The `accounts` leg runs through the provider's login and creates the `ops` and
 `panel` accounts with the installer's key; it closes nothing. The installer
 then logs in again as `ops` with that key, and the `system` leg refuses to
 start until sshd's own record of that session proves it, because its first
-role turns off every other login. After the `system` leg the installer scans
+role turns off every other login. A leg whose connection drops runs to its
+end on the server, which keeps a log of it without the passwords; an install
+run again waits for it to end. After the `system` leg the installer scans
 the public IP's every TCP port against what the server declares, and checks
 that the container network is out of its reach.
 
@@ -135,6 +137,7 @@ dashboard owns.
 | Hardening waits until the server sees the installer's key open an `ops` session | `workflow:ci.yml#installer` |
 | A verb that runs one playbook is named after it | `audit:check-grid` |
 | The installer takes only what reaches and installs a server, and refuses a value the dashboard owns | `workflow:ci.yml#installer`, `bench:ce_install_suite` |
+| An install whose connection drops runs to its end on the server, and an install run again waits for it | `bench:fi_o2_operator_ctrl_c#stage-1b-interrupted-install-ends-on-the-server`, `workflow:ci.yml#installer` |
 
 ## Playbooks
 
@@ -387,7 +390,9 @@ different repository from its source. A bucket comes back from its offsite
 copy into a bucket and keys the administrator names, new ones after a
 compromise, never into the bucket it came from, and the application that used
 it is switched to that bucket, its settings put back if the switch fails. The
-restore page lists the repositories a locked bucket holds. The backup
+switch runs the application's commands once its containers that read the
+bucket run on the new one. The restore page lists the repositories a locked
+bucket holds. The backup
 repository comes back the same way: backups then either continue in it, with
 its offsite copy continuing in the same locked bucket once that copy proves to
 hold the same repository, or start in a new repository whose copy goes to a
@@ -434,8 +439,11 @@ names any of the server's own monitors that stopped answering.
 Around the nightly backup, each application whose compose file declares a
 backup mode is put into it and taken back out, also after a failed backup and
 before a resumed run backs up again; a restore takes restored applications out
-of it. The commands run only inside that application's own container. An
-application left in its backup mode is named in the maintenance log.
+of it. The commands run only inside that application's own container. A
+command still running when its time is up gets as long again, two minutes at
+most, to end, and is then stopped before the next command runs in that
+application. An application left in its backup mode, and a command that had
+to be stopped, are named in the maintenance log.
 
 The daily chain applies updates whether or not a backup is configured, and the
 dashboard warns on every page for as long as none is. While the backups wait
@@ -500,6 +508,7 @@ on every page until it is taken.
 | Jobs that change the server or its backup repository run one at a time, and a dashboard change made meanwhile answers busy | `bench:concurrent_backup_lock_contention`, `bench:daily_chain_step_list` |
 | An emergency patch moves a service only to a release within its policy that a host scan shows free of the vulnerability | `threat:CV16` |
 | The applications are in their backup mode for the whole nightly backup and out of it after a failed one | `bench:daily_chain_quiesce_invoked` |
+| A backup-mode command that outlives its time has ended before the next one runs | `bench:app_declarations_travel_with_the_app#stage-6b-a-backup-mode-past-its-time-ends-first` |
 | The external heartbeat calls out while the monitors answer, names a silent one, and stops when turned off | `bench:external_heartbeat_round_trip` |
 
 ### The release manifest -- written last, by both converge paths
@@ -537,7 +546,9 @@ The dashboard deploys applications from a catalogue resolved per host: domain
 names, sign-on, and a password per application generated on the host. Per-app
 compose lives in `catena-templates`; this repository owns the wiring that makes
 the suite one product: mail, chat and video calling, file and office
-integration, the antivirus watch and delivery canaries.
+integration, the antivirus watch and delivery canaries. The action that wires
+Nextcloud Talk to the call relay installs Talk from Nextcloud's app store when
+it is missing, and changes nothing when the store cannot be reached.
 
 The host's sync lane, which sets up each application's sign-in and keeps
 mailboxes in line with the sign-on groups, reaches the identity provider
@@ -577,6 +588,7 @@ name.
 | An application keeps the backup mode, update steps and restore steps it was deployed with; the server needs no catalogue to back it up, update it or restore it | `bench:app_declarations_travel_with_the_app` |
 | Monitoring probes each shared service, Beszel's hub included | `bench:gatus_probes_beszel_hub` |
 | Mail settings changed in the sign-in realm's own Email tab survive a converge and a change of the panel's outgoing mail | `bench:realm_hand_edits_survive_converge` |
+| The Talk action installs Talk and wires it to the call relay and the signalling server, or changes nothing | `bench:suite_wiring_commands#stage-talk-hpb-wired`, `workflow:ci.yml#installer` |
 
 ## CI
 
