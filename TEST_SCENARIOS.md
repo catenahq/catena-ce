@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 205 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 206 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -54,7 +54,7 @@ The 205 scenarios the maintainers' test bench carries, and the behaviour each on
 | `daily_chain_quiesce_invoked` | The nightly maintenance puts each application that asks for it into its backup mode before the backup and back out after it, also when the backup fails, and leaves a removed application alone. |
 | `daily_chain_reboot_round_trip` | The nightly maintenance restarts a host whose installed updates wait for a restart, and checks that everything running before it came back. |
 | `daily_chain_resumes_after_reboot` | A daily maintenance chain cut short by a reboot resumes when the host comes back, on a licensed host whose daily schedule is on. |
-| `daily_chain_step_list` | The nightly maintenance runs only the steps kept on in its schedule, warns about, forces or refuses the unsafe combinations, runs the restore test as a step or on its own schedule and never both, reports every night through its own alert check and the maintenance log, and restarts the server only once no other scheduled work holds it. |
+| `daily_chain_step_list` | The nightly maintenance runs only the steps kept on in its schedule, warns about, forces or refuses the unsafe combinations, runs the restore test as a step or on its own schedule and never both, reports every night through its own alert check and the maintenance log, and holds the host lock for the whole night, skipping a night that cannot take it. |
 | `daily_chain_updates_without_backup` | Container updates still run on a server with no backup configured, behind the same health gate, and the maintenance log says no backup stands behind them. |
 | `daily_chain_verify_cold_blocks_mirror` | A failed cold-storage verification stops the offsite copy from pushing, so a bad archive is never propagated. |
 | `daily_chain_verify_cold_fail_configurable` | Whether a failed cold-storage verification blocks the update tail of the daily chain follows the host configuration rather than being hard- wired. |
@@ -76,6 +76,7 @@ The 205 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ee_multidomain` | A second, unrelated domain is attached to a licensed host, both domains are served through the one tunnel, a gated app on each domain sends its visitors to its own domain's sign-on with cookies scoped to its own host, and a person signs in through the second domain's own sign-on. |
 | `ee_named_buttons` | Each licensed maintenance button dispatches its own distinct action rather than sharing one. |
 | `erpnext_failed_migrate_rolls_back` | When an ERPNext update's database migration fails, the previous version and its database are put back and the site keeps serving. |
+| `erpnext_restore_round_trip` | Putting ERPNext back from a backup restores its data and its administrator's sign-in, whether the Restore page restores ERPNext alone or the whole server, and the weekly deep verification boots ERPNext's database. |
 | `erpnext_update_migrates` | An ERPNext update moves every ERPNext service to the new version in one step and migrates the database, and the site comes back serving. |
 | `error_reports_opt_in` | A paid server sends Catena support nothing until its administrator switches error reports on with a consent, then sends one report per change with only the listed fields, lists each report in the panel, and sends nothing after it is switched off. |
 | `espocrm_custom_survives_update` | What an administrator builds in EspoCRM with its admin screens, a field and a layout, and a file in its customization volume, are still there after an update that is rolled back and after one that is kept, and the job runner keeps running its scheduled jobs. |
