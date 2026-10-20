@@ -100,8 +100,9 @@
       Verified by the aggregate post-role probe in main.yml.
 
 # When 00-base.yaml changes, restart Gatus so the new endpoints / alert
-# config take effect (Gatus loads config only at startup).
-# 50-catena-apps.yaml restart-triggering is owned by gatus-sync itself.
+# config take effect before the converge ends (Gatus would otherwise pick
+# them up at its next look at the config directory). The converge holds the
+# host lock here, so no update window meets the restart.
 #
 # Swarm owns the task, so the restart goes through the service: its
 # stop-first update stops the old task before the new one binds the

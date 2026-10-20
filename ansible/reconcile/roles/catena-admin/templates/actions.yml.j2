@@ -252,7 +252,8 @@ actions:
     #     (groups/providers/apps/bindings). The Apps-tab tile grid is
     #     rendered live from the Portainer API, so it does not need a
     #     sync step.
-    #   - gatus-sync: Gatus endpoint catalog + restart Gatus if changed.
+    #   - gatus-sync: Gatus endpoint catalog, which Gatus reads again
+    #     within about 30 seconds.
     #
     # A run already in flight (systemd joins a start of an active oneshot)
     # may have begun before the change this press is for, so each sync
