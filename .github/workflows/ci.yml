@@ -144,6 +144,9 @@ jobs:
       - name: Repo rules (no tracked env file; .gitignore carries the env rule)
         working-directory: ./catena-ce
         run: node ../contracts/scripts/check-repo-rules.mjs
+      - name: Core app names (debt in .github/core-app-names-debt.json)
+        working-directory: ./catena-ce
+        run: node ../contracts/scripts/check-core-app-names.mjs ansible/
       # Pinned in contracts/.vale-version, which check-prose.mjs also
       # reads and enforces: the grammars decide which comments are
       # visible, so a different version is a different gate.
