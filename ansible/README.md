@@ -40,6 +40,10 @@ its own SSH session:
   - **validate** -- the on-host checks (vantages 1 and 2). The installer then
     checks the server from the client's machine.
 
+Each leg's output is kept on the server in `/var/lib/catena/install/logs`, and
+a leg whose connection drops carries on to its end there. The starter holds
+`/run/catena-install.lock` through a leg, so a rerun waits for it.
+
 The public port 22 stays open after the install.
 
 - **reconcile** -- what the host's own converge runs, from the tree in the

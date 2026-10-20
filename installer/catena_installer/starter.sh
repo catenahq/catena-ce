@@ -7,6 +7,11 @@
 # the install of any release: every version-specific step is the fetched
 # tree's own.
 #
+# An install of this server runs one at a time: a leg takes
+# /run/catena-install.lock before it fetches and install-host.sh keeps it to
+# its end, so a rerun after a dropped connection waits for the leg still
+# running and never removes the tree it runs from.
+#
 # usage: starter.sh [--no-fetch] [fetch_release.py arguments] -- <install-host.sh arguments>
 #   --no-fetch  run the tree an earlier leg of this install fetched
 set -euo pipefail
@@ -31,6 +36,12 @@ while [ $# -gt 0 ]; do
         *) fetch_args+=("$1"); shift ;;
     esac
 done
+
+exec 8>>/run/catena-install.lock
+if ! flock -n 8; then
+    say "waiting for an earlier install on this server to end"
+    flock -w 3600 8 || { say "an earlier install held /run/catena-install.lock for an hour"; exit 1; }
+fi
 
 missing=()
 for pkg in python3 python3-venv sudo ca-certificates; do

@@ -19,6 +19,11 @@
 #
 # `uninstall` runs playbooks/uninstall.yml alone.
 #
+# Each leg's output goes to the session and to its log under
+# /var/lib/catena/install/logs. A session that ends leaves the leg running to
+# its end on the server, and the converge frees the host lock when it ends.
+# The passwords block reaches the session alone, never the log.
+#
 # usage: install-host.sh --leg accounts|system|uninstall --image REF
 #          --name NAME --ops-user USER --ops-key FILE --env-file FILE
 #          [--adopt-file FILE] [--address A] [--session "$SSH_CONNECTION"]
@@ -66,10 +71,33 @@ for required in image name ops_user ops_key env_file; do
 done
 [ "$(id -u)" -eq 0 ] || usage "run as root"
 
+# fd 3 is the session's own stdout. tee -p keeps writing the log after the
+# session is gone, so every step runs to its end; the newest ten logs of the
+# leg are kept.
+logs=/var/lib/catena/install/logs
+install -d -m 0700 "$logs"
+log="$logs/$leg-$(date -u +%Y%m%dT%H%M%SZ).log"
+install -m 0600 /dev/null "$log"
+mapfile -t old_logs < <(ls -1r "$logs/$leg"-*.log | tail -n +11)
+[ "${#old_logs[@]}" -eq 0 ] || rm -f "${old_logs[@]}"
+exec 3>&1
+trap '' PIPE
+tee_pid=""
+start_log() { exec > >(tee -p -a "$log" 3>&- 8>&-) 2>&1; tee_pid=$!; }
+# Waits for tee to write everything sent to it; a child still holding the
+# pipe open ends the wait after 20 seconds.
+await_tee() {
+    { sleep 20; kill "$tee_pid"; } >/dev/null 2>&1 3>&- 8>&- &
+    local watchdog=$!
+    wait "$tee_pid" || true
+    kill "$watchdog" 2>/dev/null || true
+}
+start_log
+
 # The inputs arrive in the login account's upload directory. They are copied
 # here and the originals removed at once: the adopt file can hold a password.
 work="$(mktemp -d /var/lib/catena/install/run.XXXXXX)"
-trap 'rm -rf "$work"' EXIT
+trap 'rc=$?; rm -rf "$work"; exec >&- 2>&-; await_tee; exit "$rc"' EXIT
 install -m 0600 "$ops_key" "$work/ops.pub"
 install -m 0600 "$env_file" "$work/env"
 extra=(-e "@$work/vars.json")
@@ -131,7 +159,7 @@ cd "$ansible_dir"
 
 play() {
     say "running playbooks/$1"
-    "$venv/bin/ansible-playbook" -i "$inventory" "playbooks/$1" "${@:2}"
+    "$venv/bin/ansible-playbook" -i "$inventory" "playbooks/$1" "${@:2}" 3>&- 8>&-
 }
 
 if [ "$leg" = accounts ]; then
@@ -171,9 +199,14 @@ PY
 )"
     rm -rf "$keyset_dir"
 fi
+# The block goes to the session alone, once tee has passed on every earlier
+# line, and tee starts again after it. A closed session costs this print only.
 show_keyset() {
     if [ -n "$keyset" ]; then
-        printf '%s\n%s\n%s\n' "$KEYSET_BEGIN" "$keyset" "$KEYSET_END"
+        exec >&3 2>&3
+        await_tee
+        printf '%s\n%s\n%s\n' "$KEYSET_BEGIN" "$keyset" "$KEYSET_END" || true
+        start_log
     else
         say "the passwords could not be shown; running the install again shows them"
     fi
@@ -198,7 +231,7 @@ converge=()
 # new server and the panel's update lane. A converge scoped by --tags applied
 # part of a version, which is not one to record.
 if [ -z "$tags" ]; then
-    /usr/local/bin/catena-stack-update-managed pin --image "$image"
+    /usr/local/bin/catena-stack-update-managed pin --image "$image" 3>&- 8>&-
 fi
 
 validated=0
