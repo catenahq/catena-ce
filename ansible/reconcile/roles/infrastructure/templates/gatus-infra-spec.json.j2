@@ -1,8 +1,8 @@
 {# One entry per infrastructure endpoint; catena-gatus-sync (catena-admin
    payload) writes each as an endpoint of 40-infra.yaml.
 
-   version_key is the catena-version-check row whose version the endpoint name
-   carries: the last path segment of the image the service runs
+   version_key is the catena-version-check row whose title the endpoint is
+   named by: the last path segment of the image the service runs
    (quay.io/phasetwo/phasetwo-keycloak -> phasetwo-keycloak).
 
    An entry that reaches its service through the public edge, at a name under
@@ -76,7 +76,7 @@
   },
 {# The Keycloak and Beszel consoles at the hosts their panel tiles link to: the
    panel pairs a tile with the endpoint whose newest probe asked the tile's
-   host. The version sits on the in-network probes below, so these carry none
+   host. The in-network probes below carry the title, so these carry none
    (two endpoints cannot share a name). Keycloak's realm discovery document is
    public by design and answers 200 while it serves; Beszel's host sits behind
    oauth2-proxy and answers the sign-in redirect. #}

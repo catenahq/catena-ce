@@ -135,8 +135,8 @@ def test_the_keycloak_and_beszel_hosts_the_panel_tiles_link_to_are_probed():
     assert beszel["ignore_redirect"] is True
 
 
-def test_the_public_console_probes_carry_no_version():
-    """The in-network probe names the service with its version; a second
+def test_the_public_console_probes_carry_no_version_key():
+    """The in-network probe is named by the service's title; a second
     endpoint with the same name would collide in Gatus."""
     for host in (f"auth.{ZONE}", f"beszel.{ZONE}"):
         assert _entry(host)["version_key"] is None

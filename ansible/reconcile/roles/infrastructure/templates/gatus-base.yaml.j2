@@ -3,7 +3,7 @@
 # written by catena-gatus-sync on its timer:
 #   40-infra.yaml           one endpoint per entry of gatus-infra-spec.json
 #                           (reconcile/roles/infrastructure/templates/
-#                           gatus-infra-spec.json.j2), named with its version.
+#                           gatus-infra-spec.json.j2), named by its title.
 #   50-catena-apps.yaml     one public endpoint per routed client app.
 #   99-<anything>.yaml      operator-added, never touched by either.
 #
@@ -16,10 +16,11 @@
 # An internal endpoint (a service's network alias) tests the service itself.
 # Gatus holds no credentials.
 #
-# Endpoint naming: an infrastructure endpoint is named by its image and the
-# version catena-version-check reports for it, or by its spec entry's label
-# while the report has no row for it; a client app's endpoint by the app's
-# title or host, in the app's group. The alert body (alerting.custom below)
+# Endpoint naming: an infrastructure endpoint is named by the title
+# catena-version-check gives its image, or by its spec entry's label while the
+# report has no row for it; a client app's endpoint by the app's title or
+# host, in the app's group. A name holds no version, so an endpoint keeps its
+# history across upgrades. The alert body (alerting.custom below)
 # carries `<group> / <name>`, enough to identify what is down without opening
 # the status page.
 
@@ -41,12 +42,9 @@ ui:
   description: "{{ _labels.live_status }} {{ inventory_hostname }}"
   header: "{{ cloudflare_zone }}"
   default-sort-by: group
-  # Dashboard subheading explains the `<version>` (angle-bracket)
-  # convention catena-gatus-sync uses on service cards for images the
-  # automatic updates do not manage. Single-line quoted scalar on purpose:
-  # YAML folded-block (`>-`) + Jinja whitespace stripping fuses the
-  # next top-level key into the subheading text.
-  dashboard-subheading: "Services with their version shown in < > are not updated automatically. Click on any service for more details."
+  # Single-line quoted scalar on purpose: YAML folded-block (`>-`) + Jinja
+  # whitespace stripping fuses the next top-level key into the subheading text.
+  dashboard-subheading: "Click on any service for more details."
 
 alerting:
   # Gatus pipes every alert to Healthchecks rather than to a channel of its
@@ -95,8 +93,7 @@ alerting:
 
 # The infrastructure endpoints live in 40-infra.yaml, which
 # catena-gatus-sync writes from gatus-infra-spec.json so that each endpoint
-# NAME carries the current/latest version from
-# /var/lib/catena/version-check.json. Gatus merges the `endpoints:` lists of
+# NAME is the title /var/lib/catena/version-check.json gives its image. Gatus merges the `endpoints:` lists of
 # the 40-/50-/99- siblings with the one below.
 #
 # The self-check below is the ONE endpoint 00-base.yaml must always
