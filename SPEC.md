@@ -443,7 +443,9 @@ of it. The commands run only inside that application's own container. A
 command still running when its time is up gets as long again, two minutes at
 most, to end, and is then stopped before the next command runs in that
 application. An application left in its backup mode, and a command that had
-to be stopped, are named in the maintenance log.
+to be stopped, are named in the maintenance log. An update holds the
+application's own commands to their time the same way: a command stopped
+before the update refuses it, and a stopped migration rolls the update back.
 
 The daily chain applies updates whether or not a backup is configured, and the
 dashboard warns on every page for as long as none is. While the backups wait
@@ -537,8 +539,11 @@ the backup, so every snapshot names the version that produced its data.
 A restore compares the snapshot's stamp with the host's: a newer snapshot is
 refused, because a newer database directory does not open under an older
 database; an older one needs an explicit upgrade; two stamps that cannot be
-ordered are refused. A move between two servers is refused unless both run
-the same version.
+ordered are refused. An upgrade runs each restored application's declared
+migration once its data is back, and never stops one part-way, since a half
+migration cannot be undone: it waits for it, half an hour at least, and
+reports one still running then. A move between two servers is refused unless
+both run the same version.
 
 ## Applications
 
@@ -567,7 +572,9 @@ added in Healthchecks.
 Each shared service answers on `<subdomain>.<domain>`: `auth` (the sign-on),
 `dash` (the dashboard), `portainer`, `gatus`, `healthchecks` and `beszel`. Each
 subdomain is a setting in the dashboard; a host with none stored uses that
-name.
+name. Gatus names each service it monitors without its version, so a service
+keeps its history across updates; the dashboard shows administrators the
+versions.
 
 | Invariant | Enforced by |
 | --- | --- |
