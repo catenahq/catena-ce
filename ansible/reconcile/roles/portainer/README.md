@@ -5,13 +5,14 @@ env + logs + lifecycle API the client apps are deployed through. Routing
 stays with `catena-traefik` (Portainer does no reverse proxy).
 
 This role deploys `catena-portainer` (swarm service on its own overlay,
-`portainer_network`, shared with its sign-in gate and the panel only, docker
+`portainer_network`, shared with its sign-in gate only, docker
 socket, `/data` BoltDB volume, admin via `--admin-password-file`, UI on this
 host's loopback only, reached through the `panel` account's SSH forward or,
 once a domain is set, SSO-gated through the tunnel). It moves a service found
 on any other network onto that overlay. It mints the
 `portainer_api_key` the converge drives Portainer with, provisions the local
-Docker environment, and points App Templates at this host's catalog. See
+Docker environment, and runs `catena-apps adopt`, which gives every client stack
+Portainer holds an application folder (catena-admin `payload/engines/apps`). See
 `defaults/main.yml` + `tasks/main.yml`.
 
 ## Verified Portainer API endpoint map
@@ -47,7 +48,7 @@ below. Most blog/gist snippets use that form and are wrong.
 | --- | --- |
 | Create compose-stack | `POST /api/stacks/create/standalone/string?endpointId={id}` `{Name, StackFileContent, Env}` |
 | Create swarm-stack | `POST /api/stacks/create/swarm/string?endpointId={id}` `{Name, StackFileContent, Env, SwarmID}` |
-| Create from git (App Templates) | `POST /api/stacks/create/{standalone|swarm}/repository?endpointId={id}` `{Name, RepositoryURL, ComposeFilePathInRepository, Env}` |
+| Create from git | `POST /api/stacks/create/{standalone|swarm}/repository?endpointId={id}` `{Name, RepositoryURL, ComposeFilePathInRepository, Env}` |
 | Update + redeploy | `PUT /api/stacks/{id}?endpointId={id}` `{StackFileContent, Env, PullImage:true, Prune:false}` |
 | Start / Stop stack | `POST /api/stacks/{id}/{start|stop}?endpointId={id}` |
 | List / Get / Remove | `GET /api/stacks` / `GET /api/stacks/{id}` / `DELETE /api/stacks/{id}?endpointId={id}` |
@@ -62,22 +63,7 @@ Stacks have no project grouping: group by stack Name prefix and enumerate
 `GET /api/stacks`. There is no domain API either -- routing is our Traefik
 file-provider routes (`app-route.yml.j2` / dashboard-sync).
 
-### App Templates (client self-serve marketplace) -- templates.json v3
-Entry for a catalog app (`render.py` re-target target):
-```json
-{ "type": 3, "title": "...", "description": "...", "categories": ["..."],
-  "platform": "linux", "logo": "https://.../logo.png", "note": "<p>ok</p>",
-  "repository": { "url": "https://github.com/catenahq/<templates-repo>",
-                  "stackfile": "blueprints/<id>/docker-compose.yml" },
-  "env": [ { "name": "PORT", "label": "Port", "default": "5006",
-             "select": [ { "text": "A", "value": "a", "default": true } ] } ] }
-```
-- `type 3` = compose-stack, deployed FROM a git repo (not inline); requires
-  Compose format **version "2"**; env has **no secret generator** (pre-seed
-  generated secrets into `env.default` in `render.py`); App Templates do **not**
-  create routes (route on new-stack event).
-
-Sources: docs.portainer.io/api/access, /advanced/app-templates/format,
+Sources: docs.portainer.io/api/access,
 github.com/portainer/portainer-skills (portainer-api/references/stacks.md),
 portainer discussions #12670 (the untyped create form's removal),
 hub.docker.com/r/portainer/portainer-ce.

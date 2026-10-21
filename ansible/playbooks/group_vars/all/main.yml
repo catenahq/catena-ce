@@ -186,8 +186,7 @@ beszel_network: "catena-beszel"
 
 # The overlay Portainer is on, instead of catena-network. Its login takes the
 # shared admin password, so only its callers join: its sign-in gate
-# (reconcile/roles/oauth2_proxy) and the panel, whose App Templates catalog
-# Portainer reads (reconcile/roles/catena-admin). Everything on the host reaches
+# (reconcile/roles/oauth2_proxy). Everything on the host reaches
 # it at portainer_api_base_onbox. reconcile/roles/swarm creates it beside
 # healthchecks_network; catena-admin payload/engines/tier1 catalog.go names the
 # same overlay for the service it creates.
@@ -350,6 +349,10 @@ catena_baseline_packages:
   # git fetches the applications catena-apps adds from a repository, as the
   # unprivileged catena-git user (reconcile/roles/host_maintenance).
   - git
+  # certbot with its Cloudflare DNS plugin issues the DNS-01 certificates the
+  # applications declare (catena-admin payload/engines/appneeds).
+  - certbot
+  - python3-certbot-dns-cloudflare
 
 # --- apt and the OS update configuration ---
 # Written by playbooks/tasks/apt_settings.yml and reconcile/roles/
@@ -453,8 +456,7 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # service.
 catena_admin_service_name: "catena-admin"
 
-# What the shell binds. reconcile/roles/portainer builds the App Templates URL
-# from the name and this port, long before reconcile/roles/catena-admin runs.
+# What the shell binds.
 catena_admin_internal_port: 8000
 
 # The distroless image's `USER nonroot:nonroot`. bootstrap/roles/catena_admin_host

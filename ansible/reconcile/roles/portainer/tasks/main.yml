@@ -341,56 +341,46 @@
     - portainer_api_key | length > 10
     - (_pt_endpoints.json | default([]) | selectattr('Name', 'equalto', portainer_local_endpoint_name) | list | length) == 0
 
-# --- App Templates catalog (the client's self-serve marketplace) -------------
-# Point Portainer at THIS HOST's catalog rather than Portainer's own built-in
-# one. Two things follow from doing it here:
-#
-#   1. The client sees the Catena apps at all. Left unset, App Templates lists
-#      Portainer's public catalog, and nothing a client deploys from it knows
-#      about this host's SSO, routing or backups.
-#   2. The env form they fill in before clicking Deploy carries this host's
-#      real values. The PUBLIC catalog cannot: catenahq/catena-templates ships
-#      one templates.json for every client, so every secret in it renders to
-#      the __CATENA_OPERATOR_WIRED__ placeholder. Deploying that verbatim gives
-#      the app a database password every reader of a public repo knows, and by
-#      the time anything could correct it Postgres has already initialised with
-#      it. catena-admin serves the resolved copy; see catena-admin
-#      shell/marketplace.
-#
-# Reconciled, not created once: the token in the path changes if the store is
-# re-minted, and a stale URL 404s rather than falling back to anything.
-- name: "portainer: read settings"
-  ansible.builtin.uri:
-    url: "{{ portainer_api_base_onbox }}/settings"
-    method: GET
-    headers:
-      X-API-Key: "{{ portainer_api_key }}"
-    status_code: 200
-    return_content: true
-  register: _pt_settings
+# --- client stacks become application folders -------------------------------
+# `catena-apps adopt` (catena-admin payload/engines/apps) gives every client
+# stack Portainer holds a folder under /srv/catena/compose -- its file, its Env
+# as the .env, the catalog tag its file equals -- and redeploys it from there,
+# which is how a stack a client deployed through Portainer joins the backup's
+# plain copy and the update lane's folder path. A stack it cannot take is
+# reported and stays on Portainer; the next converge tries again, and a stack
+# that has a folder is left as it is. -held: this converge holds
+# /run/catena.lock for the whole play, so the verb must not wait for it. The
+# verb reads Portainer's key from the on-box store, where the mint above wrote
+# it, so no secret rides the command line or the environment; the output is
+# hidden because the redeploy of a stack with credentials in its Env is part of
+# it.
+- name: "portainer: is catena-apps installed"
+  ansible.builtin.stat:
+    path: /usr/local/bin/catena-apps
+  register: _pt_apps_bin
+
+- name: "portainer: adopt the client stacks as application folders"
+  ansible.builtin.command:
+    argv: [/usr/local/bin/catena-apps, adopt, -held]
+  environment:
+    PORTAINER_API_BASE: "{{ portainer_api_base_onbox }}"
+  register: _pt_adopt
+  changed_when: _pt_adopt.rc == 0 and ((_pt_adopt.stdout | from_json).adopted | length) > 0
   failed_when: false
   no_log: true
   when:
+    - _pt_apps_bin.stat.exists
     - portainer_api_key is defined
     - portainer_api_key | length > 10
-    - catena_marketplace_token | default('') | length > 0
 
-- name: "portainer: point App Templates at this host's catalog"
-  ansible.builtin.uri:
-    url: "{{ portainer_api_base_onbox }}/settings"
-    method: PUT
-    headers:
-      X-API-Key: "{{ portainer_api_key }}"
-    body_format: json
-    # The PUT replaces the settings document, so it is built from what the GET
-    # returned rather than from this one field. Sending the field alone resets
-    # every other setting to its zero value.
-    body: "{{ _pt_settings.json | combine({'TemplatesURL': portainer_templates_url}) }}"
-    status_code: 200
-  no_log: true
+- name: "portainer: the adoption failed"
+  ansible.builtin.fail:
+    msg: "catena-apps adopt exited {{ _pt_adopt.rc }}: {{ _pt_adopt.stderr_lines | default([]) | join(' | ') }}"
+  when: _pt_adopt.rc | default(0) != 0
+
+- name: "portainer: say which stacks stay on Portainer"
+  ansible.builtin.debug:
+    msg: "stays on Portainer: {{ (_pt_adopt.stdout | from_json).refused | map(attribute='stack') | join(', ') }}; {{ _pt_adopt.stderr_lines | join(' | ') }}"
   when:
-    - portainer_api_key is defined
-    - portainer_api_key | length > 10
-    - catena_marketplace_token | default('') | length > 0
-    - _pt_settings.json is defined
-    - (_pt_settings.json.TemplatesURL | default('')) != portainer_templates_url
+    - _pt_adopt.rc | default(1) == 0
+    - (_pt_adopt.stdout | from_json).refused | length > 0

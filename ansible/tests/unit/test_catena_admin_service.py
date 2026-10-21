@@ -326,16 +326,15 @@ def test_the_reconcile_checks_that_it_settled():
 
 
 def test_the_converge_joins_the_private_networks():
-    """Healthchecks and Portainer are each on their own network and nowhere
-    else, so a panel left off one reads no checks or no catalog. Beszel's hub
-    is not read by the panel."""
+    """Healthchecks is on its own network and nowhere else, so a panel left off
+    it reads no checks. Beszel's hub and Portainer are not read by the panel."""
     spec = next(
         t["ansible.builtin.set_fact"]["_ca_spec"]
         for t in _deploy_tasks()
         if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {})
     )
     assert "{{ healthchecks_network }}" in spec["networks"]
-    assert "{{ portainer_network }}" in spec["networks"]
+    assert "{{ portainer_network }}" not in spec["networks"]
     assert "{{ beszel_network }}" not in spec["networks"]
 
 

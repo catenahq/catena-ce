@@ -199,12 +199,6 @@ value -- silently, since a fact outranks a role default.
 More blocks of the store hold credentials, each with one writer, and ride
 the backup with the rest of the file:
 
-- `client_app_secrets`: the catalog apps' per-deploy credentials (database
-  and admin passwords, session keys, the Talk and Jitsi secrets), keyed
-  `<template-id>/<ENV_KEY>`. The panel's catalog render asks for each by
-  length and character set; `onbox_config.py` `ensure_app_secrets` mints it
-  once and returns the stored value after that. The converge reads none of
-  them.
 - `offsite_copies`: the source and target keys of each offsite copy, written
   by catena-admin (`payload/engines/offsite`).
 - `app_repositories` and `app_repository_tokens`: the git repositories a
@@ -245,7 +239,7 @@ matching credential at converge.
   moving that boundary, so no encryption tool and no client-held key are in
   play at all.
 - **Single config file format.** RESOLVED: JSON at `/etc/catena/config.json`
-  (0600 root). `helpers/onbox_config.py` owns three sections (`secrets`,
-  `config`, `client_app_secrets`) and keeps the blocks other writers own.
+  (0600 root). `helpers/onbox_config.py` owns two sections (`secrets`,
+  `config`) and keeps the blocks other writers own.
   Both the settings-write API and the converge read/write it atomically
   (temp-file + `os.replace`) through it.

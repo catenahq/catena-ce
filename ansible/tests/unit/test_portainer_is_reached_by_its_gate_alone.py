@@ -1,5 +1,5 @@
 """No client app container reaches Portainer's login: Portainer is on its own
-overlay, joined by its sign-in gate and the panel alone, never catena-network
+overlay, joined by its sign-in gate alone, never catena-network
 (CV2). The host's own callers reach it on the loopback publish.
 
 The converge moves a Portainer it finds on any other network onto that
@@ -44,12 +44,10 @@ def test_only_portainers_gate_joins_it():
     assert gate["upstream_alias"] == "catena-portainer"
 
 
-def test_the_panel_joins_it_for_portainer_to_read_its_catalog():
+def test_the_panel_does_not_join_it():
     tasks = _tasks(ROLES / "catena-admin" / "tasks" / "deploy.yml")
     spec = next(t for t in tasks if "build the service spec" in t.get("name", ""))
-    assert NETWORK in spec["ansible.builtin.set_fact"]["_ca_spec"]["networks"]
-    defaults = (ROLES / "portainer" / "defaults" / "main.yml").read_text()
-    assert "http://{{ catena_admin_service_name }}:" in defaults
+    assert NETWORK not in spec["ansible.builtin.set_fact"]["_ca_spec"]["networks"]
 
 
 def test_a_portainer_on_catena_network_is_moved():

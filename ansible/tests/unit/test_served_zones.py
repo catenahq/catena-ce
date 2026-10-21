@@ -255,16 +255,14 @@ def test_only_a_secondary_domain_gets_a_cookie_secret_of_its_own():
 def test_dashboard_sync_reaches_keycloak_through_the_panel_on_loopback(case):
     """dashboard-sync runs on the host, where keycloak-server does not resolve,
     and the public auth host is a round trip through Cloudflare and the tunnel.
-    catena-admin forwards the calls on its published loopback port, behind the
-    token the managed env uses, on every host whatever domains it serves."""
+    catena-admin forwards the calls on its published loopback port, behind a
+    per-host token, on every host whatever domains it serves."""
     zone, registered, _, _ = CASES[case]
     rendered = _sync_env(zone, _secondaries(registered))
     base = "http://127.0.0.1:9010/keycloak"
     assert _env_value(rendered, "KEYCLOAK_TOKEN_URL") == (
         f"{base}/realms/vps/protocol/openid-connect/token")
     assert _env_value(rendered, "KEYCLOAK_CLIENTS_API") == f"{base}/admin/realms/vps/clients"
-    assert _env_value(rendered, "CATENA_MANAGED_ENV_URL") == (
-        "http://127.0.0.1:9010/marketplace/managed-env.json")
     assert _env_value(rendered, "CATENA_MARKETPLACE_TOKEN") == "market-token"
 
 
@@ -272,20 +270,23 @@ def test_the_marketplace_token_is_in_no_url():
     """dashboard-sync prints a failed call's URL to its journal, which the
     converge log and the panel's Sync all output copy. The token rides its own
     line, which the lane sends as a request header (catena-admin
-    payload/lib/portainer_api.py panel_headers)."""
+    payload/lib/http_util.py panel_headers)."""
     rendered = _sync_env(PRIMARY, [])
     carrying = [ln.split("=", 1)[0] for ln in rendered.splitlines()
                 if "market-token" in ln and not ln.startswith("#")]
     assert carrying == ["CATENA_MARKETPLACE_TOKEN"]
 
 
-def test_no_marketplace_token_means_no_managed_env_url():
-    """A host whose converge has not minted the token yet has nothing the
-    panel would answer, so the lane reconciles nothing rather than failing on
-    every run."""
+def test_no_marketplace_token_renders_an_empty_token():
+    """A host whose converge has not minted the token yet renders it empty,
+    which the panel's forward refuses."""
     rendered = _sync_env(PRIMARY, [], {"catena_marketplace_token": ""})
-    assert _env_value(rendered, "CATENA_MANAGED_ENV_URL") == ""
     assert _env_value(rendered, "CATENA_MARKETPLACE_TOKEN") == ""
+
+
+def test_the_env_names_no_managed_env_url():
+    rendered = _sync_env(PRIMARY, [])
+    assert "CATENA_MANAGED_ENV_URL" not in rendered
 
 
 def test_catena_hostnames_is_every_address_catena_answers_on():

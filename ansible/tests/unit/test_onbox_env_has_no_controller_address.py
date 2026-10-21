@@ -69,16 +69,15 @@ def test_onbox_env_does_not_reference_the_controller_base(rel):
         )
 
 
-def test_the_managed_env_url_is_one_the_host_can_resolve():
+def test_the_keycloak_urls_are_ones_the_host_can_resolve():
     """dashboard-sync runs as a host unit, and a swarm service name resolves
-    only inside the overlay. Pointed at catena-admin:8000 the fetch failed on
-    every run, the lane logged a warning and moved on, and no stack env ever
-    followed a rotation or a domain change."""
+    only inside the overlay: the panel's published loopback port is the address
+    it reaches Keycloak through."""
     text = (_ANSIBLE / _ONBOX_ENV_TEMPLATES[0]).read_text()
-    line = next(l for l in text.splitlines()
-                if l.startswith("CATENA_MANAGED_ENV_URL="))
-    assert "http://127.0.0.1:{{ catena_admin_ui_port }}/marketplace/managed-env.json" in line, line
-    assert "catena_admin_service_name" not in line, line
+    for name in ("KEYCLOAK_TOKEN_URL", "KEYCLOAK_CLIENTS_API"):
+        line = next(l for l in text.splitlines() if l.startswith(name + "="))
+        assert f"{name}=http://127.0.0.1:{{{{ catena_admin_ui_port }}}}/keycloak/" in line, line
+        assert "catena_admin_service_name" not in line, line
 
 
 def test_no_role_template_renders_the_controller_address():

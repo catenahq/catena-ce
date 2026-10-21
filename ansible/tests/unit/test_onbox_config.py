@@ -29,7 +29,7 @@ def oc():
 # --- load / dump ------------------------------------------------------------
 def test_load_absent_returns_empty_sections(oc, tmp_path):
     store = oc.load(tmp_path / "nope.json")
-    assert store == {"secrets": {}, "config": {}, oc.CLIENT_APP_SECRETS_KEY: {}}
+    assert store == {"secrets": {}, "config": {}}
 
 
 def test_dump_then_load_roundtrip(oc, tmp_path):
@@ -37,7 +37,6 @@ def test_dump_then_load_roundtrip(oc, tmp_path):
     store = {
         "secrets": {"admin_password": "s3cr3t/+="},
         "config": {"CLOUDFLARE_ZONE": "x.com"},
-        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "abc"},
     }
     oc.dump(store, p)
     got = oc.load(p)
@@ -498,7 +497,6 @@ def _every_key_stored(oc) -> dict:
         "secrets": {name: f"value-of-{name}" for name in oc.secret_names()},
         "config": {"CLOUDFLARE_ZONE": "x.com",
                    "CLOUDFLARE_ZONES": [{"zone": "x.com"}]},
-        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "app-pw"},
         "image_pins": {"traefik": "traefik:v3.7.12"},
         oc.APP_REPOSITORIES_KEY: [{"url": "https://git.example.test/org/apps", "trusted": False}],
         oc.APP_REPOSITORY_TOKENS_KEY: {"https://git.example.test/org/apps": "tok-secret"},
@@ -531,12 +529,11 @@ def test_the_panels_read_holds_the_secrets_it_uses_and_no_others(oc, tmp_path, m
     assert set(got) == {"secrets", "config"}
     assert set(got["secrets"]) == oc.PANEL_SECRETS
     assert got["config"] == stored["config"]
-    # The values the panel signs in and renders the catalog with, and the
-    # disaster-recovery keyset it reveals, beside every Settings field.
-    for key in ("admin_password", "turn_static_auth_secret",
-                "backup_restic_password", "cloudflare_api_token"):
+    # The value the panel signs in with and the disaster-recovery keyset it
+    # reveals, beside every Settings field.
+    for key in ("admin_password", "backup_restic_password", "cloudflare_api_token"):
         assert got["secrets"][key] == f"value-of-{key}"
-    for key in ("console_recovery_password", "portainer_api_key",
+    for key in ("console_recovery_password", "portainer_api_key", "turn_static_auth_secret",
                 "catena_admin_session_key", "catena_marketplace_token"):
         assert key not in got["secrets"]
 
@@ -569,7 +566,6 @@ def test_a_panel_write_keeps_the_keys_its_read_leaves_out(oc, tmp_path, monkeypa
     doc = json.loads(p.read_text())
     assert doc["secrets"] == {**stored["secrets"], "smtp_password": "new"}
     assert doc["config"] == {**stored["config"], "SMTP_PROVIDER": "resend"}
-    assert doc[oc.CLIENT_APP_SECRETS_KEY] == stored[oc.CLIENT_APP_SECRETS_KEY]
     for key in (oc.APP_REPOSITORIES_KEY, oc.APP_REPOSITORY_TOKENS_KEY):
         assert doc[key] == stored[key]
     assert doc["image_pins"] == stored["image_pins"]
@@ -610,92 +606,18 @@ def test_dispatch_write_rejects_restic_password(oc, tmp_path, monkeypatch):
         oc.main(["--path", str(p), "--dispatch-stdin"])
 
 
-# --- client-app env secrets (the marketplace's per-deploy values) -----------
-def _wanted(key="kimai/DB_PASSWORD", length=32, charset="alnum"):
-    return {key: {"length": length, "charset": charset}}
-
-
-def test_app_secrets_mint_then_reuse(oc):
-    """Asking twice returns the SAME value. The catalog is re-rendered on every
-    marketplace fetch; a mint per render would hand the client a different
-    database password each time they opened the page."""
-    store = {"secrets": {}, "config": {}}
-    first = oc.ensure_app_secrets(store, _wanted())
-    second = oc.ensure_app_secrets(store, _wanted())
-    assert first == second
-    assert len(first["kimai/DB_PASSWORD"]) == 32
-
-
-def test_app_secrets_charsets(oc):
-    store = {"secrets": {}, "config": {}}
-    got = oc.ensure_app_secrets(store, {
-        "outline/OUTLINE_SECRET_KEY": {"length": 64, "charset": "hex"},
-        "kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"},
-    })
-    assert set(got["outline/OUTLINE_SECRET_KEY"]) <= set("0123456789abcdef")
-    assert got["kimai/DB_PASSWORD"].isalnum()
-
-
-def test_app_secrets_blank_is_reminted(oc):
-    """A blank stored value is not a value -- same reconcile rule the internal
-    set follows, and the state a hand-edited store can be left in."""
-    store = {"secrets": {}, "config": {}, oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "  "}}
-    got = oc.ensure_app_secrets(store, _wanted())
-    assert got["kimai/DB_PASSWORD"].strip()
-
-
-@pytest.mark.parametrize("bad", [
-    "../../etc/passwd/KEY",
-    "kimai/db_password",
-    "Kimai/DB_PASSWORD",
-    "kimai DB_PASSWORD",
-    "kimai/",
-])
-def test_app_secrets_rejects_bad_key(oc, bad):
-    """This is the one store write the unprivileged container can ask for by
-    name, so the key shape is what keeps a forged request inside the block."""
-    with pytest.raises(ValueError):
-        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(key=bad))
-
-
-@pytest.mark.parametrize("length", [0, 8, 257, "32", True, None])
-def test_app_secrets_rejects_bad_length(oc, length):
-    with pytest.raises(ValueError):
-        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(length=length))
-
-
-def test_app_secrets_rejects_unknown_charset(oc):
-    with pytest.raises(ValueError):
-        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(charset="base64"))
-
-
-def test_app_secrets_never_takes_a_value_from_the_request(oc):
-    """The request names what it wants, never what it should be. A caller that
-    could supply the value could pin every client's password to one string."""
-    store = {"secrets": {}, "config": {}}
-    got = oc.ensure_app_secrets(store, {
-        "kimai/DB_PASSWORD": {"length": 32, "charset": "alnum", "value": "chosen"},
-    })
-    assert got["kimai/DB_PASSWORD"] != "chosen"
-
-
-def test_dispatch_mint_app_secrets_persists_and_returns(oc, tmp_path, monkeypatch):
+# --- the settings dispatch ---------------------------------------------------
+def test_dispatch_refuses_an_op_it_does_not_serve(oc, tmp_path, monkeypatch):
     import io
-    p = tmp_path / "config.json"
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
-        "op": "mint-app-secrets",
-        "app_secrets": {"kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"}},
-    })))
-    rc = oc.main(["--path", str(p), "--dispatch-stdin"])
-    assert rc == 0
-    stored = oc.client_app_secrets(p)
-    assert len(stored["kimai/DB_PASSWORD"]) == 32
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"op": "mint-app-secrets"})))
+    with pytest.raises(SystemExit, match="unknown op"):
+        oc.main(["--path", str(tmp_path / "config.json"), "--dispatch-stdin"])
 
 
-def test_dispatch_mint_app_secrets_preserves_other_blocks(oc, tmp_path, monkeypatch):
+def test_a_dump_carries_the_blocks_other_writers_own_past_untouched(oc, tmp_path):
     """The store is shared. catena-schedule owns `schedules`, the update lane
-    owns `image_pins`, and a mint must carry both past untouched."""
-    import io
+    owns `image_pins`, and a dump of a hand-built {"secrets", "config"} store
+    must carry both past."""
     p = tmp_path / "config.json"
     p.write_text(json.dumps({
         "secrets": {"admin_password": "keep"},
@@ -703,32 +625,11 @@ def test_dispatch_mint_app_secrets_preserves_other_blocks(oc, tmp_path, monkeypa
         "image_pins": {"catena/thing": "sha256:abc"},
         "schedules": {"backup": "daily"},
     }))
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
-        "op": "mint-app-secrets",
-        "app_secrets": {"kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"}},
-    })))
-    assert oc.main(["--path", str(p), "--dispatch-stdin"]) == 0
+    oc.dump({"secrets": {"admin_password": "keep"}, "config": {}}, p)
     doc = json.loads(p.read_text())
     assert doc["image_pins"] == {"catena/thing": "sha256:abc"}
     assert doc["schedules"] == {"backup": "daily"}
     assert doc["secrets"]["admin_password"] == "keep"
-
-
-def test_converge_style_dump_does_not_blank_app_secrets(oc, tmp_path):
-    """The converge loader dumps a hand-built {"secrets", "config"} store. It
-    has no opinion about client_app_secrets and must not erase it -- the same
-    trap that made dump() stop re-serialising the whole document."""
-    p = tmp_path / "config.json"
-    p.write_text(json.dumps({
-        "secrets": {}, "config": {},
-        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "survives"},
-    }))
-    oc.dump({"secrets": {"a": "b"}, "config": {}}, p)
-    assert oc.client_app_secrets(p) == {"kimai/DB_PASSWORD": "survives"}
-
-
-def test_client_app_secrets_absent_store_is_empty(oc, tmp_path):
-    assert oc.client_app_secrets(tmp_path / "nope.json") == {}
 
 
 def test_cli_mints_user_held_on_first_install(oc, tmp_path, capsys):

@@ -61,12 +61,10 @@
       name: "{{ catena_admin_service_name }}"
       image: "{{ catena_admin_image }}"
       # catena-network for its gate, Keycloak and Gatus; healthchecks_network
-      # for Healthchecks and portainer_network for Portainer, which reads its
-      # App Templates catalog here, each on no other.
+      # for Healthchecks, on no other.
       networks:
         - "{{ catena_network_name | default('catena-network') }}"
         - "{{ healthchecks_network }}"
-        - "{{ portainer_network }}"
       ui_port: "{{ catena_admin_ui_port }}"
       direct_port: "{{ catena_admin_direct_port }}"
       group: "{{ catena_admin_supplementary_gid }}"
@@ -109,13 +107,6 @@
         CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone | default('') }}"
         KEYCLOAK_HOSTNAME: "{{ keycloak_hostname }}"
         KEYCLOAK_REALM: "{{ keycloak_realm }}"
-        # Host facts the app-catalog render substitutes into a template's env
-        # defaults. The zone arrives as CLOUDFLARE_PRIMARY_ZONE above; these
-        # two have no other reader in the image yet. Both are optional in the
-        # catalog EXCEPT public_ip, which two templates name with no default --
-        # a host that does not pass it drops those two from its marketplace.
-        COTURN_HOSTNAME: "{{ coturn_hostname | default('') }}"
-        HOST_PUBLIC_IP: "{{ public_ip | default('') }}"
         # The Admin REST base is the CLUSTER-internal address, not the public
         # auth.<zone> hostname above: the panel talks to Keycloak over the
         # catena network, and routing realm administration through the public
@@ -156,10 +147,6 @@
         # holds as Catena's (catena-admin shell/appcheck OwnHosts), as
         # dashboard-sync's app checker does.
         CATENA_HOSTNAMES: "{{ catena_hostnames | to_json }}"
-        # The app catalog the marketplace reads. Blank, as on every client
-        # host, reads the published one; a development host names its own
-        # (helpers/knobs.yml CATENAHQ_TEMPLATES_BASE).
-        CATENAHQ_TEMPLATES_BASE: "{{ cfg_catenahq_templates_base | default('') }}"
   no_log: true # secrets carries each secret's value
   when: catena_admin_deploy_from_converge | bool
 
@@ -397,10 +384,39 @@
     swarm_secret_bases: "{{ catena_admin_secret_specs | map(attribute='base') | list }}"
   when: catena_admin_deploy_from_converge | bool
 
-# A panel whose env moved answers a different managed env: a new domain moves
-# every managed DOMAIN_HOST with it. dashboard-sync already ran in this converge
+# A primary domain or zone change reaches the host as a converge. Each folder
+# application keeps the host-derived values of its x-catena block (its public
+# hostname and the like) in its .env, so `catena-apps resettle` rewrites them
+# from the store and deploys the applications whose .env moved; it changes
+# nothing when the store and the folders agree. -held: this converge holds
+# /run/catena.lock for the whole play. An application it cannot settle or deploy
+# is named and does not fail the converge: the next converge tries again.
+- name: "Catena-admin: is catena-apps installed"
+  ansible.builtin.stat:
+    path: /usr/local/bin/catena-apps
+  register: _ca_apps_bin
+
+- name: "Catena-admin: settle the application folders against the store"
+  ansible.builtin.command:
+    argv: [/usr/local/bin/catena-apps, resettle, -held]
+  register: _ca_resettle
+  changed_when: _ca_resettle.rc in [0, 1] and ((_ca_resettle.stdout | from_json).resettled | length) > 0
+  # rc 1 still prints the report; any other status prints none.
+  failed_when: false
+  no_log: true
+  when: _ca_apps_bin.stat.exists
+
+- name: "Catena-admin: say which applications did not settle"
+  ansible.builtin.debug:
+    msg: "catena-apps resettle exited {{ _ca_resettle.rc }}: {{ _ca_resettle.stderr_lines | default([]) | join(' | ') }}"
+  when:
+    - _ca_resettle is not skipped
+    - _ca_resettle.rc | default(0) != 0
+
+# A panel whose env moved forwards Keycloak calls under a different public auth
+# hostname. dashboard-sync already ran in this converge
 # (reconcile/roles/infrastructure), against the pre-reconcile panel, so run it
-# again now and the client stacks and their routes follow in this converge
+# again now and the sign-in entries and routes follow in this converge
 # rather than on the next timer tick. restarted, not started: a start joins a
 # run that is already in flight and reports work done before the panel moved.
 - name: "Catena-admin: re-run dashboard-sync against the reconciled panel"

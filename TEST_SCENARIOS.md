@@ -147,8 +147,6 @@ The 206 scenarios the maintainers' test bench carries, and the behaviour each on
 | `mailserver_after_domain` | A mail server deployed from the catalogue on a server that already has its domain is wired with nothing pressed: the server starts the converge that wires it, once. |
 | `mailserver_webmail_backup_mode` | The webmail stays up through a long backup of the mail server, a sign-in made during the hold completes when the hold ends, the mail server accepts mail meanwhile, and the webmail's database comes back from the backup whole and signs in again. |
 | `mailserver_webmail_failed_update_rolls_back` | When a webmail update fails, the previous Roundcube version and its database from before the update are put back, the webmail signs in again, the mail server runs again, and the failed version is held back. |
-| `malformed_catalog_rejection` | The panel's app list keeps the last good application catalogue when a malformed one is published, and leaves out an entry the catalogue does not describe while it offers the others. |
-| `marketplace_catalog_resolved` | The application catalogue a client browses is the one this host resolved, with every published placeholder filled in. |
 | `measure_converge` | Measures, on a converged server, how much of the on-host reconcile is spent outside its 25 slowest tasks. |
 | `migrate` | A host is replaced end to end by another machine, with the source quiesced and the destination serving what it served. |
 | `migrate_lane_auth_denied` | The migration endpoint refuses every unauthenticated and unauthorised caller, and is absent entirely on a host that is not migrating. |
@@ -198,7 +196,6 @@ The 206 scenarios the maintainers' test bench carries, and the behaviour each on
 | `smtp_rotation_round_trip` | Outbound mail credentials are rotated on the planned cycle and a live send confirms the new ones work. |
 | `snapshot_export_round_trip` | A snapshot is exported to a single portable archive that unpacks away from the host with its content intact. |
 | `sovereign_exit` | The suite keeps running after the administration panel is deleted, because the panel is glue rather than a data hub. |
-| `stack_record_stale_reported` | An application whose saved definition names an image none of its services runs is reported once in the maintenance log the panel shows, and a settings change is not redeployed onto it from that definition. |
 | `suite_wiring_commands` | Each suite wiring command the panel offers (Talk with its signalling server and TURN relay, the office editor, the Mail app, the antivirus for Nextcloud, and Jitsi for Rocket.Chat) is run through the panel's command path on the deployed application and its settings read back from the application, and a second run changes nothing. |
 | `swarm_overlay_selfheal` | Applications rejoin their private overlay network by themselves after the container daemon restarts. |
 | `tag_scheme_migration` | An application pinned on nightly builds moves onto its stable releases under the major update policy: all of its images, in one deploy, to the newest stable release published since the nightly was built and newer than every release published before it. |

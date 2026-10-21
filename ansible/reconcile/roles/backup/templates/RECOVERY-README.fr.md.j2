@@ -14,7 +14,7 @@ aide pour récupérer vos données. Il vous faut trois programmes courants :
 | Quoi | Où dans la sauvegarde |
 | --- | --- |
 | Données des applications (fichiers, téléversements, boîtes courriel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
-| Définitions des applications (le fichier compose de chacune) | `{{ storage_mount_point }}/docker/volumes/{{ portainer_data_volume | default('catena-portainer-data') }}/_data/compose/<id>/` |
+| Définitions des applications (un dossier par application : son fichier compose, ses paramètres dans `.env` et l'origine du fichier) | `{{ storage_mount_point }}/compose/<nom-de-l-application>/` |
 | Exports de bases de données (un fichier par base, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql.gz` |
 | Fichiers stockés hors volume | `{{ storage_mount_point }}/apps/` |
 | Vos paramètres et mots de passe | `/etc/catena/config.json` |
@@ -50,25 +50,43 @@ de données plus récent que celui de votre sauvegarde.
 
 ## 4. Restaurer une application à la main
 
-Extrayez uniquement ce dont cette application a besoin :
+Extrayez uniquement ce dont cette application a besoin : son dossier et ses
+volumes de données. Le dossier porte le nom de l'application et contient son
+fichier compose (`docker-compose.yml`) et ses paramètres (`.env`). Ses volumes
+portent aussi son nom (`<nom-de-l-application>_<nom>`).
 
 ```
 restic restore latest --target /recovered \
-    --include '{{ storage_mount_point }}/docker/volumes/<nom-du-volume>' \
-    --include '{{ storage_mount_point }}/docker/volumes/{{ portainer_data_volume | default('catena-portainer-data') }}/_data/compose'
+    --include '{{ storage_mount_point }}/compose/<nom-de-l-application>' \
+    --include '{{ storage_mount_point }}/docker/volumes/<nom-du-volume>'
 ```
 
-Repérez la définition de l'application dans le répertoire `compose/`
-extrait. Chaque sous-répertoire contient le fichier compose d'une
-application, accompagné de ses paramètres.
-
-Remettez les données en place et démarrez :
+Remettez les données en place :
 
 ```
 docker volume create <nom-du-volume>
 cp -a /recovered{{ storage_mount_point }}/docker/volumes/<nom-du-volume>/_data/. \
       /var/lib/docker/volumes/<nom-du-volume>/_data/
-docker compose -f /recovered/.../docker-compose.yml up -d
+```
+
+Sur une machine qui n'exécute pas encore Docker swarm, préparez-la une
+fois. Les applications s'exécutent comme services swarm sur un réseau nommé
+`catena-network`, sur un nœud portant l'étiquette `catena.role=data` :
+
+```
+docker swarm init
+docker network create --driver overlay catena-network
+docker node update --label-add catena.role=data self
+```
+
+Démarrez l'application depuis son dossier. Le fichier `.env` contient ses
+paramètres et ses mots de passe ; la première ligne les charge pour la
+commande suivante :
+
+```
+cd /recovered{{ storage_mount_point }}/compose/<nom-de-l-application>
+set -a; . ./.env; set +a
+docker stack deploy -c docker-compose.yml <nom-de-l-application>
 ```
 
 Le fichier compose nomme la version exacte de l'image qui était en
