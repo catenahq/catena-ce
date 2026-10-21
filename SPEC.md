@@ -209,7 +209,7 @@ Order is the converge order, which is dependency order.
 | `dispatch_path` | The path a dashboard request crosses to become a root action: sshd's variable list for the runner account, its sudo rule, the forced command on the dashboard's key and the dispatcher, kept on the generation this tree ships. A new generation is installed beside the running one, and the dashboard's key moves to it only after a request has crossed it; a failed proof keeps the running path and stops the converge. First, so a proof that fails stops the converge before anything else changes |
 | `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the dashboard image the converge names, refused unless that image is, by digest, the release the converge's own tree came from and was built from this tree. Deploys no container |
 | `public_ports` | The declarative public-port registry's host side: the fragment directory, the docker drop-in that reapplies the rules on every docker start, and the reconciler's timer. The reconciler and its timer ship in the payload, and a payload without them fails the converge |
-| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, the journal's storage, the host resolving its own name, the clock's NTP pool, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, the reboot-required probe's configuration, and the timers of the licence check and the error reports. The probe, the licence check, the error reporter and their timers ship in the payload |
+| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, which include git, the system user `catena-git` (no login, no home) that `catena-apps` runs git as when it adds an application from a repository, the journal's storage, the host resolving its own name, the clock's NTP pool, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, the reboot-required probe's configuration, and the timers of the licence check, the error reports and the application verify. The probe, the licence check, the error reporter, the application verify and their timers ship in the payload |
 | `swarm` | The swarm's own settings (task history, the data-node label), which a restore does not bring back, and the self-heal that restarts containers which lost the race to the overlay at daemon start |
 | `traefik` | The reverse proxy and the `catena-network` overlay |
 | `postgres` | The infrastructure Postgres swarm service, hosting the sign-on database |
@@ -415,11 +415,11 @@ new folder of that bucket.
 ### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
 Scheduled work is default-deny. This repository ships two local-maintenance
-timers (the antivirus watch, the mail canary) and enables six the payload
+timers (the antivirus watch, the mail canary) and enables seven the payload
 ships (the public-port reconcile, the dashboard and Gatus syncs, the hourly
-reboot-required probe, the hourly licence check, and the five-minute error
-reports to Catena support, which send nothing until an administrator switches
-them on). None spends object storage.
+reboot-required probe, the hourly licence check, the hourly application verify,
+and the five-minute error reports to Catena support, which send nothing until
+an administrator switches them on). None spends object storage.
 
 Every lane (backup, the bit-rot check, the restore test, the offsite copy, the
 daily update chain, dashboard updates, the scheduled converge, the off-site
@@ -555,6 +555,43 @@ integration, the antivirus watch and delivery canaries. The action that wires
 Nextcloud Talk to the call relay installs Talk from Nextcloud's app store when
 it is missing, and changes nothing when the store cannot be reached.
 
+An application can live in its own folder on the server,
+`/srv/catena/compose/<stack>`: its compose file, its `.env` and a record of
+where it came from, owned by root and private to it. The host's `catena-apps`
+deploys it as a swarm stack with `docker stack deploy`, run by root with the
+`.env` values as the only environment. The `.env` is read with compose's own
+rules and never run by a shell, so a value holding `$(...)`, a backtick or a
+line break arrives as text and runs nothing, and the keys that steer the
+Docker client or the loader (`DOCKER_*`, `PATH`, `HOME`, `LD_*`, the proxy
+variables) are refused. The app checker runs before every deploy, and the host
+network and the container engine's socket reach an application only when its
+file is an unchanged file of Catena's catalogue that declares them. Each backup
+holds the folders with the data, and a restore of the data brings them back.
+
+An application is added from a git repository on the server's list, Catena's
+catalogue unless the list says otherwise. The host reads the application's tags
+and its folder with git, run as the system user `catena-git`, which has no login
+and no home, over https only. Root then reads the result as data, refuses links,
+folders outside the application's folder and oversized folders, and writes the
+folder only when the checker accepts it. A repository's token is kept where
+only root reads it, and is never listed.
+
+The settings of a folder application come from the `x-catena` block of its
+compose file: values a person gives, secrets minted on the host, and values the
+host fills in from its own facts. A secret of the on-box store reaches an
+application only when its block lists it, only for an unchanged file of
+Catena's catalogue, and never one that opens the host (the backup,
+Cloudflare, licence and admin credentials). The block can also declare
+commands the host runs with `docker exec` in a running container of the
+service: one after every deploy, and one that verifies the application, run
+hourly, whose failure is named once in the maintenance log.
+
+The host judges each folder application against what it last deployed: the
+hashes of its files, the fingerprint of each service and the services in its
+stack. An application changed by hand or through another tool, stopped, or
+holding a person's own version of the file is not matched, and the daily chain
+leaves it alone.
+
 The host's sync lane, which sets up each application's sign-in and keeps
 mailboxes in line with the sign-on groups, reaches the identity provider
 through the dashboard on the host's loopback rather than through the public
@@ -601,7 +638,7 @@ versions.
 
 | Workflow | Jobs | Gates |
 | --- | --- | --- |
-| `ci.yml` | `installer`, `entry-points`, `syntax`, `duplication`, `sentences`, `prose` | the Ansible tree's and the installer's unit tests, the one entry point a client runs (`catena-installer`) with its locks and its wheel, Ansible syntax, copy-paste against a ratchet threshold, duplicate sentences, and comment prose |
+| `ci.yml` | `installer`, `entry-points`, `syntax`, `duplication`, `sentences`, `prose` | the Ansible tree's and the installer's unit tests, the one entry point a client runs (`catena-installer`) with its locks and its wheel, Ansible syntax, copy-paste against a ratchet threshold, duplicate sentences, comment prose, and the application names in core code against a debt file that only shrinks |
 | `publish-installer.yml` | `publish` | on a release tag on main, the installer's tests, then its wheel published to PyPI as `catena-installer` through trusted publishing, versioned from the tag |
 | `security.yml` | `scanctl` | secrets, dependency vulnerabilities, static analysis, and the container images pinned in role defaults. A finding in this tree fails every run; a CVE in a pinned image fails the change that introduces it, and the weekly scheduled run whenever a fix exists, until a bump clears it or the committed baseline accepts it until a date. A pin that stops matching fails the scan |
 
@@ -628,6 +665,7 @@ merges.
 | Static analysis runs on every change | `scanctl:semgrep`, `scanctl:zizmor` |
 | The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication`, `workflow:ci.yml#sentences` |
 | Code comments describe the tree as it stands, not its history | `workflow:ci.yml#prose` |
+| Core code names no application beyond a recorded debt that only shrinks | `workflow:ci.yml#prose` |
 | Public prose names no system Catena does not ship | `audit:check-banned-words` |
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
 | This file cannot drift from reality | `audit:check-public-specs`, `threat:CP7` |
