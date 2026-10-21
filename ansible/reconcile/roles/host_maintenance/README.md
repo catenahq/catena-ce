@@ -6,8 +6,8 @@ resolving its own name, the baseline packages, Debian's unattended-upgrades
 and its origins, needrestart's restart policy, the journal's storage, the NTP
 servers, the host mail agent kept off port 25, the settings the client changes
 in catena-admin > Settings, whether this host needs a reboot, the hourly
-licence check and the error reports to Catena support. It runs right after
-`payload`.
+licence check, the error reports to Catena support and the hourly verify hook
+of each application. It runs right after `payload`.
 
 ## Packages, updates, journal, clock, mail agent
 
@@ -17,6 +17,8 @@ licence check and the error reports to Catena support. It runs right after
   `bootstrap/roles/common`, which applies both before its first apt operation.
 - `catena_baseline_packages` (in `playbooks/group_vars/all/main.yml`, shared
   with `bootstrap/roles/common`, which installs them at bootstrap).
+- `catena-git`, a system user with no login and no home, which
+  `catena-apps` runs git as when it adds an application from a repository.
 - `/etc/apt/apt.conf.d/20auto-upgrades` enables unattended-upgrades; its
   service and `apt-daily-upgrade.timer` are enabled. Nothing else on the host
   applies OS packages.
@@ -105,4 +107,13 @@ Catena's own checks whenever they change, and switched off it withdraws the
 server. Its unit runs only while the licence is active. The binary and both
 units ship in the catena-admin payload; this role enables the timer on every
 host, whatever its edition and whatever the switch says, and treats a missing
+timer as it treats the licence check's.
+
+## The application verify
+
+`catena-app-verify.timer` runs `catena-apps verify --all` every hour: the
+verify hook of each application whose compose file declares one runs in a task
+of its service, and a failure goes to the maintenance feed once, until the hook
+passes again. The binary and both units ship in the catena-admin payload; this
+role enables the timer on every host, whatever its edition, and treats a missing
 timer as it treats the licence check's.

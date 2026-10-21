@@ -4,10 +4,11 @@
 # unattended-upgrades and its origins, needrestart's restart policy, the
 # journal's storage, the NTP servers, the host mail agent kept off port 25, the
 # time zone and locale set in catena-admin > Settings, the reboot-required
-# probe, the licence check and the error reports. The probe's script
-# (catena-reboot-check), the licence check's binary (catena-license), the
-# error reporter (catena-error-report) and their units ship in the catena-admin
-# payload, installed by reconcile/roles/payload earlier in the play.
+# probe, the licence check, the error reports and the application verify. The
+# probe's script (catena-reboot-check), the licence check's binary
+# (catena-license), the error reporter (catena-error-report), the verify
+# (catena-apps) and their units ship in the catena-admin payload, installed by
+# reconcile/roles/payload earlier in the play.
 
 # Shared with bootstrap/roles/common, which applies both before anything else
 # on a fresh host.
@@ -23,6 +24,16 @@
     state: present
     cache_valid_time: 3600
     lock_timeout: 300
+
+# The account catena-apps runs git as when it adds an application from a
+# repository: no login, no home, no group but its own.
+- name: "Host: the system user git runs as"
+  ansible.builtin.user:
+    name: "{{ host_maintenance_git_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
 
 # ─── unattended-upgrades (Debian-native patching) ───────────────────────
 # OS packages are Debian's job on every Catena host, whatever its edition. This
@@ -410,6 +421,50 @@
 - name: "Error reports: enable + start timer"
   ansible.builtin.systemd_service:
     name: "{{ error_report_systemd_unit_name }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - not ansible_check_mode
+    - catena_payload_missing | length == 0
+
+# The verify hook of each application: `catena-apps verify --all`, hourly, from
+# the catena-admin payload like the licence check. Its own include, for the
+# licence check's reason.
+- name: "App verify: is the payload-shipped timer expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer"
+
+- name: "App verify: the timer is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer is absent
+      although reconcile/roles/payload ran in this converge, so this host would
+      never run the verify hook of its applications. The "Payload:" tasks above
+      say why the timer was not extracted.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "App verify: timer staged out of band and not present yet"
+  ansible.builtin.debug:
+    msg: >-
+      The app-verify timer waits for the payload, which this converge skips
+      (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's install
+      enables the timer.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# Enabled on every host, whatever its edition: a run verifies the applications
+# that declare a verify hook and does nothing on a host with none.
+- name: "App verify: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: "{{ app_verify_systemd_unit_name }}.timer"
     enabled: true
     state: started
     daemon_reload: true
