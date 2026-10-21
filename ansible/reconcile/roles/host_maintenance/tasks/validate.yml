@@ -66,6 +66,11 @@
       Missing baseline packages:
       {{ catena_baseline_packages | reject('in', ansible_facts.packages) | list }}
 
+- name: "validate/host_maintenance: the git user exists"
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ host_maintenance_git_user }}"
+
 - name: "validate/host_maintenance: unit states"
   ansible.builtin.service_facts:
 

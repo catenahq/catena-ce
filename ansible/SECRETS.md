@@ -196,7 +196,7 @@ value -- silently, since a fact outranks a role default.
 
 ## Credentials in their own store blocks
 
-Two more blocks of the store hold credentials, each with one writer, and ride
+More blocks of the store hold credentials, each with one writer, and ride
 the backup with the rest of the file:
 
 - `client_app_secrets`: the catalog apps' per-deploy credentials (database
@@ -207,6 +207,10 @@ the backup with the rest of the file:
   them.
 - `offsite_copies`: the source and target keys of each offsite copy, written
   by catena-admin (`payload/engines/offsite`).
+- `app_repositories` and `app_repository_tokens`: the git repositories a
+  client application may be added from (`url`, `trusted`; Catena's catalog
+  when absent) and the tokens of the private ones, by address, written by
+  catena-admin (`payload/engines/apps`). The panel's read carries neither.
 
 ## What the panel reads
 

@@ -500,6 +500,8 @@ def _every_key_stored(oc) -> dict:
                    "CLOUDFLARE_ZONES": [{"zone": "x.com"}]},
         oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "app-pw"},
         "image_pins": {"traefik": "traefik:v3.7.12"},
+        oc.APP_REPOSITORIES_KEY: [{"url": "https://git.example.test/org/apps", "trusted": False}],
+        oc.APP_REPOSITORY_TOKENS_KEY: {"https://git.example.test/org/apps": "tok-secret"},
     }
 
 
@@ -539,6 +541,17 @@ def test_the_panels_read_holds_the_secrets_it_uses_and_no_others(oc, tmp_path, m
         assert key not in got["secrets"]
 
 
+def test_the_panels_read_carries_neither_the_app_repositories_nor_their_tokens(oc, tmp_path, monkeypatch, capsys):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(_every_key_stored(oc)))
+    got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
+    assert "tok-secret" not in json.dumps(got)
+    assert oc.APP_REPOSITORIES_KEY not in got
+    assert oc.APP_REPOSITORY_TOKENS_KEY not in got
+    assert not {oc.APP_REPOSITORIES_KEY, oc.APP_REPOSITORY_TOKENS_KEY} & (
+        oc.PANEL_SECRETS | set(oc.secret_names()))
+
+
 def test_every_secret_the_panel_reads_is_declared(oc):
     """A misspelt name would leave the panel without a value it reads."""
     assert oc.PANEL_SECRETS <= set(oc.secret_names())
@@ -557,6 +570,8 @@ def test_a_panel_write_keeps_the_keys_its_read_leaves_out(oc, tmp_path, monkeypa
     assert doc["secrets"] == {**stored["secrets"], "smtp_password": "new"}
     assert doc["config"] == {**stored["config"], "SMTP_PROVIDER": "resend"}
     assert doc[oc.CLIENT_APP_SECRETS_KEY] == stored[oc.CLIENT_APP_SECRETS_KEY]
+    for key in (oc.APP_REPOSITORIES_KEY, oc.APP_REPOSITORY_TOKENS_KEY):
+        assert doc[key] == stored[key]
     assert doc["image_pins"] == stored["image_pins"]
 
 

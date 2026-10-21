@@ -347,6 +347,9 @@ catena_baseline_packages:
   # scripts gate their report write on `command -v jq`, so a host without it
   # silently produces NO report.
   - jq
+  # git fetches the applications catena-apps adds from a repository, as the
+  # unprivileged catena-git user (reconcile/roles/host_maintenance).
+  - git
 
 # --- apt and the OS update configuration ---
 # Written by playbooks/tasks/apt_settings.yml and reconcile/roles/

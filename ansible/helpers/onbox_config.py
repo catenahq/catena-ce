@@ -418,6 +418,17 @@ PANEL_SECRETS: frozenset[str] = frozenset(
     entry["key"] for entry in _KNOBS["secrets"] if "panel" in entry
 ) | {"backup_restic_password", "admin_password", "turn_static_auth_secret"}
 
+# The repositories a client application may be added from, and their tokens.
+# Both are top-level store blocks owned by catena-admin's catena-apps, like
+# ``offsite_copies``: a settings write merges past them (dump) and the panel's
+# read never carries them, so a compromised panel reads no token. The panel
+# lists and edits the repositories through the host's apps-repositories action.
+#   - app_repositories: [{"url", "trusted"}]; absent means Catena's catalog
+#     alone, trusted.
+#   - app_repository_tokens: {url: token} for private repositories, root only.
+APP_REPOSITORIES_KEY = "app_repositories"
+APP_REPOSITORY_TOKENS_KEY = "app_repository_tokens"
+
 
 # --- non-secret config: who owns which key (SECRETS.md category 4) ----------
 #
