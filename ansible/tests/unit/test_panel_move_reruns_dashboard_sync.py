@@ -1,10 +1,11 @@
 """A converge that moves the panel re-runs dashboard-sync after it.
 
-dashboard-sync corrects each client stack's env from the panel's managed env,
-and the infrastructure role runs it BEFORE the catena-admin role reconciles
-the panel. On a domain change that first run asks the panel before it moves
-and finds nothing to move; without a second run after the panel rolls, the client
-apps stay on the old domain until the next timer tick.
+dashboard-sync writes the sign-in entries and routes of the client apps from
+the panel's Keycloak forward, and the infrastructure role runs it BEFORE the
+catena-admin role reconciles the panel. On a domain change that first run asks
+the panel before it moves and finds nothing to move; without a second run after
+the panel rolls, the sign-in entries stay on the old domain until the next timer
+tick.
 
 Run: uv run pytest tests/unit/test_panel_move_reruns_dashboard_sync.py
 """

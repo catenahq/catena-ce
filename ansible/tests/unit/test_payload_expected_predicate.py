@@ -39,6 +39,7 @@ CALLERS = {
         ["/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"],
         ["/etc/systemd/system/{{ license_refresh_systemd_unit_name }}.timer"],
         ["/etc/systemd/system/{{ error_report_systemd_unit_name }}.timer"],
+        ["/etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer"],
     ],
     "reconcile/roles/backup/tasks/validate.yml": [[
         "{{ backup_wrapper_script }}",
