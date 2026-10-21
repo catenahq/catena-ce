@@ -25,7 +25,7 @@ generated from the leading comment of each role's `tasks/main.yml`.
 | `cloudflare_tunnel_regenerate` | Regenerate the Cloudflare tunnel for this host. |
 | `coturn` | Shared TURN/STUN server -- consumer-gated orchestrator. |
 | `dispatch_path` | The path the panel's dispatch arrives over, moved to the generation this tree ships the way the Lockdown closes SSH: beside the running one, proven, then switched. |
-| `host_maintenance` | The host's own upkeep, applied on every converge from either path: apt's settings, the host resolving its own name, the baseline packages, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the NTP servers, the host mail agent kept off port 25, the time zone and locale set in catena-admin > Settings, the reboot-required probe, the licence check and the error reports. |
+| `host_maintenance` | The host's own upkeep, applied on every converge from either path: apt's settings, the host resolving its own name, the baseline packages, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the NTP servers, the host mail agent kept off port 25, the time zone and locale set in catena-admin > Settings, the reboot-required probe, the licence check, the error reports and the application verify. |
 | `infrastructure` | The monitoring plane every host runs, and the wiring for the client apps deployed from the catalog. |
 | `keycloak` | Orchestrator for reconcile/roles/keycloak. |
 | `oauth2_proxy` | Orchestrator for reconcile/roles/oauth2_proxy. |
