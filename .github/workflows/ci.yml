@@ -2,6 +2,12 @@ name: CI
 
 # The Ansible tree's unit tests and syntax check, and the installer's
 # (installer/). This repo carries no Go. Python tooling comes from uv.
+#
+# A push to a branch keeps the absolute gate. A pull request is judged on what
+# it introduces: the unit tests and the duplication ratchet run through
+# contracts' new-failures-only action, which fails only on failures the base
+# commit does not have, and the prose job gates on the files the change
+# touches.
 
 on:
   # Every pushed branch. Renovate and engine-bump branches always carry a pull
@@ -30,11 +36,17 @@ jobs:
       # In ansible/'s own project, on the ansible-core the host runs: some of
       # the tree's tests render its templates through ansible-core's
       # templating, others with the Jinja2 it brings.
-      - name: Ansible tree unit tests
-        working-directory: ansible
-        run: uv run python -m pytest tests/unit -q
-      - name: Installer tests
-        run: uv run pytest -q
+      - name: Ansible tree and installer tests
+        uses: catenahq/contracts/.github/actions/new-failures-only@main
+        with:
+          working-directory: ${{ github.workspace }}
+          repo-path: ${{ github.workspace }}
+          failure-lines: '^(FAILED|ERROR) [^ ]+'
+          run: |
+            rc=0
+            (cd ansible && uv run python -m pytest -rfE tests/unit -q) || rc=1
+            uv run pytest -rfE -q || rc=1
+            exit $rc
 
   entry-points:
     # `catena-installer`, the one entry point a client runs, from the root
@@ -105,7 +117,11 @@ jobs:
         with:
           node-version: "24"
       - name: jscpd (threshold in .jscpd.json)
-        run: npx --yes jscpd@4 --silent
+        uses: catenahq/contracts/.github/actions/new-failures-only@main
+        with:
+          working-directory: ${{ github.workspace }}
+          repo-path: ${{ github.workspace }}
+          run: npx --yes jscpd@4 --silent
 
   sentences:
     # The same ratchet for prose: a sentence written in two places fails,
