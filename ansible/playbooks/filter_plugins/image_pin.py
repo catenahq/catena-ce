@@ -26,8 +26,10 @@ SAME suffix, so a minor of the pinned major moves and a major, a variant or a
 one-part floor (`postgres:18`) never does: a pin that appeared to beat those
 could be a major upgrade nobody asked for.
 
-The Go side writes pins and never resolves them, so this is the one
-implementation of the comparison.
+The Go side writes pins and reads one of them: catena-admin
+payload/cmd/catena-cloudflared-sync resolves max(default, pin) for the
+cloudflared image by this rule, so a sync keeps the connector the update lane
+moved. Every other resolution is this implementation.
 
 End-to-end coverage:
     catena-ce ansible/tests/unit/test_image_pin.py
