@@ -270,14 +270,14 @@ backup_extra_paths: >-
 # value. Common examples (uncomment per client via an inventory override,
 # e.g. inventory/<client>/group_vars/all/backup.yml):
 #
-#   # A file-sharing application's user files directory -- if users treat it as a
+#   # Nextcloud's user files directory -- if users treat it as a
 #   # sync of their local machines, the S3 backup is redundant and
-#   # expensive at TB scale. WARNING: the application's Postgres database
+#   # expensive at TB scale. WARNING: Nextcloud's Postgres database
 #   # still indexes those files by path, so after restore those rows
 #   # reference missing files. Document this as a known state for the
 #   # client; don't exclude files silently without also documenting the
 #   # restore expectation.
-#   - "*/fileshare*_data/_data/data/*/files/*"
+#   - "*/catena-nextcloud_nc-data/_data/data/*/files/*"
 #
 #   # Paperless consume/ and export/ -- ephemeral work directories,
 #   # reproducible from originals/.

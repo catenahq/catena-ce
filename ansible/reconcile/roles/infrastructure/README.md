@@ -1,8 +1,8 @@
 # infrastructure
 
 The monitoring plane every host runs, the shared services the catalog apps
-lean on, and the wiring that finishes those apps once a client deploys them.
-`tasks/main.yml` is the map, in run order.
+lean on, and the sync and probe wiring for the client apps deployed from the
+catalog. `tasks/main.yml` is the map, in run order.
 
 ## Shared services (swarm stacks)
 
@@ -58,9 +58,6 @@ and puts them back when it rolls back.
 
 ## Catalog app wiring
 
-- The Keycloak client for Element. An application's wiring (sign-in, calling, the antivirus scanner and
-  office editor other applications provide, mail, links) is its template's
-  configure hook.
 - The public-URL probe of the gated services, and the intent-driven check that
   every gated client app denies an anonymous request.
 

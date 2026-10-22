@@ -1,11 +1,12 @@
 # reconcile/roles/coturn
 
-Shared TURN/STUN server for the chat-video apps deployed from the catalog:
+Shared TURN/STUN server for Nextcloud Talk, Rocket.Chat and Element, deployed
+from the catalog:
 
-- **Talk + HPB** -- Talk reaches `turn.<zone>:5349` for
-  restrictive-network media relay. The configure hook of the file-sharing
+- **Nextcloud Talk + HPB** -- Talk reaches `turn.<zone>:5349` for
+  restrictive-network media relay. The configure hook of the Nextcloud
   template registers it with `occ talk:turn:add`.
-- **The video bridges (JVB) of the chat apps** -- each template
+- **The Jitsi videobridges (JVB) of Rocket.Chat and Element** -- each template
   configures its video bridge with `JVB_TURN_HOST` from `TURN_HOSTNAME`
   (`coturn_hostname`, default `turn.<zone>`), `JVB_TURN_PORT=5349` and the
   shared `turn_static_auth_secret`.
@@ -18,7 +19,7 @@ and coturn keeps no per-user database.
 
 ## What this role does
 
-1. Runs when a consumer (a running Talk HPB or video bridge container) is
+1. Runs when a consumer (a running Nextcloud Talk HPB or Jitsi videobridge container) is
    up or coturn is already deployed, on a host that has a domain. A
    consumer that goes away leaves coturn running and maintained.
 2. Declares its ports to the public-port registry (table below).
@@ -140,14 +141,14 @@ turn_allow_guests: true
 
 Synapse mints per-call usernames as `<unix_ts>:<matrix_user_id>` and
 passwords as `base64(HMAC-SHA1(static_auth_secret, username))`, which
-is the same derivation Talk and the video bridges (JVB) use. The single
+is the same derivation Nextcloud Talk and the Jitsi videobridges (JVB) use. The single
 `static-auth-secret` in coturn validates all of them.
 
 **Caveat:** a JVB supports the `auth-secret` mechanism only, and
 `lt-cred-mech` users would need both mechanisms enabled: coturn keeps
 `use-auth-secret` either way.
 
-## Runbook -- diagnosing a failed Talk / video call
+## Runbook -- diagnosing a failed Nextcloud Talk / video call
 
 1. `docker service ls --filter name=coturn` -- replicas 1/1?
 2. `ss -uln | grep -E ':(3478|5349)\b'` -- listening?

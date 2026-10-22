@@ -11,8 +11,8 @@
 # --- Global ---
 ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / converge.yml."
 
-# This machine's public address: coturn advertises it in its ICE candidates, the
-# mail and TURN A records point at it, and the panel's catalog renders it. A
+# This machine's public address: coturn advertises it in its ICE candidates and
+# the TURN A record points at it. A
 # controller's inventory states it (hosts.yml, from HOST_PUBLIC_IP), and a host
 # var outranks this file. bootstrap/roles/common records that value on the host
 # as a local fact, which every converge gathers, so a host converging itself

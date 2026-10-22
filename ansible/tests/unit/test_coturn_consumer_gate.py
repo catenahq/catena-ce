@@ -36,7 +36,7 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 COTURN = ANSIBLE / "reconcile" / "roles" / "coturn" / "tasks"
 
-_DEPLOY_PROBE = "coturn: detect a running consumer (Talk HPB or a video bridge)"
+_DEPLOY_PROBE = "coturn: detect a running consumer (Nextcloud Talk HPB or a Jitsi videobridge)"
 
 
 def _tasks(filename: str) -> list[dict]:

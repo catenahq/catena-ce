@@ -49,13 +49,11 @@ services:
 {% endif %}
       # 127.0.0.1 is not decoration. Django matches ALLOWED_HOSTS against the
       # literal Host header, and every host-side consumer dials the loopback
-      # publish below BY IP: gatus-sync (HEALTHCHECKS_API_URL), the antivirus
-      # watchdog and the mail canary (HEALTHCHECKS_LOOPBACK_PORT). With only
-      # "localhost" in this list all three got 400 DisallowedHost -- verified
-      # against healthchecks/healthchecks:v4.3 directly: Host 127.0.0.1 -> 400,
-      # Host localhost -> 401 (reached the app). Two watchdogs and the panel's
-      # check summary were failing in a way that looks exactly like "nothing to
-      # report".
+      # publish below BY IP: gatus-sync (HEALTHCHECKS_API_URL) and the other
+      # host-side pingers (HEALTHCHECKS_LOOPBACK_PORT). With only "localhost"
+      # in this list they get 400 DisallowedHost, which looks exactly like
+      # "nothing to report" -- verified against healthchecks/healthchecks:v4.3
+      # directly: Host 127.0.0.1 -> 400, Host localhost -> 401 (reached the app).
 {% if catena_public_surface_deferred | default(false) | bool %}
       ALLOWED_HOSTS: "{{ healthchecks_network_alias }},localhost,127.0.0.1"
 {% else %}
@@ -109,8 +107,8 @@ services:
     volumes:
       - healthchecks-data:/data
     # Host-mode publish so the host-side consumers can reach /api/v3/checks/
-    # on {{ healthchecks_host_localhost_port }}: gatus-sync, the antivirus
-    # watchdog and the mail canary all dial it by IP, which is why
+    # on {{ healthchecks_host_localhost_port }}: gatus-sync and the other
+    # host-side pingers dial it by IP, which is why
     # ALLOWED_HOSTS above carries 127.0.0.1.
     #
     # Long syntax with mode: host is mandatory -- the short form deploys as

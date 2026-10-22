@@ -1,6 +1,6 @@
 ---
-# The monitoring plane every host runs, and the wiring for the client apps
-# deployed from the catalog. In order:
+# The monitoring plane every host runs, and the sync and probe wiring for the
+# client apps deployed from the catalog. In order:
 #
 # 1. The tunnel-deferred gate: the steps that need the public edge wait for a
 #    converge that has it.

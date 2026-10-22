@@ -4,8 +4,9 @@
 # coturn is a COMPANION to the real-time apps, not base-plane
 # infrastructure. Its only consumers (coturn_consumer_services) are:
 #
-#   - a Talk HPB           (catena-nextcloud_talk-hpb)
-#   - the chat apps' video bridges (catena-rocketchat_jvb, catena-element_jvb)
+#   - the Nextcloud Talk HPB (catena-nextcloud_talk-hpb)
+#   - the Jitsi videobridges of Rocket.Chat and Element
+#     (catena-rocketchat_jvb, catena-element_jvb)
 #
 # Deployed only while a consumer runs: on a tenant with none of them it would
 # be a dead relay behind four open public port entries (3478/udp,
@@ -22,12 +23,12 @@
 # coturn running -- ripping out a relay would drop calls in progress, and
 # the public-ports fragment already on disk keeps its ufw rules.
 
-- name: "coturn: detect a running consumer (Talk HPB or a video bridge)"
+- name: "coturn: detect a running consumer (Nextcloud Talk HPB or a Jitsi videobridge)"
   # Emits each matching consumer container name; empty when none is
   # running.
   #
   # `status=running` is load-bearing: bare `docker ps` also lists RESTARTING
-  # containers, so a crash-looping Talk HPB reads as a live TURN consumer.
+  # containers, so a crash-looping Nextcloud Talk HPB reads as a live TURN consumer.
   # It is not one -- it is a broken container -- and gating on it deploys a
   # relay nothing can use, and lets the probe answer differently at two
   # points of one converge.
@@ -60,7 +61,7 @@
     # reason to exist; the zone half is that everything it then does is named
     # after a domain -- a turn.<zone> A record through the Cloudflare API and a
     # DNS-01 certificate for that name. On a host with no domain yet, a client
-    # deploying Talk reaches both with nothing to put in them.
+    # deploying Nextcloud Talk reaches both with nothing to put in them.
     _coturn_wanted: >-
       {{ (((_coturn_consumer.stdout | default('') | trim) | length > 0)
           or ((_coturn_existing.stdout | default('') | trim) | length > 0))
@@ -69,8 +70,8 @@
 - name: "coturn: skip deploy when no consumer is running"
   ansible.builtin.debug:
     msg: >-
-      No TURN consumer running (no Talk HPB, no chat video
-      bridge). coturn is NOT deployed: no turn.<zone> DNS record,
+      No TURN consumer running (no Nextcloud Talk HPB, no Rocket.Chat or
+      Element videobridge). coturn is NOT deployed: no turn.<zone> DNS record,
       no DNS-01 certificate, no certbot timer, and no public UDP/TCP media
       ports. It deploys automatically on the converge after a consumer
       first comes up.
@@ -85,7 +86,7 @@
   ansible.builtin.debug:
     msg: >-
       No domain is configured, so coturn is NOT deployed. Voice and video
-      calls in Talk and the chat apps need a relay at a
+      calls in Nextcloud Talk, Rocket.Chat and Element need a relay at a
       public name, and there is no domain to build one under yet. Enter a
       domain in the dashboard's Settings; the next converge deploys it.
   when: catena_public_surface_deferred | default(false) | bool

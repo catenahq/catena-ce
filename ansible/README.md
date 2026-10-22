@@ -78,8 +78,7 @@ are Community and stay runnable from the panel's buttons -- what is licensed is
 having them happen on a wider or faster schedule while nobody is watching.
 
 Local maintenance timers are not lanes and are always on: monitor sync,
-antivirus watch, mail canary, public-port reconciliation and the
-reboot-required probe. Each is an enumerated allowlist entry, machine-enforced
+public-port reconciliation and the reboot-required probe. Each is an enumerated allowlist entry, machine-enforced
 rather than conventional, and none of them spends object storage.
 
 The managed lifecycle -- backup verification, container updates with

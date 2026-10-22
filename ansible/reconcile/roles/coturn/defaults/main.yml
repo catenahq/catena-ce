@@ -1,7 +1,7 @@
 ---
 # Shared TURN/STUN server for restrictive-network media relay, used by
-# Talk + HPB, the chat apps' video bridges (JVB_TURN_*), and
-# Element's Synapse.
+# Nextcloud Talk and its HPB, the Jitsi videobridges of Rocket.Chat and
+# Element (JVB_TURN_*), and Element's Synapse.
 #
 # Coturn runs as a global swarm service on the host network, so its ports
 # bind directly on the public IP (the Cloudflare tunnel does not carry UDP).
