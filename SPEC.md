@@ -458,8 +458,9 @@ Schedules page chooses the chain's steps; a server that never chose runs them
 all except the vulnerability watch and the restore test. The restore test
 restores the latest backup into a scratch area and checks it, on its own weekly
 lane or as a step of the chain, never both. Once a week it also starts the
-restored databases, Postgres and MariaDB, and Nextcloud on a network of their
-own with no published port, and checks that each opens. An offsite copy of the
+restored databases, Postgres and MariaDB, and each application that declares a
+start check, on a network of their own with no published port, and checks that
+each opens. An offsite copy of the
 host's backup repository always runs behind a repository check and is refused when it fails;
 an option makes it wait for a restore test of the newest backup too. Leaving
 out the backup or its repository check, scheduling no restore test, leaving out
@@ -514,7 +515,7 @@ on every page until it is taken.
 | A host with no paid edition is emailed about an exploited vulnerability its software carries, or a recent critical one with a fixed version, naming the fix | `bench:community_security_alerts` |
 | A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
 | A failed backup verification stops the daily chain before any update, while the restore test is in the chain | `bench:daily_chain_verify_hot_fail_aborts_updates` |
-| The weekly restore test starts the restored databases and Nextcloud and checks that each opens | `bench:verify_hot_bootprobe_weekly`, `bench:erpnext_restore_round_trip` |
+| The weekly restore test starts the restored databases and each application that declares a start check, and checks that each opens | `bench:verify_hot_bootprobe_weekly`, `bench:erpnext_restore_round_trip` |
 | Jobs that change the server or its backup repository run one at a time, and a dashboard change made meanwhile answers busy | `bench:concurrent_backup_lock_contention`, `bench:daily_chain_step_list` |
 | An emergency patch moves a service only to a release within its policy that a host scan shows free of the vulnerability | `threat:CV16` |
 | The applications are in their backup mode for the whole nightly backup and out of it after a failed one | `bench:daily_chain_quiesce_invoked` |
@@ -641,7 +642,6 @@ versions.
 | An application keeps the backup mode, update steps and restore steps it was deployed with; the server needs no catalogue to back it up, update it or restore it | `bench:app_declarations_travel_with_the_app` |
 | Monitoring probes each shared service, Beszel's hub included | `bench:gatus_probes_beszel_hub` |
 | Mail settings changed in the sign-in realm's own Email tab survive a converge and a change of the panel's outgoing mail | `bench:realm_hand_edits_survive_converge` |
-| The Talk action installs Talk and wires it to the call relay and the signalling server, or changes nothing | `bench:suite_wiring_commands#stage-talk-hpb-wired`, `workflow:ci.yml#installer` |
 
 ## CI
 
@@ -697,7 +697,7 @@ None.
 ## Installation
 
 A server needs at least 4 GB of memory: 6 GB for light applications with few
-users, 8 GB for heavier ones such as Nextcloud or ERPNext with many users.
+users, 8 GB for heavier ones with many users.
 Catena's own services take about 2 GB. See [README.md](README.md).
 
 | Invariant | Enforced by |
