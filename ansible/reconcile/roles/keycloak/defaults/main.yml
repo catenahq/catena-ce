@@ -69,10 +69,10 @@ keycloak_health_path: "/health/ready"
 #   https://hub.docker.com/r/adorsys/keycloak-config-cli/tags
 # Tag form: `<cli-version>-<kc-version>`, immutable (the `latest-<kc>`
 # form is re-pushed on every cli release). The update engine moves it
-# together with Keycloak and caps it at Keycloak's major.minor. It can run
-# one minor behind Keycloak while adorsys has no build for the newer minor:
-# the realm-import REST surface is stable across minors, and ce_install
-# runs config-cli during bootstrap, so the bench gates the pairing.
+# together with Keycloak and caps it at Keycloak's major.minor. It trails
+# Keycloak by as many minors as adorsys has no build for: the realm-import
+# REST surface is stable across minors, and ce_install runs config-cli
+# during bootstrap, so a bench run proves each pairing.
 keycloak_config_cli_image_tag: "6.5.1-26.5.5"
 keycloak_config_cli_image: >-
   {{ ('adorsys/keycloak-config-cli:' ~ keycloak_config_cli_image_tag)
