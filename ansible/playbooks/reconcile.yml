@@ -104,7 +104,6 @@
     - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare, edge] }
     - { role: keycloak, tags: [keycloak, auth] }
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
-    - { role: portainer_exit, tags: [portainer_exit] }
     - { role: infrastructure, tags: [infrastructure] }
     # The panel's container and its action catalog. The path its dispatch
     # crosses is dispatch_path, first above; the runner account and the

@@ -210,15 +210,6 @@ def test_secret_names_emit_touches_no_store(oc, tmp_path, capsys):
     assert printed == oc.secret_names()
 
 
-def test_the_old_portainer_keys_belong_to_no_registry(oc):
-    """A host with application folders may still hold these in its store. The
-    store keeps undeclared keys, and nothing declares or mints them."""
-    for key in ("portainer_api_key", "portainer_gate_cookie_secret"):
-        assert key not in oc.secret_names()
-    with pytest.raises(ValueError):
-        oc.apply_inputs({"secrets": {}, "config": {}}, secrets_in={"portainer_api_key": "x"})
-
-
 def test_dr_keyset_is_user_held_not_external(oc):
     """The admin password (first-login), restic backup password (DR keyset)
     and console break-glass password are USER_HELD: generated on-box and shown

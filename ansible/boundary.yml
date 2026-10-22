@@ -83,7 +83,6 @@ reconcile_roles:
   - cloudflare_tunnel
   - keycloak
   - oauth2_proxy
-  - portainer_exit
   - infrastructure
   - catena-admin
   - coturn
