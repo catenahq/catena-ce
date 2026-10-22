@@ -38,5 +38,5 @@ clients:
       access.token.lifespan: "3600"
       # PocketBase's OIDC provider sends PKCE by default
       # (tools/auth/oidc.go NewOIDCProvider), so unlike the Synapse and
-      # Nextcloud clients this one does NOT clear the challenge method.
+      # file-sharing clients this one does NOT clear the challenge method.
       post.logout.redirect.uris: "https://{{ beszel_hostname }}/*"
