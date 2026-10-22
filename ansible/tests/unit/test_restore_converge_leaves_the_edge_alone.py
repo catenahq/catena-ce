@@ -111,8 +111,7 @@ def test_the_scan_sees_the_edge_tagged_files():
     outside = {str(p.relative_to(ANSIBLE)) for p in _outside_edge()}
     assert "reconcile/roles/infrastructure/tasks/main.yml" in outside
     assert "reconcile/roles/oauth2_proxy/tasks/deploy.yml" in outside
-    for edge_file in ("reconcile/roles/infrastructure/tasks/mailserver_dns.yml",
-                      "reconcile/roles/infrastructure/tasks/verify_gated_services.yml",
+    for edge_file in ("reconcile/roles/infrastructure/tasks/verify_gated_services.yml",
                       "reconcile/roles/coturn/tasks/dns.yml",
                       "reconcile/roles/oauth2_proxy/tasks/validate.yml"):
         assert (ANSIBLE / edge_file).is_file(), edge_file

@@ -28,13 +28,8 @@ declarations the roles write into `/etc/catena/public-ports.d/`.
 | `catena-admin-runner.sh` | catena-admin action dispatcher -- the ONLY thing the catena-admin runner user's ssh key is allowed to run (enforced by authorized_keys' command= stanza, which runs catena-dispatch-entry.sh beside it). |
 | `catena-container.sh` | /usr/local/bin/catena-container [--required] <app> <service> -- print the name of the running container of one service of a deployed application. |
 | `catena-dispatch-entry.sh` | The forced command of the panel's dispatch: what sshd runs, as the runner account, for every request the panel sends. |
-| `catena-dms-exec.sh` | Run one docker command against the mailserver's dms container, resolving the container name INSIDE this invocation. |
 | `catena-network-nudge.sh` | Recover containers stranded by the catena-network overlay race after a docker.service start (boot, daemon restart, snapshot restore). |
 | `catena-restic-key.py` | catena-restic-key -- generate, validate or rotate the restic repository password, and create the repository at the saved destination. |
 | `catena-tailnet-check.py` | catena-tailnet-check -- check tailnet credentials before the panel stores them. |
 | `healthchecks-seed.py` | Seed and reconcile self-hosted Healthchecks: the operator superuser, the project and its API keys, and the admin's email channel. |
-| `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
 | `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |
-| `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |
-| `run-mail-canary.sh` | Prove the mail server is up AND actually filtering, via host-side docker-exec into the dms container -- no external SMTP/IMAP and no auth (the server is OAuth2-only, so there is no password to log in with). |
-| `wire-nextcloud-office.sh` | /usr/local/bin/catena-wire-nextcloud-office <collabora\|onlyoffice> -- wire one office editor into a deployed Nextcloud instance. |

@@ -775,7 +775,7 @@ def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_pat
     names = json.loads(capsys.readouterr().out)
     assert names == sorted(oc.ENV_RESEEDED_CONFIG)
     assert set(names) == {
-        "COTURN_CERTBOT_STAGING", "MAILSERVER_CERTBOT_STAGING",
+        "CATENA_ACME_STAGING",
         "CATENA_ACME_DIRECTORY_URL", "CATENA_ACME_HOST_IP",
         "CATENA_ACME_CA_BUNDLE_PEM_B64",
     }

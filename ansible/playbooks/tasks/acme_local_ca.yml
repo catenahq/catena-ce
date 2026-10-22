@@ -2,8 +2,9 @@
 # Trust the test bench's local ACME server (Pebble) for certbot: its `pebble`
 # hostname resolves, and its minica joins the system trust store. Nothing to do
 # on a client install, where the acme_local_* values are blank
-# (playbooks/group_vars/all/main.yml). The coturn and mailserver cert flows
-# include it before they issue.
+# (playbooks/group_vars/all/main.yml). The infrastructure role includes it, so
+# it is in place before an application's certificate is issued, and the coturn
+# cert flow includes it before it issues.
 - name: "Local ACME: map Pebble ACME host"
   ansible.builtin.lineinfile:
     path: /etc/hosts

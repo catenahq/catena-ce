@@ -350,4 +350,4 @@ def test_the_check_reads_the_tree():
     secrets = _secrets(tasks, _tree_definitions())
     handling = [t for _, t, _ in tasks if _task_references(t, secrets)]
     assert len(tasks) > 800, f"only {len(tasks)} tasks found"
-    assert len(handling) > 40, f"only {len(handling)} tasks reference a secret"
+    assert len(handling) > 30, f"only {len(handling)} tasks reference a secret"

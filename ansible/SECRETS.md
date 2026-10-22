@@ -116,8 +116,6 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `dashboard_sync_client_secret`
 - `catena_admin_panel_client_secret`
 - `catena_identity_probe_client_secret`
-- `mailserver_oidc_client_secret`
-- `mailserver_introspect_client_secret`
 - `healthchecks_secret_key`
 - `healthchecks_superuser_password`
 - `healthchecks_ping_key`
@@ -145,8 +143,7 @@ needs them before the panel exists, so the `.env` seeds them fill-only on that
 converge.
 
 **Store, reseeded from the `.env`:** the development-only ACME and staging
-keys (`COTURN_CERTBOT_STAGING`, `MAILSERVER_CERTBOT_STAGING`,
-`CATENA_ACME_*`). No panel field shows them, so the `.env` stays their editor:
+keys (`CATENA_ACME_*`). No panel field shows them, so the `.env` stays their editor:
 every converge run from the inventory writes their non-blank `.env` values
 over the store's (`env.reseed` in the registry). A blank value keeps the
 stored one, and a host converging itself has no `.env` to read: the

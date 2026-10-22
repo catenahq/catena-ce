@@ -9,10 +9,9 @@ nothing -- silently. `docker ps --filter` with no match is an empty list and
 exit 0, which every one of these call sites reads as "that application is not
 deployed":
 
-  clamd never deploys, so the mail path is unscanned
+  the antivirus scanner never deploys, so the mail path is unscanned
   coturn never deploys, so Talk and Jitsi have no relay
-  the mailserver tasks all no-op, so DKIM, the TLS cert and the OIDC config
-      are never written
+  a wiring task no-ops, so the TLS cert and the OIDC config are never written
 
 None of that fails a converge. It reports success for a host with half its
 wiring missing, which is why this is a gate rather than a convention.
@@ -68,8 +67,7 @@ def test_no_task_filters_on_a_compose_label():
     )
 
 
-# clamd's own label: catena-ce writes it into the clamav compose it deploys.
-_VPS_FILTER = re.compile(r"label=vps\.(app|component)=(?!clamav\b)")
+_VPS_FILTER = re.compile(r"label=vps\.(app|component)=")
 
 
 def test_no_lookup_filters_on_a_vps_label():

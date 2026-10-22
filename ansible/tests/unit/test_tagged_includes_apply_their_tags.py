@@ -80,4 +80,4 @@ def test_the_check_reads_the_role_trees():
     tagged = [task for root in ROLE_ROOTS for path in root.rglob("*.yml")
               for task in _tasks(yaml.safe_load(path.read_text()))
               if any(key in task for key in _INCLUDE_KEYS) and task.get("tags")]
-    assert len(tagged) > 20, f"only {len(tagged)} tagged includes under {ROLE_ROOTS}"
+    assert len(tagged) > 10, f"only {len(tagged)} tagged includes under {ROLE_ROOTS}"

@@ -2,8 +2,7 @@
 
 A swarm task is named <stack>_<service>.<slot>.<taskid> and the task id changes
 on every reschedule, so a name resolved in one task is dead the moment swarm
-replaces the task. test_mailserver_container_names_are_fresh.py pins reuse
-across tasks; this pins reuse INSIDE a `retries:` loop, which exists precisely
+replaces the task. This pins reuse INSIDE a `retries:` loop, which exists precisely
 to span the window in which a restart is most likely, so every attempt would
 fail identically:
 

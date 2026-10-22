@@ -79,7 +79,7 @@
 
 # realm_bootstrap.yml is included from this role's tasks/main.yml and from the
 # roles that register an OIDC client of their own (oauth2_proxy, and the
-# infrastructure role's beszel.yml and mailserver_oidc.yml), which call back
+# infrastructure role's beszel.yml), which call back
 # here to re-import the realm after rendering that client. Ansible's template
 # lookup uses the CALLING role's templates/ dir, so a template named plainly
 # would not resolve from them. The realm file and the clients below use an

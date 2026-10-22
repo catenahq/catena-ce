@@ -15,11 +15,8 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 LOOKUP = SCRIPTS / "catena-container.sh"
-NEXTCLOUD_WIRE = sorted(SCRIPTS.glob("wire-nextcloud-*.sh"))
-CALLERS = NEXTCLOUD_WIRE + [
-    SCRIPTS / name for name in (
-        "rocketchat-jitsi-wire.sh", "catena-dms-exec.sh", "mailserver-cert-reload.sh",
-        "run-mail-canary.sh", "run-clamav-watch.sh")]
+CALLERS = [
+    SCRIPTS / name for name in ("rocketchat-jitsi-wire.sh",)]
 
 
 def _run(tmp_path: Path, docker_body: str, *args: str) -> subprocess.CompletedProcess:
@@ -67,14 +64,7 @@ def test_it_needs_an_app_and_a_service(tmp_path: Path, args) -> None:
 
 
 def test_there_are_callers_to_check() -> None:
-    assert [p.name for p in NEXTCLOUD_WIRE] == ["wire-nextcloud-office.sh"], NEXTCLOUD_WIRE
     assert all(path.is_file() for path in CALLERS), CALLERS
-
-
-@pytest.mark.parametrize("script", NEXTCLOUD_WIRE, ids=lambda p: p.name)
-def test_each_nextcloud_wire_script_asks_for_the_app_service(script: Path) -> None:
-    assert "/usr/local/bin/catena-container" in script.read_text()
-    assert "catena-nextcloud app" in script.read_text()
 
 
 @pytest.mark.parametrize("script", CALLERS, ids=lambda p: p.name)

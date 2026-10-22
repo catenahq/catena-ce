@@ -534,8 +534,8 @@
             | list
           }}
         # Allowlist = 22 (SSH, public until the panel's Lockdown narrows it),
-        # 80 and 443, plus the registry's bound TCP ports (coturn 5349,
-        # mailserver 25/465/587/993, ...) from
+        # 80 and 443, plus the registry's bound TCP ports (the ports the
+        # deployed applications declare) from
         # /etc/catena/public-ports.summary.json (all_tcp_bound). No catena
         # service binds 80 or 443 on the host: web traffic enters through the
         # Cloudflare tunnel, and catena-traefik publishes no port. A static

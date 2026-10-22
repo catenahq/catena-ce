@@ -208,7 +208,7 @@ def test_subgroups_are_left_to_the_client():
 
 
 def test_the_sync_holds_no_manage_users_and_the_panel_no_manage_clients():
-    """dashboard-sync manages CLIENTS and only reads people (the mailbox sync
+    """dashboard-sync manages CLIENTS and only reads people (the users pass
     lists groups and members); the panel manages PEOPLE. A leaked sync
     credential cannot add a user, and a leaked panel credential cannot rewrite
     what an application trusts."""

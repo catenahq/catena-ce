@@ -233,8 +233,6 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # the panel has. A supervision credential that could change what it
     # supervises could hide a drift by correcting it.
     "catena_identity_probe_client_secret": mint_strong_password,
-    "mailserver_oidc_client_secret": mint_strong_password,
-    "mailserver_introspect_client_secret": mint_strong_password,
     # Healthchecks (self-hosted heartbeat instance).
     "healthchecks_secret_key": mint_strong_password,
     "healthchecks_superuser_password": mint_strong_password,

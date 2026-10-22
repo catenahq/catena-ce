@@ -21,8 +21,7 @@ reboot_check_env_file: /etc/catena/reboot-check.env
 reboot_check_report_file: /var/lib/catena/reboot-required.json
 reboot_check_systemd_unit_name: catena-reboot-check
 
-# The Healthchecks check this reports through. One slug per host-level probe,
-# matching the clamd watch and the mail canary.
+# The Healthchecks check this reports through. One slug per host-level probe.
 reboot_check_slug: catena-reboot-required
 
 # The licence check's units, shipped in the catena-admin payload.

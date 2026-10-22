@@ -141,7 +141,7 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # api.cloudflare.com's public-CA certificate in the same process. So it goes
 # where update-ca-certificates picks it up (.crt required), and certbot is
 # pointed at the combined bundle. tasks/acme_local_ca.yml installs it; the
-# coturn and mailserver cert flows include that file.
+# infrastructure role and the coturn cert flow include that file.
 acme_local_directory_url: "{{ cfg_acme_directory_url | default('') }}"
 acme_local_host_ip: "{{ cfg_acme_host_ip | default('') }}"
 acme_local_ca_bundle_b64: "{{ cfg_acme_ca_bundle_b64 | default('') }}"

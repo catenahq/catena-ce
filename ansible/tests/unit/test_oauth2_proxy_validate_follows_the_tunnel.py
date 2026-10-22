@@ -75,9 +75,9 @@ INFRA_MAIN = (
 
 
 def test_the_infrastructure_edge_gate_also_follows_the_tunnel():
-    """Same deferral, one role later: the gated-services public-URL probe and
-    the mailserver chain both need the edge, and gating them on the token
-    alone fails a no-tailnet install at a 530."""
+    """Same deferral, one role later: the gated-services public-URL probe
+    needs the edge, and gating it on the token alone fails a no-tailnet
+    install at a 530."""
     text = INFRA_MAIN.read_text()
     gate = next(t for t in yaml.safe_load(text)
                 if t.get("name") == "Resolve the tunnel-deferred gate")

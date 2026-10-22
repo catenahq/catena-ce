@@ -15,23 +15,13 @@ Deployed with `tasks/swarm_stack.yml` (`docker stack deploy`):
   domain.
 - **Healthchecks** (`healthchecks.<zone>`) -- the dead-man-switch plane the
   backup, the nightly chain, the offsite copy, the off-site heartbeat, the
-  reboot-required probe, the ClamAV watch, the mail canary and Beszel's alerts
-  ping. Missed pings alert the admin's email, through the outgoing mail set in
+  reboot-required probe and Beszel's alerts ping. Missed pings alert the admin's email, through the outgoing mail set in
   catena-admin, and the channels added in Healthchecks. This role seeds the
   email channel; catena-admin's catena-schedule keeps the scheduled lanes'
   checks on their schedule.
 - **Beszel** (`beszel.<zone>`) -- hub and host agent for resource history and
   threshold alerts, with a small shim that forwards those alerts to
   Healthchecks.
-- **Shared ClamAV** -- one clamd on the `catena-clamav` overlay for the mail
-  server and Nextcloud, deployed once either runs, with its watchdog timer.
-  A server with 8 GB or more reloads clamd's signatures with scans running.
-  A smaller one has less memory than `clamav_blocking_reload_below_mb`: clamd
-  reloads with scans paused for the seconds the load takes, rather than
-  holding a second copy of the database. Mail that arrives in the pause is deferred and retried by its
-  sender; a Nextcloud upload waits for its scan, and one that gets no answer
-  is refused.
-
 Gatus, Healthchecks and Beszel's hub sit behind their own oauth2-proxy,
 rendered by `reconcile/roles/oauth2_proxy` before this role runs, and each
 one's only public route is its gate's.
@@ -56,13 +46,10 @@ removed after the deploy.
 ## Catalog app wiring
 
 - The Keycloak client for Element, and the host scripts behind the panel's
-  "Initial apps setup" actions (`/usr/local/bin/catena-wire-*`), which finish
-  Nextcloud's office editors and Rocket.Chat's Jitsi inside the running
-  containers. The rest of Nextcloud's wiring (OIDC, Talk + HPB, antivirus, Mail,
-  the Webmail link) is its template's configure hook.
-- The mail server chain when its template is deployed: the DNS-01 certificate,
-  the postmaster mailbox, Roundcube and Dovecot OIDC, rspamd filtering, the
-  mail DNS records and the mail canary timer. It waits for a Cloudflare token.
+  "Initial apps setup" action (`/usr/local/bin/catena-wire-*`), which finishes
+  Rocket.Chat's Jitsi inside the running containers. Nextcloud's wiring (OIDC,
+  Talk + HPB, the antivirus scanner and office editor other applications
+  provide, Mail, the Webmail link) is its template's configure hook.
 - WordPress plugin curation once the site is installed. WP Mail SMTP's relay
   follows the outgoing mail set in Settings on every converge; its sender and
   the NPP cache settings are seeded once per site and are then the site's.

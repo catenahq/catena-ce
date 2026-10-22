@@ -4,11 +4,11 @@
 #
 # 1. The tunnel-deferred gate: the steps that need the public edge wait for a
 #    converge that has it.
-# 2. Gatus, Healthchecks, Beszel and the shared ClamAV, as swarm stacks
-#    (swarm_stack.yml), and the off-site heartbeat's env file.
-# 3. The Keycloak clients and wiring scripts for Nextcloud's office editors,
-#    Element, the mail server, Rocket.Chat and WordPress, the dashboard-sync
-#    wiring, and the public-URL probe of the gated services.
+# 2. Gatus, Healthchecks and Beszel, as swarm stacks (swarm_stack.yml), and
+#    the off-site heartbeat's env file.
+# 3. The Keycloak clients and wiring scripts for Element, Rocket.Chat and
+#    WordPress, the dashboard-sync wiring, and the public-URL probe of the
+#    gated services.
 # 4. The gatus-sync wiring.
 #
 # reconcile/roles/cloudflare_tunnel brings the edge up before keycloak and
@@ -85,7 +85,7 @@
 
 # The container lookup every script and task below finds an application's
 # containers with (catena-container <app> <service>), so it lands before the
-# first of them: clamav.yml's consumer probe and the scripts it installs.
+# first of them.
 - name: "Install the container lookup the scripts and tasks share"
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/catena-container.sh"
@@ -95,142 +95,17 @@
     mode: "0755"
   tags: [always]
 
-# Shared ClamAV (clamd). Creates the catena-clamav overlay the mailserver and
-# Nextcloud templates declare external, so it exists before a client deploys
-# either, and deploys one clamd as a swarm stack once either consumer runs.
-# Runs before the per-app wiring below so the network and the scanner are
-# ready when those land; its watchdog pings the Healthchecks deployed above.
-- name: Shared ClamAV (clamd, used by mail + Nextcloud)
+# The host issues the certificates of the catalog applications (catena-apps,
+# from their needs), so a local ACME server of the test bench has to resolve and
+# be trusted here. Blank values on a client install make this a no-op.
+- name: "Local ACME server: resolve it and trust its CA"
   ansible.builtin.include_tasks:
-    file: clamav.yml
+    file: "{{ playbook_dir }}/tasks/acme_local_ca.yml"
     apply:
-      tags: [clamav]
-  tags: [clamav]
+      tags: [acme_local_ca]
+  tags: [acme_local_ca]
 
 # --- client-template wiring ----------------------------------------------------
-# Mailserver TLS cert (mail.<zone>). Opt-in template: issues a
-# Let's Encrypt cert via DNS-01 and injects it into the dms container
-# (SSL_TYPE=manual). MUST run BEFORE mailserver_accounts: docker-
-# mailserver has two hard boot gates -- (1) >=1 mailbox, polled for
-# 120s, then (2) the manual cert. The container is in a STABLE, exec-
-# able window only while gate 1 is unmet (no account), so we docker cp
-# the cert in during that window. Adding the account last (next task)
-# then lets the boot proceed past gate 1 to gate 2 with the cert
-# already present. No-ops on tenants without the mailserver (no dms).
-- name: Mailserver TLS cert (Let's Encrypt DNS-01 -> dms inject + reload)
-  ansible.builtin.include_tasks:
-    file: mailserver_cert.yml
-    apply:
-      tags: [mailserver_cert]
-  when:
-    - _infra_edge_up
-  tags: [mailserver_cert]
-
-# Mailserver accounts. docker-mailserver will not start Dovecot until
-# >=1 mailbox exists. Bootstrap postmaster@<zone> as a real mailbox
-# here -- this is the action that unblocks the boot (gate 1), and since
-# the cert task above already injected the cert (gate 2), the same boot
-# proceeds to start Dovecot. The dashboard-sync reconciler manages the
-# rest from Keycloak and never deletes postmaster. No-ops without the
-# mailserver (no dms container).
-# Tunnel-deferred: adding the postmaster mailbox unblocks gate 1, and DMS
-# then proceeds to gate 2 expecting the manual cert. On a tokenless install
-# the cert task above is deferred, so adding the account here would strand
-# Dovecot at gate 2 (no cert). Defer the whole mailserver wiring chain
-# (accounts + oidc + filtering + canary) until a Cloudflare token is saved
-# and a converge re-runs it in the correct cert -> account -> boot order.
-# The dms container stays in its stable, no-account gate-1 window meanwhile.
-- name: Mailserver accounts (bootstrap postmaster mailbox so DMS can start)
-  ansible.builtin.include_tasks:
-    file: mailserver_accounts.yml
-    apply:
-      tags: [mailserver_accounts]
-  when: _infra_edge_up
-  tags: [mailserver_accounts]
-
-# Mailserver SSO. Opt-in template: registers the roundcube +
-# mailserver-introspect Keycloak clients and injects the Dovecot
-# introspection config + Roundcube oauth config when the mailserver
-# template is deployed. No-ops on tenants without it (no dms container).
-- name: Mailserver OIDC (Keycloak clients + Dovecot/Roundcube OAuth config)
-  ansible.builtin.include_tasks:
-    file: mailserver_oidc.yml
-    apply:
-      tags: [mailserver_oidc]
-  when:
-    - _infra_edge_up
-  tags: [mailserver_oidc]
-
-# Mailserver spam + antivirus filtering. Injects rspamd local.d
-# drop-ins (Spamhaus DQS RBL, shared-clamd antivirus, SMB action
-# thresholds, soft-reject-on-AV-fail) into the dms container. No-ops
-# without the mailserver template (no dms container).
-- name: Mailserver filtering (rspamd DQS RBL + antivirus + thresholds)
-  ansible.builtin.include_tasks:
-    file: mailserver_filtering.yml
-    apply:
-      tags: [mailserver_filtering]
-  when: _infra_edge_up
-  tags: [mailserver_filtering]
-
-# Mailserver DNS. Writes the mail-specific records through the
-# Cloudflare API (the gray-cloud mail A + MTA-STS + TLS-RPT TXT);
-# MX/SPF/DKIM/DMARC/rDNS stay manual, and mailserver_dns.yml says why.
-# No-ops without the dms container.
-- name: Mailserver DNS (mail A + MTA-STS + TLS-RPT via Cloudflare)
-  ansible.builtin.include_tasks:
-    file: mailserver_dns.yml
-    apply:
-      tags: [mailserver_dns, edge]
-  when:
-    - _infra_edge_up
-  tags: [mailserver_dns, edge]
-
-# Mail canary host timer. Proves dms is listening on 25/993 + that the
-# rspamd->clamav AV path detects EICAR (docker-exec rspamc). Wrapper
-# self-gates (no-op without a dms container).
-- name: Mail canary (ports + EICAR rspamc check via Healthchecks)
-  ansible.builtin.include_tasks:
-    file: mailserver_canary.yml
-    apply:
-      tags: [mailserver_canary]
-  when:
-    - _infra_edge_up
-  tags: [mailserver_canary]
-
-# The six mailserver includes above all defer on a tokenless host.
-# Without this notice the converge would print a clean run on a host with
-# no mail TLS, no postmaster mailbox, no rspamd antivirus, no mail DNS and
-# no canary. One notice rather than six: they share one condition. Same
-# shape as the verify_gated_services notice further down.
-- name: "Mailserver chain: tunnel deferred -- mail wiring skipped (no Cloudflare edge yet)"
-  ansible.builtin.debug:
-    msg: >-
-      The Cloudflare edge is not up on this converge (no API token in the
-      on-box store, or the tunnel engine is not on the host yet), so the
-      mailserver wiring chain is DEFERRED, not applied: TLS cert injection, the
-      postmaster mailbox bootstrap, OIDC (Roundcube + Dovecot
-      introspection), rspamd filtering (DQS RBL + antivirus), the mail DNS
-      records and the mail canary. The dms container stays in its stable
-      no-account window meanwhile. Order matters -- the cert has to land
-      before the first account or Dovecot strands at gate 2 -- which is why
-      the whole chain waits rather than running the half that would work.
-      The next converge with the edge up applies it.
-  when: not _infra_edge_up
-  tags: [mailserver_accounts, mailserver_cert, mailserver_oidc,
-         mailserver_filtering, mailserver_dns, mailserver_canary]
-
-# Nextcloud office editors (Collabora / OnlyOffice). Pure host-side
-# wiring-script install; no Keycloak realm client. The matching
-# catena templates ship their own composes; the Actions-tab buttons
-# do the post-deploy occ wiring. See nextcloud_office.yml header.
-- name: Nextcloud office editors (Collabora + OnlyOffice wire scripts)
-  ansible.builtin.include_tasks:
-    file: nextcloud_office.yml
-    apply:
-      tags: [nextcloud_office]
-  tags: [nextcloud_office]
-
 # Rocket.Chat + bundled Jitsi. Wire script only: JVB's media port is a
 # swarm host-mode publish, which Docker DNATs past ufw INPUT, so the
 # registry learns it from the template's vps.expose.udp label instead.

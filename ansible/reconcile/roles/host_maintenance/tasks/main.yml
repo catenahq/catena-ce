@@ -203,14 +203,14 @@
 
 # ─── Keep host port 25 free for the mail server (MX) ──────────────────────
 # Debian's default-mta (exim4-daemon-light) binds 127.0.0.1:25 and [::1]:25 the
-# moment it starts, which collides with the mailserver template publishing
+# moment it starts, which collides with a mail server application publishing
 # 0.0.0.0:25 and leaves its container stuck in Created. exim4 is not in the base
 # image or the baseline; it arrives as an apt Recommends of packages other roles
 # install (cron is one path, not the only one), and stripping recommends from
 # every installer would also strip what those packages legitimately want.
 #
-# Catena drives periodic work off systemd timers and routes mail through the
-# mailserver template, so a host MTA is never wanted, and is a spam-relay
+# Catena drives periodic work off systemd timers and routes mail through a mail
+# server application, so a host MTA is never wanted, and is a spam-relay
 # liability besides. Masking shadows the unit even before the package exists,
 # so a later install's postinst start is a no-op (deb-systemd-invoke skips
 # masked units). Plain command rather than the systemd_service module, which

@@ -72,8 +72,8 @@
       # Every import applies its files whole.
       - -e
       - "IMPORT_CACHE_ENABLED=false"
-      # NO_DELETE for managed entities -- per-client YAMLs (nextcloud,
-      # oauth2-proxy, roundcube, etc.) each contain only THEIR one
+      # NO_DELETE for managed entities -- per-client YAMLs (oauth2-proxy,
+      # beszel, etc.) each contain only THEIR one
       # client. With the default FULL behavior, each import
       # silently DELETES every other client because they're not in
       # the file's `clients:` array. Result: only the last-imported
