@@ -37,15 +37,27 @@ class _Placeholder(jinja2.ChainableUndefined):
         return "x"
 
 
-def _render(name: str) -> dict:
+KEYCLOAK = role_dir("keycloak")
+
+
+def _render(name: str, templates=TEMPLATES, **values) -> dict:
     env = jinja2.Environment(undefined=_Placeholder)
     env.filters["bool"] = bool
-    text = (TEMPLATES / name).read_text(encoding="utf-8")
+    text = (templates / name).read_text(encoding="utf-8")
     return yaml.safe_load(env.from_string(text).render(
         beszel_hub_data_volume="beszel-hub-data",
         catena_public_surface_deferred=False,
         infrastructure_smtp={"enabled": False, "sender": "x", "implicit_tls": False},
+        **values,
     ))
+
+
+def _keycloak_names() -> tuple[str, str]:
+    """The stack and the server service key, as the roles name them."""
+    names = {}
+    for path in (KEYCLOAK / "defaults" / "main.yml", KEYCLOAK / "vars" / "main.yml"):
+        names.update(yaml.safe_load(path.read_text(encoding="utf-8")))
+    return names["keycloak_compose_name"], names["keycloak_server_service"]
 
 
 @pytest.mark.parametrize("name,volume", DECLARING.items())
@@ -62,6 +74,36 @@ def test_a_stack_that_keeps_data_declares_it(name, volume):
 def test_the_block_is_the_only_x_key_of_these_files():
     for name in DECLARING:
         assert [k for k in _render(name) if k.startswith("x-")] == ["x-catena"]
+
+
+def _keycloak() -> dict:
+    _, server = _keycloak_names()
+    return _render("keycloak.compose.yml.j2", KEYCLOAK / "templates", keycloak_server_service=server)
+
+
+def test_keycloak_declares_the_database_of_its_server():
+    """Keycloak's schema migrates on the first start of a newer version and the
+    older one cannot read it: its database, in catena-postgres, is copied
+    before the image moves."""
+    _, server = _keycloak_names()
+    doc = _keycloak()
+    assert doc["x-catena"] == {
+        "schema": 2,
+        "data": {server: {"database": "catena-postgres", "upgrade": "in_place"}},
+    }
+    assert server in doc["services"], "the block names a service the file lacks"
+    assert [k for k in doc if k.startswith("x-")] == ["x-catena"]
+
+
+def test_the_verb_sees_the_swarm_service_the_bump_manifest_names():
+    """The converge asks about the stack named keycloak_compose_name and the
+    service key of the block; swarm names the service <stack>_<service>, which
+    is the swarm_service of Keycloak's entry in the managed services."""
+    stack, server = _keycloak_names()
+    manifest = (role_dir("catena-admin") / "templates" / "managed-services.json.j2").read_text(
+        encoding="utf-8")
+    assert '"swarm_service": "{{ keycloak_compose_name }}_{{ keycloak_server_service }}"' in manifest
+    assert f"{stack}_{server}" == "keycloak_server"
 
 
 def _stack_tasks() -> list[dict]:

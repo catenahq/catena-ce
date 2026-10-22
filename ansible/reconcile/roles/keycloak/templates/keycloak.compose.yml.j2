@@ -10,6 +10,18 @@
 #   - default (project-local): not currently used because Postgres is
 #     external. Kept declared for future local-only sidecars (e.g.
 #     keycloak-config-cli one-shot in plan step 3).
+#
+# x-catena declares that the database of the server lives in catena-postgres:
+# Keycloak migrates its schema on the first start of a newer version and the
+# older one cannot read it, so the database is dumped before the image moves
+# and replayed with the previous image when the move rolls back.
+x-catena:
+  schema: 2
+  data:
+    {{ keycloak_server_service }}:
+      database: catena-postgres
+      upgrade: in_place
+
 services:
   {{ keycloak_server_service }}:
     image: "{{ keycloak_image }}"
