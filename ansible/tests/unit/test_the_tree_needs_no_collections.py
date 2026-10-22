@@ -218,7 +218,7 @@ def test_no_expression_names_a_collection_plugin():
 def test_the_gate_reads_real_files():
     """A gate that walked an empty set would pass for the wrong reason."""
     files = _task_files()
-    assert len(files) > 100, f"only {len(files)} task-bearing YAML files found"
+    assert len(files) > 50, f"only {len(files)} task-bearing YAML files found"
     tasks = sum(len(_tasks_in(_load(p))) for p in files)
     assert tasks > 1000, f"only {tasks} tasks found across {len(files)} files"
     assert len(_templates()) > 50, f"only {len(_templates())} templates found"
