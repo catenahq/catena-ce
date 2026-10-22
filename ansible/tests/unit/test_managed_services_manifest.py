@@ -55,7 +55,35 @@ def test_the_manifest_renders_and_is_a_list_of_specs(manifest):
     for spec in manifest:
         assert spec["kind"] == "infra-swarm"
         assert spec["swarm_service"], spec
-        assert spec["policy"] in ("patch", "patch+minor"), spec
+        assert spec["policy"] in ("patch", "minor"), spec
+
+
+def test_every_service_moves_at_patch_level_only(manifest):
+    """Minors and majors arrive with a catena-admin release. catena-postgres
+    numbers its releases major.minor, so its patch release is its minor, and
+    "minor" is the policy that keeps its major."""
+    for spec in manifest:
+        want = "minor" if spec["name"] == "catena-postgres" else "patch"
+        assert spec["policy"] == want, spec
+
+
+def test_catena_postgres_is_created_by_the_tier1_catalog_not_a_stack(manifest):
+    spec = next(s for s in manifest if s["name"] == "catena-postgres")
+    assert spec["swarm_service"] == "catena-postgres"
+    assert "compose_name" not in spec
+    assert spec["upstream"]["source"] == "dockerhub"
+    assert spec["upstream"]["repo"] == "library/postgres"
+    assert spec["upstream"]["scheme"] == "partial_line"
+
+
+def test_catena_postgres_admits_only_trixie_minors_of_its_major(manifest):
+    pattern = next(s for s in manifest
+                   if s["name"] == "catena-postgres")["upstream"]["tag_pattern"]
+    for tag in ("18.6-trixie", "18.7-trixie", "18.10-trixie"):
+        assert re.fullmatch(pattern, tag), tag
+    for tag in ("19.0-trixie", "18.6", "18.6-alpine", "18.6-bookworm", "18",
+                "18.7.1-trixie", "18.6-trixie-slim", "latest"):
+        assert not re.fullmatch(pattern, tag), tag
 
 
 def test_every_swarm_service_name_is_fully_resolved(manifest):
@@ -107,6 +135,9 @@ def test_the_declared_tag_patterns_match_the_pins_the_converge_ships(manifest):
     candidate is filtered out and the bump silently never happens."""
     v = _role_vars()
     for name, tag in (
+        # The tier-1 catalog's PostgresImage (catena-admin
+        # payload/engines/tier1/catalog.go) is not a variable of this tree.
+        ("catena-postgres", "18.6-trixie"),
         ("gatus", v["gatus_image_tag"]),
         ("healthchecks", v["healthchecks_image_tag"]),
         ("beszel-hub", v["beszel_image_tag"]),
@@ -158,9 +189,9 @@ def test_nothing_carries_a_copy_of_how_the_service_was_built(manifest):
 def test_the_exclusions_are_written_down():
     """Each absent service is absent for a reason. An undocumented gap reads as
     an oversight and gets 'fixed' by adding a service that must not be there --
-    postgres, whose version move is a migration, or cloudflared, whose failure
-    removes the surface you would roll it back from."""
+    cloudflared, whose failure removes the surface you would roll it back
+    from."""
     header = MANIFEST.read_text().split("#}")[0]
-    for name in ("catena-postgres", "cloudflared", "catena-admin",
-                 "oauth2-proxy"):
+    for name in ("cloudflared", "catena-admin", "oauth2-proxy",
+                 "beszel-hc-shim"):
         assert name in header, f"{name} is absent from the manifest silently"

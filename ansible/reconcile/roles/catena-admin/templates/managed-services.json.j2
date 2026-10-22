@@ -24,13 +24,18 @@
   engine builds its client-walk skip set from that key, so a stack of Catena's
   own is not also bumped as if a client had chosen it.
 
+  Every entry moves by itself at patch level only: a patch release, or for
+  catena-postgres, which numbers its releases major.minor, its next minor (its
+  patch release, policy "minor", which keeps the major). Minors and majors of
+  the others, and a new Postgres major (a migration: pg_upgrade or a dump the
+  restore path can replay), arrive with a catena-admin release. The tag pattern
+  of catena-postgres names the major and the trixie variant of the tier-1
+  catalog's PostgresImage (catena-admin payload/engines/tier1/catalog.go), and
+  changes with it.
+
   The services this manifest leaves out, each with its reason:
 
-    catena-postgres   A database version move is a migration: it needs
-                      pg_upgrade and a dump the restore path can replay. Its
-                      minor releases ship with a catena-admin release (the
-                      tier-1 catalog's PostgresImage).
-    cloudflared       Reconciled by catena-cloudflared-sync, and its bump stays
+    cloudflared      Reconciled by catena-cloudflared-sync, and its bump stays
                       manual by design: a broken image kills the public path AND
                       the route to catena-admin, so there is no surface left to
                       roll it back from. See catena-admin renovate.json.
@@ -45,6 +50,18 @@
     beszel-hc-shim    Its image is a python base image, not a product release.
 #}
 [
+  {
+    "name": "catena-postgres",
+    "kind": "infra-swarm",
+    "swarm_service": "catena-postgres",
+    "policy": "minor",
+    "upstream": {
+      "source": "dockerhub",
+      "repo": "library/postgres",
+      "scheme": "partial_line",
+      "tag_pattern": "^18\\.\\d+-trixie$"
+    }
+  },
   {
     "name": "{{ traefik_container_name }}",
     "kind": "infra-swarm",
@@ -61,7 +78,7 @@
     "kind": "infra-swarm",
     "compose_name": "{{ gatus_compose_name }}",
     "swarm_service": "{{ gatus_compose_name }}_app",
-    "policy": "patch+minor",
+    "policy": "patch",
     "upstream": {
       "source": "dockerhub",
       "repo": "twinproduction/gatus",
