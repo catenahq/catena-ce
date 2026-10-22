@@ -7,7 +7,9 @@ name: CI
 # it introduces: the unit tests and the duplication ratchet run through
 # contracts' new-failures-only action, which fails only on failures the base
 # commit does not have, and the prose job gates on the files the change
-# touches.
+# touches. The Keycloak extension job runs plain on both: it builds and tests
+# the JAR under ansible/reconcile/roles/keycloak/provider and fails when a
+# second build gives other bytes.
 
 on:
   # Every pushed branch. Renovate and engine-bump branches always carry a pull
@@ -69,6 +71,38 @@ jobs:
         run: uv run catena-installer --help
       - name: A wheel builds
         run: uv build --wheel
+
+  keycloak-provider:
+    # The JAR of Catena's Keycloak providers: its tests, then a second offline
+    # build whose SHA-256 must equal the first's, so the same sources always
+    # give the same bytes.
+    name: Keycloak extension
+    runs-on: ubuntu-latest
+    container:
+      image: maven:3.9.16-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320
+    defaults:
+      run:
+        working-directory: ansible/reconcile/roles/keycloak/provider
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Build and test
+        run: mvn -B -ntp --strict-checksums verify
+      - name: Record the JAR's checksum
+        run: sha256sum target/catena-keycloak.jar | tee "$RUNNER_TEMP/first.sha256"
+      # Only the plugins the first build fetched are available offline, and
+      # the clean plugin is not among them.
+      - name: Build again
+        run: |
+          set -eu
+          rm -rf target
+          mvn -B -ntp -o package -DskipTests
+      - name: The two builds match
+        run: |
+          set -eu
+          sha256sum target/catena-keycloak.jar | tee "$RUNNER_TEMP/second.sha256"
+          cmp "$RUNNER_TEMP/first.sha256" "$RUNNER_TEMP/second.sha256"
 
   syntax:
     # Every playbook parses, roles and all. The unit tests read task files as
