@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 204 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 207 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -19,8 +19,12 @@ The 204 scenarios the maintainers' test bench carries, and the behaviour each on
 | `admin_staff_cannot_reach_admin_routes` | A staff member signed in to the panel is refused every administrator page and every administrator action. |
 | `app_checker_catalog` | Every catalog application's compose file passes the panel's application checker with no error, a file carrying one defect of each kind gets each finding and a corrected file with nothing left to correct, and the findings in a deployed application's own file are counted on its tile for administrators alone. |
 | `app_container_cannot_claim_an_identity` | A container on the server cannot claim a signed-in identity at the dashboard or at the job monitor, nor reach the resource monitor's login but through its sign-in gate, and no sign-in cookie a client app or another admin tool sees opens the dashboard or another client app, while a real sign-in reaches both. |
+| `app_database_upgrade` | An application whose database moves to the next major version keeps its writers still while its data is dumped and replayed into the new version, holds the same rows afterwards, and goes back to the previous files and data when an administrator reverts the update. |
 | `app_declarations_travel_with_the_app` | An app carries the steps it is deployed with: its update, its backup mode in the nightly maintenance and its restore read them from the file the server stores for it, so they hold with the app catalogue unreachable, for an app deployed by hand, and a block written for a newer Catena is refused instead of half run. |
+| `app_declared_needs` | An application that declares a certificate and DNS records among what it needs has them made by the host before it is deployed, reuses its certificate when it is added again, and on removal loses its DNS records at once and its certificate only with its data. |
+| `app_origin_update` | An application added from a repository is offered the repository's newer tag once the nightly update has seen it, moves to it when an administrator confirms, takes a later tag by itself from a trusted repository, runs the new files, and is left as it is by the nightly update once a person has changed its files. |
 | `app_several_addresses` | An application can publish several addresses: each one is routed and watched on its own and admits only the people its own labels name, a sign-in at one address opens no other, and an address another one already holds, or an application that does not say which of its addresses is the main one, gets no route. |
+| `apps_folder_round_trip` | An application added from a private repository needs the repository's token, keeps its settings exactly as typed, stops and starts with its data in place, is removed with its data kept on request, and is left as it is by the nightly update once a person has changed its files. |
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
 | `backup_destination_creates_repository` | Saving a backup destination creates its repository there, a destination holding other files is refused, and a backup never creates a repository. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
@@ -91,7 +95,6 @@ The 204 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_b4_locked_pack_rotation` | Backup data held under an object-lock retention policy survives an attempt to prune it away. |
 | `fi_b6_healthchecks_down` | An unreachable monitoring endpoint is reported instead of the failure going unnoticed. |
 | `fi_c1_docker_daemon_hang` | A frozen container daemon makes the converge fail within a bounded time rather than hanging indefinitely. |
-| `fi_c3_portainer_crash_mid_deploy` | A crash of the deployment control plane during a deploy is covered by the orchestrator restarting it, and the deployment completes. |
 | `fi_c4_registry_pull_timeout` | Heavy packet loss on the host outbound network makes the converge fail fast at its first external step. |
 | `fi_c6_cloudflared_flapping` | Re-converging the public tunnel updates its configuration without restarting a healthy connector. |
 | `fi_c7_coturn_cert_expired` | A media-relay certificate that is due is renewed by the scheduled renewal job, and the relay reloads it. |
@@ -145,8 +148,8 @@ The 204 scenarios the maintainers' test bench carries, and the behaviour each on
 | `labels_vocabulary_from_image` | The port a template's labels declare is read with the label vocabulary the server's panel image ships, so an image update changes what a label means with no converge. |
 | `launcher_install` | The installer installs a server over a private address and over the public one, adding its key with the provider's password, leaves an inventory that holds no credential, and stops on a reinstalled server's new host key until it is told the server was reinstalled. |
 | `license_seat` | A key is active on one server at a time: a copy of a licensed server and a second server are both refused the key's seat, and once the seat is freed the second server takes it and the first locks at its next check -- while the first keeps everything but its paid panels. |
-| `mailbox_sync_ownership` | A mailbox made by hand survives the mailbox reconciler, and a mailbox the reconciler made is closed when its owner is in neither the staff nor the client group. |
-| `mailserver_after_domain` | A mail server deployed from the catalogue on a server that already has its domain is wired with nothing pressed: the server starts the converge that wires it, once. |
+| `mailbox_sync_ownership` | A mailbox made by hand survives the mail server's users hook, and a mailbox the hook made is closed when its owner is in neither the staff nor the client group. |
+| `mailserver_after_domain` | A mail server deployed from the catalog on a server that already has its domain is wired by the deploy alone: its certificate is in the mail-certs volume and loaded, the postmaster mailbox is in its account registry, the address record of its host exists, and its sign-in client exists. |
 | `mailserver_webmail_backup_mode` | The webmail stays up through a long backup of the mail server, a sign-in made during the hold completes when the hold ends, the mail server accepts mail meanwhile, and the webmail's database comes back from the backup whole and signs in again. |
 | `mailserver_webmail_failed_update_rolls_back` | When a webmail update fails, the previous Roundcube version and its database from before the update are put back, the webmail signs in again, the mail server runs again, and the failed version is held back. |
 | `measure_converge` | Measures, on a converged server, how much of the on-host reconcile is spent outside its 25 slowest tasks. |
@@ -198,7 +201,7 @@ The 204 scenarios the maintainers' test bench carries, and the behaviour each on
 | `smtp_rotation_round_trip` | Outbound mail credentials are rotated on the planned cycle and a live send confirms the new ones work. |
 | `snapshot_export_round_trip` | A snapshot is exported to a single portable archive that unpacks away from the host with its content intact. |
 | `sovereign_exit` | The suite keeps running after the administration panel is deleted, because the panel is glue rather than a data hub. |
-| `suite_wiring_commands` | Each suite wiring command the panel offers (Talk with its signalling server and TURN relay, the office editor, the Mail app, the antivirus for Nextcloud, and Jitsi for Rocket.Chat) is run through the panel's command path on the deployed application and its settings read back from the application, and a second run changes nothing. |
+| `suite_wiring_commands` | Nextcloud's configure hook, which runs after every deploy, wires Talk to its signalling server and TURN relay and enables the Mail app, both settings read back from the deployed application, and a restart, which deploys the application again and runs the hook again, changes none of them. |
 | `swarm_overlay_selfheal` | Applications rejoin their private overlay network by themselves after the container daemon restarts. |
 | `tag_scheme_migration` | An application pinned on nightly builds moves onto its stable releases under the major update policy: all of its images, in one deploy, to the newest stable release published since the nightly was built and newer than every release published before it. |
 | `tailscale_oauth_rotation_round_trip` | The private network credential is rotated on the planned cycle and every host stays reachable across the change. |
