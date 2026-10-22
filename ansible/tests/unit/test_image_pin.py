@@ -62,11 +62,18 @@ def test_a_pin_whose_value_names_a_different_repository_is_ignored():
 
 
 @pytest.mark.parametrize("floor,pin", [
-    # postgres is pinned to a MAJOR on purpose: it follows Keycloak's support
-    # matrix. A pin that appeared to beat it would be a major upgrade nobody
-    # asked for, mid-converge, under a running database.
+    # A one-part floor is a MAJOR on purpose: a pin that appeared to beat it
+    # would be a major upgrade nobody asked for, mid-converge, under a running
+    # database.
     ("postgres:18", "postgres:19"),
     ("postgres:18", "postgres:18.4"),
+    # A two-part floor takes its own major and variant only.
+    ("postgres:18.6-trixie", "postgres:19.0-trixie"),
+    ("postgres:18.6-trixie", "postgres:18.7"),
+    ("postgres:18.6-trixie", "postgres:18.7-bookworm"),
+    ("postgres:18.6", "postgres:18.7-trixie"),
+    ("postgres:18.6-trixie", "postgres:18.7.1"),
+    ("postgres:18.6-trixie", "postgres:v18.7-trixie"),
     # Non-version tags carry no ordering at all.
     ("traefik:latest", "traefik:v3.7.12"),
     ("traefik:v3.7.10", "traefik:latest"),
@@ -75,6 +82,33 @@ def test_a_pin_whose_value_names_a_different_repository_is_ignored():
 def test_an_incomparable_pair_resolves_to_the_floor(floor, pin):
     repo = floor.rsplit(":", 1)[0]
     assert catena_image_pin(floor, {repo: pin}) == floor
+
+
+PG_FLOOR = "postgres:18.6-trixie"
+
+
+def test_a_newer_minor_of_the_same_major_and_variant_wins():
+    assert catena_image_pin(PG_FLOOR, {"postgres": "postgres:18.7-trixie"}) \
+        == "postgres:18.7-trixie"
+    assert catena_image_pin("postgres:18.6", {"postgres": "postgres:18.10"}) \
+        == "postgres:18.10"
+
+
+def test_a_two_part_tie_or_older_minor_resolves_to_the_floor():
+    for pin in ("postgres:18.6-trixie", "postgres:18.5-trixie"):
+        assert catena_image_pin(PG_FLOOR, {"postgres": pin}) == PG_FLOOR
+
+
+def test_a_corrupt_two_part_pin_loses():
+    for pin in ("postgres:18.x-trixie", "postgres:18.7-", "postgres:18.7--a-b",
+                "other/postgres:18.7-trixie"):
+        assert catena_image_pin(PG_FLOOR, {"postgres": pin}) == PG_FLOOR
+
+
+def test_a_two_part_pin_is_usable():
+    pin = "postgres:18.7-trixie"
+    assert catena_image_pinned({"postgres": pin}, "postgres") == pin
+    assert catena_image_pinned({"postgres": "postgres:18"}, "postgres") == ""
 
 
 def test_a_prerelease_does_not_beat_the_release_it_precedes():
@@ -109,9 +143,9 @@ def test_a_plain_version_does_not_beat_a_build_of_itself():
 
 
 @pytest.mark.parametrize("floor,pin", [
-    # Five parts is not a build of a semver version: collabora's scheme stays
+    # Five parts is not a build of a semver version: such a scheme stays
     # incomparable here.
-    ("collabora/code:26.04.3.2.1", "collabora/code:26.04.4.2.1"),
+    ("example/office:26.04.3.2.1", "example/office:26.04.4.2.1"),
     ("postgres:18", "postgres:18.4.1.2"),
 ])
 def test_more_parts_do_not_make_a_scheme_comparable(floor, pin):

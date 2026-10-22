@@ -12,15 +12,19 @@ the result is max(floor, pin): pin-always would let a stale pin beat a
 catena-ce release that raised a floor for a security fix, and floor-always
 would revert every managed bump.
 
-A pin is usable only when it names the repository it is keyed by and a full
-semver tag (catena_image_pinned): a value that disagrees with its own key is a
-corrupt store, and a store that could name an arbitrary string could choose
-what this host runs. catena-ce/ansible/helpers/fetch_release.py reads the
-catena-admin pin through the same rule. The floor wins ties and wins whenever
-the two cannot be compared, so an unclear comparison never downgrades. Only a
-full semver tag is comparable. catena-postgres's two-part
-`postgres:<major>.<minor>` is incomparable on purpose: a pin that appeared to
-beat it could be a major upgrade nobody asked for.
+A pin is usable only when it names the repository it is keyed by and a
+comparable tag (catena_image_pinned): a value that disagrees with its own key
+is a corrupt store, and a store that could name an arbitrary string could
+choose what this host runs. catena-ce/ansible/helpers/fetch_release.py reads
+the catena-admin pin through the same rule. The floor wins ties and wins
+whenever the two cannot be compared, so an unclear comparison never downgrades.
+
+Two kinds of tag are comparable. A full semver tag compares with any other full
+semver tag. A two-part `<major>.<minor>` tag, optionally with one suffix
+(`18.7-trixie`), compares only with a two-part tag of the SAME major and the
+SAME suffix, so a minor of the pinned major moves and a major, a variant or a
+one-part floor (`postgres:18`) never does: a pin that appeared to beat those
+could be a major upgrade nobody asked for.
 
 The Go side writes pins and never resolves them, so this is the one
 implementation of the comparison.
@@ -59,26 +63,37 @@ def _split_ref(ref):
     return ref[:i], ref[i + 1:]
 
 
-def _order(tag):
-    """A sortable key for a full-semver tag, or None when it is not one.
+# A two-part tag: major.minor with at most one alphabetic suffix.
+_MAJOR_MINOR = re.compile(r"^(\d+)\.(\d+)(?:-([A-Za-z][A-Za-z0-9]*))?$")
 
-    A pre-release sorts BELOW the same version without one, which is semver's
-    own rule and the one that matters here: v3.8.0-rc1 must not beat v3.8.0.
-    A build sorts above the plain version and below the next one, so a newer
-    build of the running version survives the converge."""
+
+def _order(tag):
+    """(family, sortable key) for a comparable tag, or None when it is not one.
+
+    Only tags of the same family compare. The semver family is every full
+    semver tag; a two-part tag's family is its major and suffix.
+
+    For semver, a pre-release sorts BELOW the same version without one, which
+    is semver's own rule and the one that matters here: v3.8.0-rc1 must not
+    beat v3.8.0. A build sorts above the plain version and below the next one,
+    so a newer build of the running version survives the converge."""
+    m = _MAJOR_MINOR.match(tag or "")
+    if m:
+        major, minor, suffix = m.groups()
+        return ("mm", int(major), suffix or ""), (int(minor),)
     m = _SEMVER.match(tag or "")
     if not m:
         return None
     major, minor, patch, build, suffix = m.groups()
-    return (int(major), int(minor), int(patch), int(build or 0),
-            0 if suffix else 1, suffix or "")
+    return ("semver",), (int(major), int(minor), int(patch), int(build or 0),
+                         0 if suffix else 1, suffix or "")
 
 
 def catena_image_pinned(pins, repository):
     """The pin recorded for `repository`, or "" when there is no usable one.
 
     pins is the {repository: image_ref} map read from the on-box store. A
-    usable pin names `repository` itself and a full semver tag."""
+    usable pin names `repository` itself and a comparable tag."""
     if not isinstance(pins, dict):
         return ""
     pin_ref = pins.get(repository)
@@ -112,8 +127,11 @@ def catena_image_pin(default_ref, pins):
     floor_order = _order(floor_tag)
     if floor_order is None:
         return default_ref
-    pin_order = _order(_split_ref(pin_ref)[1])
-    return pin_ref if pin_order > floor_order else default_ref
+    pin_family, pin_key = _order(_split_ref(pin_ref)[1])
+    floor_family, floor_key = floor_order
+    if pin_family != floor_family:
+        return default_ref
+    return pin_ref if pin_key > floor_key else default_ref
 
 
 class FilterModule:
