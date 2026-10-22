@@ -244,16 +244,6 @@ secrets:
     panel: {group: mail, section: secrets, kind: secret, optional: true}
     depends: {choice: SMTP_PROVIDER, values: [resend, brevo, server]}
 
-  # The mailserver APPLICATION's relay credential and Spamhaus subscription.
-  # They configure that template, not the host's shared outbound path, so they
-  # have a group of their own on the settings page rather than the mail one.
-  # Both reach the deployed application through its managed env keys.
-  - key: mailserver_relay_password
-    panel: {group: mailserver, section: secrets, kind: secret, optional: true}
-
-  - key: mailserver_spamhaus_dqs_key
-    panel: {group: mailserver, section: secrets, kind: secret, optional: true}
-
   # CIFS credentials for the optional bulk mount. Client-held: the share is
   # the client's NAS. NFS authenticates by source IP and supplies neither. The
   # storage role's bulk.yml names both on the settings page when it asks for
