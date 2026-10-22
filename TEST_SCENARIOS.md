@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 207 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 206 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -97,13 +97,12 @@ The 207 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_c1_docker_daemon_hang` | A frozen container daemon makes the converge fail within a bounded time rather than hanging indefinitely. |
 | `fi_c4_registry_pull_timeout` | Heavy packet loss on the host outbound network makes the converge fail fast at its first external step. |
 | `fi_c6_cloudflared_flapping` | Re-converging the public tunnel updates its configuration without restarting a healthy connector. |
-| `fi_c7_coturn_cert_expired` | A media-relay certificate that is due is renewed by the scheduled renewal job, and the relay reloads it. |
+| `fi_c7_coturn_cert_expired` | A call-relay certificate that is due is renewed by the scheduled renewal job, and the relay serves the renewed certificate on its TLS port. |
 | `fi_c8_nextcloud_init_loop` | An application whose environment has been corrupted fails visibly with captured diagnostics rather than looping in silence. |
 | `fi_d2_pg_dumpall_replay_constraint` | Replaying a database dump recreates a database role the cluster has lost. |
 | `fi_d3_postgres_oom_mid_restore` | A restore that would exhaust the host disk is refused before it starts, rather than leaving a half-loaded database. |
 | `fi_d4_disk_full_mid_snapshot` | A backup that runs out of disk partway through fails loudly and writes no half-finished archive. |
 | `fi_d5_disk_full_mid_converge` | A converge on a host with too little free disk aborts at its preflight check before pulling anything, whether a person reruns the install or presses the Settings page's Converge. |
-| `fi_d6_volume_uid_drift` | A service whose user has drifted away from what it requires is reconciled back by the next converge. |
 | `fi_d7_restic_corrupt_pack` | Corruption introduced into the backup repository is detected by the deep verification pass. |
 | `fi_n10_multidomain_cap` | A Community host asked to serve more than one domain degrades to the one it supports rather than refusing to converge. |
 | `fi_n11_lockdown_refuses_shields_up` | A lockdown applied from the panel refuses to close public SSH while the private network reports the server as refusing incoming connections. |
@@ -115,7 +114,6 @@ The 207 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_n6_s3_endpoint_5xx` | An object store that stops answering surfaces as a backup error rather than as a silent success. |
 | `fi_n7_restic_repo_unreachable` | An unreachable backup repository stops the backup before it prunes anything. |
 | `fi_n8_ufw_concurrent_ssh` | An administrative session survives the host firewall lockdown being applied underneath it. |
-| `fi_n9_public_ip_change` | A change to the host public address is re-rendered into the media relay configuration by the next converge. |
 | `fi_o2_operator_ctrl_c` | An install interrupted partway through leaves nothing broken, and re- running it completes the work. |
 | `fi_o4_hosts_yml_malformed` | A malformed inventory file fails with a readable parse error naming the offending line. |
 | `fi_o5_deadman_off_by_default` | The off-site heartbeat ships on every server and calls nothing until it is turned on. |
@@ -134,6 +132,7 @@ The 207 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_v3_tailscale_acl_misconfig` | A private network access policy that blocks SSH to the server stops the lockdown before public SSH closes. |
 | `gatus_probes_beszel_hub` | Gatus watches Beszel's hub on every server, and the hub's public address sends an anonymous visitor to sign in. |
 | `healthchecks_self_host_loss` | Losing the self-hosted monitoring instance stops its own pings without blocking the backup chain, and the external watchdog keeps the outage visible. |
+| `host_network_app_ports` | An application from the catalog that runs on the host network opens the ports its labels declare, a person's own copy of its file is refused the host network, and removing the application closes its ports again. |
 | `host_reboot_recovery` | A host that is restarted comes back serving every declared service without anyone touching it. |
 | `identity_group_gates_access` | Groups created in the administration panel are honoured by the access gate, and a destructive membership change cannot be applied without showing what it will affect. |
 | `immich_extra_disk_round_trip` | A photo library kept on a separately mounted disk is backed up once its location is declared, and comes back whole after a rollback. |
@@ -201,7 +200,7 @@ The 207 scenarios the maintainers' test bench carries, and the behaviour each on
 | `smtp_rotation_round_trip` | Outbound mail credentials are rotated on the planned cycle and a live send confirms the new ones work. |
 | `snapshot_export_round_trip` | A snapshot is exported to a single portable archive that unpacks away from the host with its content intact. |
 | `sovereign_exit` | The suite keeps running after the administration panel is deleted, because the panel is glue rather than a data hub. |
-| `suite_wiring_commands` | Nextcloud's configure hook, which runs after every deploy, wires Talk to its signalling server and TURN relay and enables the Mail app, both settings read back from the deployed application, and a restart, which deploys the application again and runs the hook again, changes none of them. |
+| `suite_wiring_commands` | Nextcloud's configure hook, which runs after every deploy, wires Talk to its signalling server, and to the call relay when the server has one, and enables the Mail app, both settings read back from the deployed application, and a restart, which deploys the application again and runs the hook again, changes none of them. |
 | `swarm_overlay_selfheal` | Applications rejoin their private overlay network by themselves after the container daemon restarts. |
 | `tag_scheme_migration` | An application pinned on nightly builds moves onto its stable releases under the major update policy: all of its images, in one deploy, to the newest stable release published since the nightly was built and newer than every release published before it. |
 | `tailscale_oauth_rotation_round_trip` | The private network credential is rotated on the planned cycle and every host stays reachable across the change. |
