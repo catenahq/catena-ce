@@ -384,19 +384,18 @@ recorded in
 snapshot and scope, refuses a different one, and only a finished run clears
 the record.
 
-On a Catena Business server the offsite copy duplicates a bucket into a
-locked bucket at another provider, and refuses a destination that holds a
-different repository from its source. A bucket comes back from its offsite
-copy into a bucket and keys the administrator names, new ones after a
-compromise, never into the bucket it came from, and the application that used
-it is switched to that bucket, its settings put back if the switch fails. The
-switch runs the application's commands once its containers that read the
-bucket run on the new one. The restore page lists the repositories a locked
-bucket holds. The backup
-repository comes back the same way: backups then either continue in it, with
-its offsite copy continuing in the same locked bucket once that copy proves to
-hold the same repository, or start in a new repository whose copy goes to a
-new folder of that bucket.
+On a Catena Business server the offsite copy copies the objects of a bucket
+into a locked bucket at another provider, and refuses a locked bucket that
+holds a different restic repository from the source bucket's. To recover, the
+objects are copied from the locked bucket into a bucket the administrator
+names, with the keys the administrator gives: the original bucket, or a new
+bucket and new keys after a compromise. The restore page lists the restic
+repositories a locked bucket holds. The backup repository is recovered the
+same way, never into the bucket it was copied from: backups then either
+continue in that repository in its new bucket, its offsite copy continuing in
+the same locked bucket once that copy proves to hold the same repository, or
+start in a new repository whose copy goes to a new folder of the locked
+bucket.
 
 | Invariant | Enforced by |
 | --- | --- |
