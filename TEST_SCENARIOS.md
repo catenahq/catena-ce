@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 203 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 204 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -24,7 +24,7 @@ The 203 scenarios the maintainers' test bench carries, and the behaviour each on
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
 | `backup_destination_creates_repository` | Saving a backup destination creates its repository there, a destination holding other files is refused, and a backup never creates a repository. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
-| `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing at all. |
+| `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing but the vulnerability watch. |
 | `catalog_app_sign_in` | Every catalog application that offers single sign-on in its free edition signs a new staff account in with Keycloak, and the others create no sign-in entry. |
 | `catalog_apps_read_green_in_gatus` | Every catalog application deployed in a run reads green in Gatus on its own address or addresses, and the Apps tab shows it healthy. |
 | `catena_admin_resources_tab_links_beszel` | The panel's System tab shows this server's own processor readings and links out to the resource monitor, and the Resources address leads there. |
@@ -41,13 +41,15 @@ The 203 scenarios the maintainers' test bench carries, and the behaviour each on
 | `clamd_reload_on_a_small_host` | On a server with less than 8 GB of memory, a signature reload of the shared antivirus scanner keeps memory flat, and mail that arrives during the reload is still delivered. |
 | `client_container_raw_network` | A container one of the client applications runs on the server cannot take over the network address of one of the server's own services on the private network they share, nor put a forged packet onto that network for such a service to answer, whatever low-level network access the container engine grants a container by default. |
 | `cloudflare_api_rotation_round_trip` | The edge-provider API credential is rotated on the planned cycle and the host keeps serving across the change. |
+| `community_free_schedules` | A server with no paid subscription schedules its backup at most once a week and its vulnerability watch at most once a day, and nothing else. |
+| `community_security_alerts` | A server with no paid subscription checks its software for vulnerabilities and emails one alert for each that is exploited, or critical, recent and fixable, naming the fix when there is one. |
 | `concurrent_backup_lock_contention` | Two maintenance jobs contending for the host lock run one after the other instead of at the same time. |
 | `container_delete_recreated` | A container deleted out from under the orchestrator, and a whole service deleted with it, are scheduled again and come back serving. |
 | `control_plane_update_rollback` | A bad version bump of a control-plane service is detected, rolled back automatically, and quarantined so it is never retried blindly. |
 | `converge_suite` | One converge after an on-host image bump, a doctored release record and a rotated secret keeps the bump, restores the record and delivers the secret. |
 | `cross_host_pivot_finds_nothing` | A server broken into at root holds no credential that reaches a second Catena server. |
 | `cve_residual_emits_findings` | The vulnerability scan produces a well-formed machine-readable report on a real host, whether or not it finds anything. |
-| `cve_watch_emergency_patch` | Every running image's software is recorded and checked against a fresh vulnerability database and the list of actively exploited vulnerabilities, each exploited one an application carries raises one alert of its own, and an emergency patch moves an application to the oldest release its update policy allows that is free of it, restoring the previous release when the move regresses the server's health, on a licensed server only. |
+| `cve_watch_emergency_patch` | Every running image's software is recorded and checked against a fresh vulnerability database and the list of actively exploited vulnerabilities, each exploited one an application carries raises one alert of its own, and, on a server with Catena Pro, an emergency patch moves an application to the oldest release its update policy allows that is free of it, restoring the previous release when the move regresses the server's health. |
 | `daily_chain_container_rollback` | A failed container update inside the daily maintenance chain rolls that service back and lets the chain continue. |
 | `daily_chain_full_pass` | The daily maintenance chain runs every stage end to end on a real host and reports itself idle when it finishes. |
 | `daily_chain_preflight_aborts_low_disk` | The daily maintenance chain refuses to start when free disk at the staging area is below the configured floor. |
@@ -200,7 +202,6 @@ The 203 scenarios the maintainers' test bench carries, and the behaviour each on
 | `swarm_overlay_selfheal` | Applications rejoin their private overlay network by themselves after the container daemon restarts. |
 | `tag_scheme_migration` | An application pinned on nightly builds moves onto its stable releases under the major update policy: all of its images, in one deploy, to the newest stable release published since the nightly was built and newer than every release published before it. |
 | `tailscale_oauth_rotation_round_trip` | The private network credential is rotated on the planned cycle and every host stays reachable across the change. |
-| `unlicensed_schedules_nothing` | A host with no licence schedules no unattended work of any kind. |
 | `update_from_previous_release` | A server installed with the previous release moves to this one through the panel's update and through a reinstall, and ends on one version with nothing missing. |
 | `user_recovery_2fa_reset` | A user who lost their second-factor device is reset and made to enrol a new one at next sign-in. |
 | `user_recovery_kcadm_temp_password` | A user who lost their password is issued a temporary one they must change at next sign-in. |
