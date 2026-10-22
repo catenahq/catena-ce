@@ -1,9 +1,8 @@
 """MySQL/MariaDB dumps ride the backup set.
 
-Seven catalog templates ship a MariaDB or MySQL: erpnext, wordpress, kimai,
-espocrm, mautic, invoiceninja, easyappointments. Their data volumes are in the
-restic set like every other volume, and without a logical dump that raw volume
-is the ONLY copy -- nothing to check it against, and no way to restore one
+Every catalog template that ships a MariaDB or MySQL keeps its data volume in
+the restic set like every other volume, and without a logical dump that raw
+volume is the ONLY copy -- nothing to check it against, and no way to restore one
 database without restoring the whole volume. A raw copy of a running InnoDB
 directory is crash-consistent at best.
 
