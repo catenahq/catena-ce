@@ -45,9 +45,9 @@ def test_compose_form_does_not_match():
 
 
 def test_service_and_slot():
-    rx = sn.swarm_container_regex("nextcloud", "db", slot=2)
-    assert re.match(rx, "nextcloud_db.2.abc123")
-    assert not re.match(rx, "nextcloud_db.1.abc123")
+    rx = sn.swarm_container_regex("napp", "db", slot=2)
+    assert re.match(rx, "napp_db.2.abc123")
+    assert not re.match(rx, "napp_db.1.abc123")
 
 
 def test_dashes_in_stack_and_service_survive():

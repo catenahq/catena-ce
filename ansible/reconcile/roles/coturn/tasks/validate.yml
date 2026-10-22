@@ -24,7 +24,7 @@
 # converge deploys rather than what this host has. The deploy gate and this
 # one are evaluated at different moments of one converge and are MEANT to
 # disagree: coturn lands on the converge after its first consumer appears, and
-# a DR restore brings Nextcloud and its Talk HPB up later in the SAME converge,
+# a DR restore brings a file-sharing application and its Talk HPB up later in the SAME converge,
 # so deploy correctly skips and the consumer is running by the time validate
 # looks.
 #

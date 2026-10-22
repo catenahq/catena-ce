@@ -6,7 +6,7 @@ which runs BEFORE the swarm node re-materializes the overlay -- and the
 boot-time restore gets exactly ONE attempt per container, so whatever loses
 that race stays Exited with RestartCount=0 forever. Swarm services
 re-dispatch themselves; the compose containers (keycloak-server-1,
-nextcloud-talk-hpb-1, ...) have nothing to heal them, so a plain VPS reboot
+app-signaling-1, ...) have nothing to heal them, so a plain VPS reboot
 can strand Keycloak until the next converge. Observed live: an overlay that
 appeared 2.5s after "Loading containers: done".
 

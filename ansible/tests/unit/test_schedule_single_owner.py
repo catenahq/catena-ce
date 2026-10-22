@@ -245,8 +245,7 @@ def test_which_buckets_get_copied_is_not_a_converge_input():
     body = _code(offsite_env)
     for key in ("OFFSITE_HEALTHCHECK_URL", "OFFSITE_HEALTHCHECK_ATTEMPTED_URL"):
         assert key in body
-    for gone in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID",
-                 "NEXTCLOUD_WORM_REPO", "NEXTCLOUD_LIVE_REPO"):
+    for gone in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID"):
         assert gone not in body, (
             f"{gone} is back in a converge-rendered file; the copy list has "
             "one owner and it is the config store"

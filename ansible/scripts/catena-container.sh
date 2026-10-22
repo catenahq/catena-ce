@@ -5,7 +5,7 @@
 # stderr and exits 1 instead. A failed `docker ps` exits 2: "could not look" is
 # a different answer from "not running".
 #
-# <app> is the application's stack name (catena-nextcloud) and
+# <app> is the application's stack name (catena-myapp) and
 # <service> its key in the compose file (app). Swarm labels every task
 # container with com.docker.swarm.service.name=<app>_<service>, so this pins
 # that one service and not its cron, db or redis peers.

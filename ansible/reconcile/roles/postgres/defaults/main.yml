@@ -2,7 +2,7 @@
 # reconcile/roles/postgres -- catena-owned Postgres for infra databases (Keycloak today).
 #
 # Project convention is "one Postgres per VPS, multiple DBs inside" -- per-app
-# DBs (Nextcloud, etc.) keep their own containers; this hosts the infra DBs.
+# DBs (file sharing, etc.) keep their own containers; this hosts the infra DBs.
 
 catena_postgres_service_name: catena-postgres
 

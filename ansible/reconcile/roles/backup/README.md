@@ -57,6 +57,14 @@ A dump failure is fatal for the run. It means the engine did not answer,
 and snapshotting its volume in that state while reporting success is how
 a broken database becomes a broken backup nobody looked at.
 
+## Excluded volumes
+
+`backup_exclude_patterns` lists the infrastructure's disposable paths. An
+application keeps its own regenerable data out of the snapshot by labelling the
+top-level volume `vps.backup.exclude: "true"` in its compose file;
+`catena-backup-run` asks Docker for the labelled volumes on every run and adds
+an exclude for each, whatever the stack is called.
+
 ## Coverage
 
 `catena-backup-coverage` runs after the snapshot and exits 2 when a running
@@ -83,9 +91,9 @@ source bucket has ever held since the copy was declared accumulates there
 permanently, even after the source's own retention has pruned it.
 
 That matters most for an application's own object storage, where the
-application keeps file versions. Nextcloud is the worked example: it
+application keeps file versions. A file-sharing application is the worked example: it
 writes directly to S3 as its primary object storage, and
-`NEXTCLOUD_VERSIONS_RETENTION` (set in the app template's own Environment
+its versions-retention variable (set in the app template's own Environment
 settings of the app, not in this installer) bounds that live bucket's
 steady-state size. Raising it mainly grows the LIVE bucket, not the
 accumulation rate offsite -- a daily copy catches new versions well before
