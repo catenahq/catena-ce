@@ -5,7 +5,7 @@ A newer Healthchecks, Gatus or Beszel hub migrates its SQLite volume on its
 first start and the previous image cannot read the result. The block names the
 service and volume; catena-stack-update-managed infra-data copy copies the
 data of each declared service whose image the new stack file changes, and
-puts it back when the move rolls back.
+puts it back on a rollback of the move.
 
 Run: uv run pytest tests/unit/test_infra_data_copy.py
 """
