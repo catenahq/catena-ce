@@ -21,8 +21,9 @@ keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
 # Pinned to an immutable build, <kc-version>.<unix-build-time>. Phase Two
 # re-pushes the plain <kc-version> tag on every rebuild, so that tag names
 # different bytes over time; a build tag names one image, and the update
+
 # engine orders builds of one version by their build time.
-keycloak_image_tag: "26.8.1.1792229638"
+keycloak_image_tag: "26.8.1.1792606898"
 keycloak_image: >-
   {{ ('quay.io/phasetwo/phasetwo-keycloak:' ~ keycloak_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
