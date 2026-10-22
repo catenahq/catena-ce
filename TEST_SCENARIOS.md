@@ -137,7 +137,7 @@ The 207 scenarios the maintainers' test bench carries, and the behaviour each on
 | `host_reboot_recovery` | A host that is restarted comes back serving every declared service without anyone touching it. |
 | `identity_group_gates_access` | Groups created in the administration panel are honoured by the access gate, and a destructive membership change cannot be applied without showing what it will affect. |
 | `immich_extra_disk_round_trip` | A photo library kept on a separately mounted disk is backed up once its location is declared, and comes back whole after a rollback. |
-| `infra_stack_update_rollback` | A bad version bump of an infrastructure service deployed through the application control plane is detected and rolled back automatically. |
+| `infra_stack_update_rollback` | A bad version bump of an infrastructure service deployed through the application control plane is detected and rolled back automatically, with the service's data, and a good bump keeps it. |
 | `infra_subdomain_change` | A shared service moves to a new address when its name is changed, and every route to it moves with it. |
 | `inplace_restore_suite` | A restore on a running server brings the data back without taking the dashboard down, can put back one application while leaving the others alone, can be started from the dashboard, and refuses a backup from a newer installer, or from an older one unless the upgrade is asked for, before it changes anything. |
 | `install_rerun` | Applying the Community installer a second time to an already converged host changes nothing. |
@@ -167,7 +167,6 @@ The 207 scenarios the maintainers' test bench carries, and the behaviour each on
 | `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone, and a destination holding another repository or a changed file is refused rather than written over. |
 | `oidc_label_client_provisioned` | An application that asks for single sign-on in its labels gets its own sign-in entry, receives that entry's values in its settings, follows a secret change, and loses the entry when it is removed, while entries made by hand are left alone. |
 | `outline_update_migrates` | An Outline update runs the migration its application file declares and the wiki answers on the new build, and an update whose migration fails puts the previous build and its database back and holds the failed build back. |
-| `panel_release_moves_pins` | A new administration panel release moves the reverse proxy and the uptime monitor to the versions it ships, on a Community server, through the panel's update button alone. |
 | `panel_renames_itself` | The dashboard renames itself from its own Settings page, and it says where it is going before it goes. |
 | `payload_action_dispatches_without_converge` | An administrative action can arrive with a new image and dispatch immediately, without waiting for a converge to render it. |
 | `payload_prune_respects_ce` | Installing the licensed payload deletes what it withdraws and leaves everything owned by the public installer in place. |
@@ -188,6 +187,7 @@ The 207 scenarios the maintainers' test bench carries, and the behaviour each on
 | `recover_secrets_from_running_host` | A client whose installation inputs are lost rebuilds a usable credential set by reading the configuration store off the running host. |
 | `recovery_landing_page_bilingual_parity` | The recovery page a client lands on presents the same content in both supported languages. |
 | `recovery_readme_manual_restore` | A client rebuilds their data from a snapshot using only ordinary tools and the instructions shipped beside it. |
+| `release_moves_dependencies` | A Catena release moves each of Catena's own services to the version it ships, with every service's data, and a release whose update fails puts the previous versions back with their data. |
 | `repair_broken_template_round_trip` | An application whose deployment file has been hand-edited into an invalid state is repaired by re-rendering it from the canonical published source. |
 | `restic_check_subset_weekly` | The backup integrity check runs its cheap structural pass and its expensive data-reading pass on separate cadences, and a damaged repository fails both and stops the nightly chain before its updates. |
 | `restic_password_rotation_round_trip` | The backup repository password is rotated with an overlap where both keys open it, and the backup chain stays unbroken across the change. |
@@ -212,7 +212,7 @@ The 207 scenarios the maintainers' test bench carries, and the behaviour each on
 | `versions_shown_to_administrators` | An administrator signed in to the panel sees the version each application and each infrastructure service runs, and when the versions were last checked, and a staff member sees no version. |
 | `wizard_migrate_resume_source` | A migration that fails after the source has been stopped brings the source back into service rather than stranding the client between two machines. |
 | `wizard_migrate_round_trip` | A client moves their server to a new machine end to end from the panel, with the old one still serving until the switch. |
-| `wordpress_install_and_mail` | A WordPress site that has just been installed gets its curated plugins and cache options from the next converge, takes the outgoing mail chosen in Settings (a message goes out through the provider), follows the provider when it changes without taking back an edit its administrator made in WP Mail SMTP, and a further converge changes nothing. |
+| `wordpress_install_and_mail` | A WordPress site that has just been installed gets its curated plugins and cache options from the next deploy of the app, takes the outgoing mail chosen in Settings (a message goes out through the provider), follows the provider when it changes without taking back an edit its administrator made in WP Mail SMTP, and a further deploy changes nothing. |
 | `worm_object_lock_expiry_edge` | Backup data whose immutability window expired while the repository still references it is reported as a gap rather than silently degrading. |
 | `worm_round_trip` | A full recovery is performed from the immutable offsite copy alone. |
 | `zammad_update_migrates` | A Zammad update moves every Zammad process to the new build together, its setup step migrates the database on the new build and stays up, and the help desk answers again. |
