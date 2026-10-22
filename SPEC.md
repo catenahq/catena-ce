@@ -627,7 +627,9 @@ versions.
 
 | Invariant | Enforced by |
 | --- | --- |
-| The catalogue is resolved per host, and a malformed entry is refused | `bench:marketplace_catalog_resolved`, `bench:malformed_catalog_rejection` |
+| An application deploys from its folder, and a settings value arrives literally | `bench:apps_folder_round_trip` |
+| An application changed outside the dashboard is not updated, and the dashboard says so | `bench:app_origin_update` |
+| An update rolls back automatically while the application's writes are held | `bench:app_database_upgrade` |
 | A compose file that does not load is rejected before it reaches a host | `bench:fi_u1_compose_lint_reject` |
 | A broken template is repairable in place | `bench:repair_broken_template_round_trip` |
 | The overlay network heals itself | `bench:swarm_overlay_selfheal` |
