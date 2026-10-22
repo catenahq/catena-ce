@@ -104,29 +104,13 @@ actions:
     shell: "echo '=== mountpoint ==='; mountpoint /mnt/restic-browse 2>&1 || true; echo; echo '=== top-level entries ==='; ls /mnt/restic-browse 2>&1 | head -10 || true; echo; echo '=== service unit ==='; systemctl status catena-restic-browse.service --no-pager -n 5 2>&1 | head -10 || true; echo; echo '=== auto-unmount timer ==='; systemctl status catena-restic-browse-stop.timer --no-pager -n 5 2>&1 | head -10 || true"
 
   # ─── Initial apps setup ──────────────────────────────────────────────
-  # One-shot wiring buttons that finish provisioning a Portainer-deployed
-  # template the first time it comes up. A deploy is not followed by a
+  # One-shot wiring buttons that finish provisioning a catalog template the
+  # first time it comes up. A deploy is not followed by a
   # converge (that runs at install, from the panel, or on the scheduled
   # converge lane), so these are the on-demand path after `Deploy` in the
-  # Portainer UI. All buttons in this section are idempotent: re-running
+  # panel. All buttons in this section are idempotent: re-running
   # after a secret rotation, image bump, or redeploy converges to the same
   # state.
-
-  - name: wire-nextcloud-oidc
-    title: "Wire Nextcloud OIDC"
-    title_fr: "Câbler l'OIDC pour Nextcloud"
-    category: "Initial apps setup"
-    icon: "&#128273;" # 🔑
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-oidc"
-
-  - name: wire-nextcloud-talk-hpb
-    title: "Wire Nextcloud Talk + HPB"
-    title_fr: "Câbler Nextcloud Talk + HPB"
-    category: "Initial apps setup"
-    icon: "&#128222;" # 📞
-    timeout: 300
-    shell: "/usr/local/bin/catena-wire-nextcloud-talk-hpb"
 
   # Office editors (Collabora / OnlyOffice): one script, one button per
   # editor, mutually reversing (scripts/wire-nextcloud-office.sh).
@@ -145,28 +129,6 @@ actions:
     icon: "&#128196;" # 📄
     timeout: 60
     shell: "/usr/local/bin/catena-wire-nextcloud-office onlyoffice"
-
-  # Nextcloud Mail app -- users configure their own IMAP/SMTP/CalDAV/
-  # CardDAV credentials in the Mail UI. Idempotent: re-running is a no-op.
-  - name: wire-nextcloud-mail
-    title: "Wire Nextcloud Mail"
-    title_fr: "Câbler Mail pour Nextcloud"
-    category: "Initial apps setup"
-    icon: "&#9993;&#65039;" # ✉️
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-mail"
-
-  # Nextcloud antivirus -> shared clamd. Points files_antivirus (Daemon
-  # mode) at the shared clamd on the catena-clamav network (the same
-  # scanner the mail server uses). Idempotent: every occ config:set is
-  # an upsert, safe to re-run after a Nextcloud redeploy.
-  - name: wire-nextcloud-antivirus
-    title: "Wire Nextcloud Antivirus (shared ClamAV)"
-    title_fr: "Câbler l'antivirus Nextcloud (ClamAV partagé)"
-    category: "Initial apps setup"
-    icon: "&#129516;" # 🧪
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-antivirus"
 
   # Rocket.Chat -> bundled Jitsi conferencing wiring. Calls RC's
   # settings REST API as the bootstrap admin to flip Jitsi_Enabled
@@ -189,14 +151,6 @@ actions:
     icon: "&#128260;" # 🔄
     timeout: 30
     shell: "docker service update --force cloudflared"
-
-  - name: portainer-restart
-    title: "Restart Portainer"
-    title_fr: "Redémarrer Portainer"
-    category: Ops
-    icon: "&#128260;" # 🔄
-    timeout: 60
-    shell: "docker service update --force catena-portainer"
 
   - name: disk-usage
     title: "Disk breakdown"
@@ -246,11 +200,11 @@ actions:
     timeout: 90
     # Single button, non-destructive by design -- safe to spam.
     #
-    # Covers both sync paths operators actually need after a Portainer
-    # stack change:
+    # Covers both sync paths operators actually need after an application
+    # change:
     #   - dashboard-sync: Traefik routes + SSO-provider CRUD
     #     (groups/providers/apps/bindings). The Apps-tab tile grid is
-    #     rendered live from the Portainer API, so it does not need a
+    #     rendered live from the app intent, so it does not need a
     #     sync step.
     #   - gatus-sync: Gatus endpoint catalog, which Gatus reads again
     #     within about 30 seconds.

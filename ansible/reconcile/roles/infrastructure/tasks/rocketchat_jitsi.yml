@@ -1,6 +1,5 @@
 ---
-# Rocket.Chat + bundled Jitsi post-deploy wiring. Mirrors
-# nextcloud_talk_hpb.yml.
+# Rocket.Chat + bundled Jitsi post-deploy wiring.
 #
 # Two layers:
 #
@@ -11,7 +10,7 @@
 #   2. POST-DEPLOY (catena-admin action "Wire Rocket.Chat Jitsi"). The
 #      RC REST API calls (POST /api/v1/settings/Jitsi_*) inside the
 #      running Rocket.Chat container, run on demand by the operator
-#      after a Portainer deploy. Backed by
+#      after the deploy. Backed by
 #      /usr/local/bin/catena-wire-rocketchat-jitsi (installed below
 #      from scripts/rocketchat-jitsi-wire.sh).
 #

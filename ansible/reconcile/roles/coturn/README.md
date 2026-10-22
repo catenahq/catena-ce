@@ -3,10 +3,8 @@
 Shared TURN/STUN server for the chat-video apps deployed from the catalog:
 
 - **Nextcloud Talk + HPB** -- Talk reaches `turn.<zone>:5349` for
-  restrictive-network media relay. The panel's "Wire Nextcloud Talk + HPB"
-  action configures it with `occ talk:turn:add`
-  (`scripts/nextcloud-talk-hpb-wire.sh`, installed as
-  `/usr/local/bin/catena-wire-nextcloud-talk-hpb`).
+  restrictive-network media relay. The configure hook of the Nextcloud
+  template registers it with `occ talk:turn:add`.
 - **The Jitsi bridges of Rocket.Chat and Element** -- each template
   configures jitsi-videobridge with `JVB_TURN_HOST` from `TURN_HOSTNAME`
   (`coturn_hostname`, default `turn.<zone>`), `JVB_TURN_PORT=5349` and the

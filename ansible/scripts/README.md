@@ -34,12 +34,7 @@ declarations the roles write into `/etc/catena/public-ports.d/`.
 | `catena-tailnet-check.py` | catena-tailnet-check -- check tailnet credentials before the panel stores them. |
 | `healthchecks-seed.py` | Seed and reconcile self-hosted Healthchecks: the operator superuser, the project and its API keys, and the admin's email channel. |
 | `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
-| `nextcloud-talk-hpb-wire.sh` | /usr/local/bin/catena-wire-nextcloud-talk-hpb -- post-deploy wiring for Nextcloud Talk's High-Performance Backend (HPB). |
 | `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |
 | `run-mail-canary.sh` | Prove the mail server is up AND actually filtering, via host-side docker-exec into the dms container -- no external SMTP/IMAP and no auth (the server is OAuth2-only, so there is no password to log in with). |
-| `wire-nextcloud-antivirus.sh` | /usr/local/bin/catena-wire-nextcloud-antivirus -- point Nextcloud's files_antivirus app at the shared clamd (catena-clamav network). |
-| `wire-nextcloud-mail.sh` | /usr/local/bin/catena-wire-nextcloud-mail -- install + enable the Nextcloud Mail app inside a deployed Nextcloud container. |
 | `wire-nextcloud-office.sh` | /usr/local/bin/catena-wire-nextcloud-office <collabora\|onlyoffice> -- wire one office editor into a deployed Nextcloud instance. |
-| `wire-nextcloud-oidc.sh` | /usr/local/bin/catena-wire-nextcloud-oidc -- wire Keycloak as an OIDC provider in a deployed Nextcloud instance. |
-| `wire-nextcloud-webmail-link.sh` | /usr/local/bin/catena-wire-nextcloud-webmail-link -- add a top-level "Webmail" link to the Nextcloud nav that opens the standalone Roundcube webmail (mailserver template) in a NEW TAB. |

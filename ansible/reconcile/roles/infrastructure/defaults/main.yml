@@ -30,20 +30,8 @@ infrastructure_managed_paths:
   - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.timer"
   - /usr/local/bin/catena-container
   - /usr/local/bin/catena-dms-exec
-  - /usr/local/bin/catena-wire-nextcloud-antivirus
-  - /usr/local/bin/catena-wire-nextcloud-mail
-  - /usr/local/bin/catena-wire-nextcloud-webmail-link
   - /usr/local/bin/catena-wire-nextcloud-office
-  - /usr/local/bin/catena-wire-nextcloud-oidc
-  - /usr/local/bin/catena-wire-nextcloud-talk-hpb
   - /usr/local/bin/catena-wire-rocketchat-jitsi
-
-# --- Nextcloud Talk + HPB ------------------------------------------------
-# aio-talk's Janus uses TURN-only for ALL its media (its janus.jcfg's
-# nat block is generated with turn_server pointing at the standalone
-# coturn at turn.<base>:5349). No direct UDP exposure needed for Janus
-# itself. The HPB stack reuses the shared coturn UDP profile already
-# opened by reconcile/roles/coturn (3478, 5349, 50000-50100).
 
 # --- Swarm stack-deploy helper --------------------------------------------
 # Poll window for stack-deploy completion. Keycloak with the phasetwo
@@ -295,7 +283,8 @@ dashboard_sync_required_paths:
   - "{{ dashboard_sync_lib_dir }}/clients_provisioner.py"
   - "{{ dashboard_sync_lib_dir }}/gate_routes.py"
   - "{{ dashboard_sync_lib_dir }}/keycloak_client.py"
-  - "{{ dashboard_sync_lib_dir }}/portainer_api.py"
+  - "{{ dashboard_sync_lib_dir }}/docker_api.py"
+  - "{{ dashboard_sync_lib_dir }}/http_util.py"
 dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
 # The cadence is in the payload's timer file (catena-admin
 # payload/lanes/systemd/), beside the service it starts, and beside

@@ -15,8 +15,7 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 LOOKUP = SCRIPTS / "catena-container.sh"
-NEXTCLOUD_WIRE = sorted(SCRIPTS.glob("wire-nextcloud-*.sh")) + [
-    SCRIPTS / "nextcloud-talk-hpb-wire.sh"]
+NEXTCLOUD_WIRE = sorted(SCRIPTS.glob("wire-nextcloud-*.sh"))
 CALLERS = NEXTCLOUD_WIRE + [
     SCRIPTS / name for name in (
         "rocketchat-jitsi-wire.sh", "catena-dms-exec.sh", "mailserver-cert-reload.sh",
@@ -50,7 +49,7 @@ def test_required_says_how_to_deploy_on_stderr(tmp_path: Path) -> None:
     assert out.returncode == 1
     assert out.stdout == ""
     assert "The catena-nextcloud application is not running on this host." in out.stderr
-    assert "Portainer > App Templates" in out.stderr
+    assert "Deploy it first from the panel's Apps page" in out.stderr
 
 
 @pytest.mark.parametrize("args", [(), ("--required",)])
@@ -68,7 +67,7 @@ def test_it_needs_an_app_and_a_service(tmp_path: Path, args) -> None:
 
 
 def test_there_are_callers_to_check() -> None:
-    assert len(NEXTCLOUD_WIRE) == 6, NEXTCLOUD_WIRE
+    assert [p.name for p in NEXTCLOUD_WIRE] == ["wire-nextcloud-office.sh"], NEXTCLOUD_WIRE
     assert all(path.is_file() for path in CALLERS), CALLERS
 
 

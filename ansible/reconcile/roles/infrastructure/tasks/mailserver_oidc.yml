@@ -36,8 +36,8 @@
   ansible.builtin.debug:
     msg: >-
       mailserver template not deployed (no catena-mailserver stack); skipping
-      the Dovecot half of the SSO wiring. Deploy the `mailserver` template in
-      Portainer, then re-converge.
+      the Dovecot half of the SSO wiring. Deploy the `mailserver` template
+      from the catalog, then re-converge.
   when: not (mailserver_deployed | bool)
 
 # Staging for BOTH consumers, so it is created for EITHER of them.
@@ -240,16 +240,3 @@
   when:
     - (_roundcube_ct.stdout | default('') | length) > 0
     - _rc_oauth_conf is changed
-
-# ── 4. Nextcloud "Webmail" nav link (top-level, no iframe) ────────────────
-# Surface Roundcube from Nextcloud as a new-tab link so users reach webmail
-# from the suite without a separate bookmark. No-ops when Nextcloud is not
-# deployed (the script self-checks for the container).
-- name: "Mailserver OIDC: add Webmail link to Nextcloud nav"
-  ansible.builtin.command:
-    argv:
-      - /usr/local/bin/catena-wire-nextcloud-webmail-link
-      - "https://webmail.{{ cloudflare_zone }}"
-  register: _webmail_link
-  changed_when: "'Configuring the Webmail nav link' in (_webmail_link.stdout | default(''))"
-  when: (mailserver_dms_ct | length) > 0
