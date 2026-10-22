@@ -56,14 +56,9 @@ and puts them back when it rolls back.
 
 ## Catalog app wiring
 
-- The Keycloak client for Element, and the host scripts behind the panel's
-  "Initial apps setup" action (`/usr/local/bin/catena-wire-*`), which finishes
-  Rocket.Chat's Jitsi inside the running containers. Nextcloud's wiring (OIDC,
-  Talk + HPB, the antivirus scanner and office editor other applications
-  provide, Mail, the Webmail link) is its template's configure hook.
-- WordPress plugin curation once the site is installed. WP Mail SMTP's relay
-  follows the outgoing mail set in Settings on every converge; its sender and
-  the NPP cache settings are seeded once per site and are then the site's.
+- The Keycloak client for Element. An application's wiring (sign-in, calling, the antivirus scanner and
+  office editor other applications provide, mail, links) is its template's
+  configure hook.
 - The public-URL probe of the gated services, and the intent-driven check that
   every gated client app denies an anonymous request.
 

@@ -8,7 +8,7 @@ tier1_stack_path: "{{ tier1_stack_dir }}/tier1.yml"
 # App companions render to their own file. They are directly-created swarm
 # services for the same reason the control plane is (host networking, global
 # mode), but they arrive with the applications that consume them: coturn
-# appears the converge after a Talk or Jitsi deploy. Mixed into tier1.yml, they
+# appears the converge after a Talk or video deploy. Mixed into tier1.yml, they
 # would make the control-plane render a moving target: the file would gain a
 # service on a converge where the control plane did not change.
 tier1_companions_path: "{{ tier1_stack_dir }}/companions.yml"

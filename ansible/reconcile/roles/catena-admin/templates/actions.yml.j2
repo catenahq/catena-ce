@@ -73,7 +73,7 @@ actions:
     shell: "journalctl -u catena-backup.service -n 100 --no-pager"
 
   # Per-app point-in-time recovery via FUSE. When in-app trash +
-  # soft-delete are exhausted (e.g. Nextcloud trash purged after 30
+  # soft-delete are exhausted (e.g. an application's trash purged after 30
   # days), the operator mounts the restic repo read-only at
   # /mnt/restic-browse, copies the single file or directory back out
   # to /srv/catena/docker/volumes/<service>/, and unmounts. Auto-unmount
@@ -102,26 +102,6 @@ actions:
     icon: "&#9432;" # ℹ
     timeout: 10
     shell: "echo '=== mountpoint ==='; mountpoint /mnt/restic-browse 2>&1 || true; echo; echo '=== top-level entries ==='; ls /mnt/restic-browse 2>&1 | head -10 || true; echo; echo '=== service unit ==='; systemctl status catena-restic-browse.service --no-pager -n 5 2>&1 | head -10 || true; echo; echo '=== auto-unmount timer ==='; systemctl status catena-restic-browse-stop.timer --no-pager -n 5 2>&1 | head -10 || true"
-
-  # ─── Initial apps setup ──────────────────────────────────────────────
-  # One-shot wiring buttons that finish provisioning a catalog template the
-  # first time it comes up. A deploy is not followed by a
-  # converge (that runs at install, from the panel, or on the scheduled
-  # converge lane), so these are the on-demand path after `Deploy` in the
-  # panel. All buttons in this section are idempotent: re-running
-  # after a secret rotation, image bump, or redeploy converges to the same
-  # state.
-
-  # Rocket.Chat -> bundled Jitsi conferencing wiring. Calls RC's
-  # settings REST API as the bootstrap admin to flip Jitsi_Enabled
-  # + Jitsi_Domain. Idempotent.
-  - name: wire-rocketchat-jitsi
-    title: "Wire Rocket.Chat Jitsi"
-    title_fr: "Câbler Jitsi pour Rocket.Chat"
-    category: "Initial apps setup"
-    icon: "&#127909;" # 🎥
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-rocketchat-jitsi"
 
   # ─── Ops ─────────────────────────────────────────────────────────────
   # Universal catch-all; always visible. Diagnostics + restart-button

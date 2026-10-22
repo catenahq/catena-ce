@@ -14,7 +14,7 @@ Two independent reasons it cannot:
   while a later one demands coturn. The deploy probe filters on
   `--filter status=running`: a container that cannot start is no consumer.
 
-  a consumer that arrives mid-converge -- a DR restore brings Nextcloud and its
+  a consumer that arrives mid-converge -- a DR restore brings a file-sharing application and its
   Talk HPB up LATER IN THE SAME CONVERGE, after roles/coturn has already run and
   correctly skipped. main.yml documents that lag as intended -- coturn "lands on
   the converge after the consumer is first deployed" -- so two probes are both
@@ -36,7 +36,7 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 COTURN = ANSIBLE / "reconcile" / "roles" / "coturn" / "tasks"
 
-_DEPLOY_PROBE = "coturn: detect a running consumer (Talk HPB or a Jitsi JVB)"
+_DEPLOY_PROBE = "coturn: detect a running consumer (Talk HPB or a video bridge)"
 
 
 def _tasks(filename: str) -> list[dict]:

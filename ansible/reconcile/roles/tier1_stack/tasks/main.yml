@@ -19,7 +19,7 @@
 #                   services for the same reasons (coturn needs host networking
 #                   and global mode, neither of which survives a stack
 #                   deploy), but presence-gated on a consumer application. They
-#                   appear the converge after a Talk or Jitsi deploy.
+#                   appear the converge after a Talk or video deploy.
 #
 # Two files is what keeps the control-plane render stable: deploy an app with a
 # TURN consumer and companions.yml gains a service while tier1.yml does not, so

@@ -12,10 +12,10 @@ winning when two are filled, carries three defects in one shape:
     tie-break that appears on no page the client can read;
   - switching provider without first CLEARING the old address keeps sending
     through the old one, silently, for as long as the stale value sits there;
-  - the ladder is written out once per consumer -- keycloak defaults,
-    wordpress_plugins.yml, Beszel, Healthchecks -- each free to drift, and a
-    host whose password resets and whose contact form go through different
-    relays, from the same stored config, reports nothing.
+  - the ladder is written out once per consumer -- keycloak defaults, Beszel,
+    Healthchecks -- each free to drift, and a host whose password resets and
+    whose alerts go through different relays, from the same stored config,
+    reports nothing.
 
 Run: uv run pytest tests/unit/test_smtp_resolution.py
 """
@@ -29,7 +29,6 @@ import pytest
 ANSIBLE = Path(__file__).resolve().parents[2]
 PLUGIN = ANSIBLE / "playbooks" / "filter_plugins" / "smtp_resolve.py"
 KEYCLOAK_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "keycloak" / "defaults" / "main.yml"
-WORDPRESS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "wordpress_plugins.yml"
 BESZEL = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "beszel.yml"
 INFRA_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "defaults" / "main.yml"
 HEALTHCHECKS_COMPOSE = (ANSIBLE / "reconcile" / "roles" / "infrastructure" / "templates"
@@ -122,8 +121,8 @@ def _code(path: Path) -> str:
 @pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, INFRA_DEFAULTS])
 def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
     """A hand-written copy of the ladder is free to drift, and the symptom is
-    a host that sends password-reset mail through one relay and a contact
-    form through another, from the same stored config, with nothing
+    a host that sends password-reset mail through one relay and its alerts
+    through another, from the same stored config, with nothing
     reporting it."""
     assert "catena_smtp_resolve" in path.read_text(), (
         f"{path.name} does not use the shared resolution")
@@ -133,10 +132,10 @@ def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
             f"{path.name} hardcodes {literal}; that belongs to the filter")
 
 
-@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS_COMPOSE, WORDPRESS])
+@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS_COMPOSE])
 def test_the_infrastructure_consumers_read_its_resolution(path):
-    """Beszel's mail, Healthchecks's alert mail and WordPress's mail take the
-    infrastructure role's one resolution rather than a copy each."""
+    """Beszel's mail and Healthchecks's alert mail take the infrastructure
+    role's one resolution rather than a copy each."""
     code = _code(path)
     assert "infrastructure_smtp." in code, (
         f"{path.name} does not read infrastructure_smtp")
@@ -147,9 +146,9 @@ def test_the_infrastructure_consumers_read_its_resolution(path):
             f"{path.name} hardcodes {literal}; that belongs to the filter")
 
 
-def test_wordpress_sends_from_the_admin_email_when_no_sender_is_set():
-    """The sender WordPress is given is the infrastructure resolution's, whose
-    fallback is the admin email, as for every other sender on the host."""
+def test_the_infrastructure_resolution_sends_from_the_admin_email_when_no_sender_is_set():
+    """The sender the infrastructure role resolves falls back to the admin
+    email, as for every other sender on the host."""
     import jinja2
     import yaml
 
@@ -161,11 +160,6 @@ def test_wordpress_sends_from_the_admin_email_when_no_sender_is_set():
         cfg_smtp_provider="resend", cfg_smtp_host="", cfg_smtp_port="",
         cfg_smtp_user="", cfg_smtp_sender="", admin_email="admin@acme.test")
     assert smtp == "admin@acme.test"
-
-    tasks = yaml.safe_load(WORDPRESS.read_text())
-    flat = yaml.safe_dump(tasks)
-    assert "_wp_smtp_from: '{{ infrastructure_smtp.sender }}'" in flat
-    assert "from_email: '{{ _wp_smtp_from }}'" in flat
 
 
 @pytest.mark.parametrize("port,implicit", [
@@ -230,7 +224,7 @@ def test_no_tls_setting_is_stored():
 def test_no_consumer_still_reads_a_retired_key(gone):
     """A reader of a key nothing writes resolves it to empty and takes its
     branch of the ladder with it."""
-    for path in (KEYCLOAK_DEFAULTS, WORDPRESS, BESZEL, INFRA_DEFAULTS,
+    for path in (KEYCLOAK_DEFAULTS, BESZEL, INFRA_DEFAULTS,
                  HEALTHCHECKS_COMPOSE, ONBOX_CONFIG):
         body = "\n".join(
             line for line in path.read_text().splitlines()

@@ -13,8 +13,8 @@
 # Executing-prefix paths this role writes, for
 # playbooks/tasks/prune_withdrawn_files.yml.
 #
-# The wire scripts are here in full rather than globbed. A glob over
-# /usr/local/bin/catena-wire-* would hand the delete leg whatever happens to be
+# The paths are listed in full rather than globbed. A glob over
+# /usr/local/bin/catena-* would hand the delete leg whatever happens to be
 # on the host, which is the input a delete leg must never be given -- and these
 # directories are shared with the panel payload.
 #
@@ -23,7 +23,6 @@
 # (tests/unit/test_no_lane_is_half_owned.py).
 infrastructure_managed_paths:
   - /usr/local/bin/catena-container
-  - /usr/local/bin/catena-wire-rocketchat-jitsi
 
 # --- Swarm stack-deploy helper --------------------------------------------
 # Poll window for stack-deploy completion. Keycloak with the phasetwo
@@ -124,8 +123,7 @@ healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}
 # filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
 # smtp_resolve.py): {enabled, host, port, implicit_tls, user, sender}. Healthchecks sends
 # its alerts through it, to the admin email channel healthchecks-seed.py
-# keeps, Beszel its own mail and WordPress its sites' mail
-# (tasks/wordpress_plugins.yml). The credential is smtp_password. With mail
+# keeps, and Beszel its own mail. The credential is smtp_password. With mail
 # off the converge seeds no alert channel and says so
 # (tasks/healthchecks.yml).
 infrastructure_smtp: >-

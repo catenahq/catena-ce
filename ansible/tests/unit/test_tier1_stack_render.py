@@ -335,7 +335,7 @@ def test_whole_control_plane_renders_together() -> None:
 
 def test_a_companion_renders_through_the_same_renderer() -> None:
     """coturn renders into companions.yml rather than tier1.yml -- it is
-    presence-gated on a Talk or Jitsi consumer, and mixing it in made the
+    presence-gated on a Talk or video consumer, and mixing it in made the
     control-plane file change on a converge where the control plane had not.
     Same renderer either way, so the traps above still hold for it: host
     networking, global mode, and a placement constraint pinning it to the node

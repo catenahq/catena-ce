@@ -4,7 +4,7 @@
 # networking for ICE-candidate advertisement and belongs to the platform.
 #
 # Reached only through main.yml, which gates this whole file on a running
-# TURN consumer (Nextcloud Talk HPB, or a Rocket.Chat / Element JVB). Every
+# TURN consumer (a Talk HPB, or a chat video bridge). Every
 # side effect below -- public-port fragment, turn.<zone> DNS, the DNS-01
 # certificate + certbot timer, the swarm service -- is therefore
 # consumer-conditional. See main.yml for the rationale.
@@ -146,7 +146,7 @@
 #
 # A COMPANION, not the control plane. coturn is directly created for the same
 # reasons traefik and postgres are (host networking and global mode do not
-# survive a stack deploy), but it is presence-gated on a Talk or Jitsi
+# survive a stack deploy), but it is presence-gated on a Talk or video
 # consumer: it appears the converge after one is deployed. It renders into
 # companions.yml rather than tier1.yml, so the control-plane file changes only
 # when the control plane does.

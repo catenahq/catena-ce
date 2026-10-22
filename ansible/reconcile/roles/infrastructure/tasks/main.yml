@@ -6,9 +6,7 @@
 #    converge that has it.
 # 2. Gatus, Healthchecks and Beszel, as swarm stacks (swarm_stack.yml), and
 #    the off-site heartbeat's env file.
-# 3. The Keycloak clients and wiring scripts for Element, Rocket.Chat and
-#    WordPress, the dashboard-sync wiring, and the public-URL probe of the
-#    gated services.
+# 3. The dashboard-sync wiring and the public-URL probe of the gated services.
 # 4. The gatus-sync wiring.
 #
 # reconcile/roles/cloudflare_tunnel brings the edge up before keycloak and
@@ -104,31 +102,6 @@
     apply:
       tags: [acme_local_ca]
   tags: [acme_local_ca]
-
-# --- client-template wiring ----------------------------------------------------
-# Rocket.Chat + bundled Jitsi. Wire script only: JVB's media port is a
-# swarm host-mode publish, which Docker DNATs past ufw INPUT, so the
-# registry learns it from the template's vps.expose.udp label instead.
-- name: Rocket.Chat + Jitsi (wire script)
-  ansible.builtin.include_tasks:
-    file: rocketchat_jitsi.yml
-    apply:
-      tags: [rocketchat_jitsi]
-  tags: [rocketchat_jitsi]
-
-# Productized WordPress: post-deploy plugin curation + config.
-# Pre-installs the lean plugin stack (kadence-blocks, performance-
-# lab, NPP cache purge/preload, redis-cache, wp-mail-smtp, etc.)
-# and configures the cross-plugin wiring (Redis object cache,
-# FastCGI cache purge, Performance Lab module enablement). Skips
-# cleanly when the wp container is not deployed or the in-browser
-# install wizard has not yet been run.
-- name: WordPress curated plugin install + config (post-deploy wp-cli)
-  ansible.builtin.include_tasks:
-    file: wordpress_plugins.yml
-    apply:
-      tags: [wordpress_plugins]
-  tags: [wordpress_plugins]
 
 # dashboard-sync's script and units ship in the catena-admin payload;
 # dashboard_sync.yml renders its env file and enables its timer.

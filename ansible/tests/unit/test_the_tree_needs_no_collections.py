@@ -247,12 +247,12 @@ def test_the_gate_catches_a_collection_module():
     module, guarded by a condition, inside an included task list -- and its
     nearest legitimate neighbours, so the gate is shown to separate them."""
     guarded = yaml.safe_load("""
-    - name: "RC Jitsi: open JVB media UDP (10000) when RC is deployed"
+    - name: "Video bridge: open media UDP (10000) when the app is deployed"
       community.general.ufw:
         rule: allow
         port: 10000
         proto: udp
-      when: _rc_jitsi_svc.stdout | trim | length > 0
+      when: _bridge_svc.stdout | trim | length > 0
     """)
     tasks = _tasks_in(guarded)
     assert len(tasks) == 1

@@ -15,8 +15,7 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 LOOKUP = SCRIPTS / "catena-container.sh"
-CALLERS = [
-    SCRIPTS / name for name in ("rocketchat-jitsi-wire.sh",)]
+CALLERS = sorted(path for path in SCRIPTS.glob("*.sh") if path != LOOKUP)
 
 
 def _run(tmp_path: Path, docker_body: str, *args: str) -> subprocess.CompletedProcess:
@@ -29,47 +28,42 @@ def _run(tmp_path: Path, docker_body: str, *args: str) -> subprocess.CompletedPr
 
 
 def test_it_asks_for_the_swarm_service_and_prints_the_first_container(tmp_path: Path) -> None:
-    out = _run(tmp_path, "printf 'nc_app.1.a\\nnc_app.2.b\\n'", "catena-nextcloud", "app")
+    out = _run(tmp_path, "printf 'nc_app.1.a\\nnc_app.2.b\\n'", "catena-napp", "app")
     assert (out.returncode, out.stdout) == (0, "nc_app.1.a\n")
     argv = (tmp_path / "argv").read_text().splitlines()
-    assert "label=com.docker.swarm.service.name=catena-nextcloud_app" in argv
+    assert "label=com.docker.swarm.service.name=catena-napp_app" in argv
     assert "status=running" in argv
 
 
 def test_not_running_prints_nothing(tmp_path: Path) -> None:
-    out = _run(tmp_path, "exit 0", "catena-nextcloud", "app")
+    out = _run(tmp_path, "exit 0", "catena-napp", "app")
     assert (out.returncode, out.stdout.strip()) == (0, "")
 
 
 def test_required_says_how_to_deploy_on_stderr(tmp_path: Path) -> None:
-    out = _run(tmp_path, "exit 0", "--required", "catena-nextcloud", "app")
+    out = _run(tmp_path, "exit 0", "--required", "catena-napp", "app")
     assert out.returncode == 1
     assert out.stdout == ""
-    assert "The catena-nextcloud application is not running on this host." in out.stderr
+    assert "The catena-napp application is not running on this host." in out.stderr
     assert "Deploy it first from the panel's Apps page" in out.stderr
 
 
 @pytest.mark.parametrize("args", [(), ("--required",)])
 def test_a_failed_docker_ps_is_not_an_absent_app(tmp_path: Path, args) -> None:
-    out = _run(tmp_path, "exit 1", *args, "catena-nextcloud", "app")
+    out = _run(tmp_path, "exit 1", *args, "catena-napp", "app")
     assert out.returncode == 2
     assert "docker ps failed" in out.stderr
 
 
-@pytest.mark.parametrize("args", [(), ("catena-nextcloud",), ("--required", "catena-nextcloud")])
+@pytest.mark.parametrize("args", [(), ("catena-napp",), ("--required", "catena-napp")])
 def test_it_needs_an_app_and_a_service(tmp_path: Path, args) -> None:
     out = _run(tmp_path, "exit 0", *args)
     assert out.returncode == 64
     assert "usage" in out.stderr
 
 
-def test_there_are_callers_to_check() -> None:
-    assert all(path.is_file() for path in CALLERS), CALLERS
-
-
 @pytest.mark.parametrize("script", CALLERS, ids=lambda p: p.name)
 def test_no_caller_carries_its_own_copy_of_the_lookup(script: Path) -> None:
     text = script.read_text()
-    assert "/usr/local/bin/catena-container" in text
     assert "com.docker.swarm.service.name=" not in text, (
         f"{script.name} carries its own copy of the container lookup")

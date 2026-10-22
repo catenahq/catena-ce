@@ -1,8 +1,8 @@
 # {{ ansible_managed }}
 # coturn config -- catena shared TURN/STUN server.
 #
-# Used by Nextcloud Talk + HPB, the Jitsi bridges of Rocket.Chat and
-# Element, and Element's Synapse for restrictive-network media relay.
+# Used by Talk + HPB, the chat apps' video bridges and Element's
+# Synapse for restrictive-network media relay.
 # Authentication is shared-secret
 # based: the apps mint short-lived (HMAC-SHA1) credentials from
 # `static-auth-secret` for each call. No per-user database.

@@ -32,4 +32,3 @@ declarations the roles write into `/etc/catena/public-ports.d/`.
 | `catena-restic-key.py` | catena-restic-key -- generate, validate or rotate the restic repository password, and create the repository at the saved destination. |
 | `catena-tailnet-check.py` | catena-tailnet-check -- check tailnet credentials before the panel stores them. |
 | `healthchecks-seed.py` | Seed and reconcile self-hosted Healthchecks: the operator superuser, the project and its API keys, and the admin's email channel. |
-| `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |

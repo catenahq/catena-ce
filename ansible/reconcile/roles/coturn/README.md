@@ -2,11 +2,11 @@
 
 Shared TURN/STUN server for the chat-video apps deployed from the catalog:
 
-- **Nextcloud Talk + HPB** -- Talk reaches `turn.<zone>:5349` for
-  restrictive-network media relay. The configure hook of the Nextcloud
+- **Talk + HPB** -- Talk reaches `turn.<zone>:5349` for
+  restrictive-network media relay. The configure hook of the file-sharing
   template registers it with `occ talk:turn:add`.
-- **The Jitsi bridges of Rocket.Chat and Element** -- each template
-  configures jitsi-videobridge with `JVB_TURN_HOST` from `TURN_HOSTNAME`
+- **The video bridges (JVB) of the chat apps** -- each template
+  configures its video bridge with `JVB_TURN_HOST` from `TURN_HOSTNAME`
   (`coturn_hostname`, default `turn.<zone>`), `JVB_TURN_PORT=5349` and the
   shared `turn_static_auth_secret`.
 - **Element's Synapse** -- hands its clients the same relay, from
@@ -18,7 +18,7 @@ and coturn keeps no per-user database.
 
 ## What this role does
 
-1. Runs when a consumer (a running Talk HPB or Jitsi bridge container) is
+1. Runs when a consumer (a running Talk HPB or video bridge container) is
    up or coturn is already deployed, on a host that has a domain. A
    consumer that goes away leaves coturn running and maintained.
 2. Declares its ports to the public-port registry (table below).
@@ -54,8 +54,8 @@ plane is reached directly on the public IP, through coturn at
 | 3478 | UDP | coturn | STUN + plain TURN |
 | 5349 | TCP+UDP | coturn | TURN/TLS (restrictive-network fallback) |
 | 50000-50100 | UDP | coturn | Coturn relay range (ephemeral) |
-| 10000 | UDP | Rocket.Chat Jitsi JVB | Jitsi media (when Rocket.Chat is deployed) |
-| 10010 | UDP | Element Jitsi JVB | Jitsi media (when Element is deployed) |
+| 10000 | UDP | Rocket.Chat video bridge | Video media (when Rocket.Chat is deployed) |
+| 10010 | UDP | Element video bridge | Video media (when Element is deployed) |
 
 coturn's ports are a registry fragment this role writes, which the
 public-port reconciler opens in ufw. The last two are swarm `mode: host`
@@ -140,14 +140,14 @@ turn_allow_guests: true
 
 Synapse mints per-call usernames as `<unix_ts>:<matrix_user_id>` and
 passwords as `base64(HMAC-SHA1(static_auth_secret, username))`, which
-is the same derivation Nextcloud Talk and Jitsi/JVB use. The single
+is the same derivation Talk and the video bridges (JVB) use. The single
 `static-auth-secret` in coturn validates all of them.
 
-**Caveat:** Jitsi/JVB supports the `auth-secret` mechanism only, and
+**Caveat:** a JVB supports the `auth-secret` mechanism only, and
 `lt-cred-mech` users would need both mechanisms enabled: coturn keeps
 `use-auth-secret` either way.
 
-## Runbook -- diagnosing a failed Talk / Jitsi call
+## Runbook -- diagnosing a failed Talk / video call
 
 1. `docker service ls --filter name=coturn` -- replicas 1/1?
 2. `ss -uln | grep -E ':(3478|5349)\b'` -- listening?

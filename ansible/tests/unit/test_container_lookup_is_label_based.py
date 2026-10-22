@@ -10,7 +10,7 @@ exit 0, which every one of these call sites reads as "that application is not
 deployed":
 
   the antivirus scanner never deploys, so the mail path is unscanned
-  coturn never deploys, so Talk and Jitsi have no relay
+  coturn never deploys, so calls have no relay
   a wiring task no-ops, so the TLS cert and the OIDC config are never written
 
 None of that fails a converge. It reports success for a host with half its
@@ -129,11 +129,10 @@ def test_no_task_greps_for_the_random_half_of_a_stack_name():
     """A `docker ps` grep that matches the generated part of a name is the same
     defect as a `--filter name=`, wearing different clothes.
 
-    reconcile/roles/infrastructure/tasks/wordpress_plugins.yml matched
-    `wordpress-[0-9a-z]{6,}-wp-`: the stack name a deploy generated, plus a
-    swarm task id. A client who deploys the template under a name of their own
+    A wiring task once matched `app-[0-9a-z]{6,}-web-`: the stack name a deploy
+    generated, plus a swarm task id. A client who deploys the template under a name of their own
     choosing produced no match, the whole block skipped, and the converge
-    reported success on a site with no plugin curation and no option seeding.
+    reported success on a site with none of its wiring.
     Neither test above saw it -- there is no compose label and no
     `--filter name=`, just a regex on the same untrustworthy string.
 
