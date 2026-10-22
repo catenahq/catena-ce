@@ -105,7 +105,7 @@ playbook is named after it.
 | --- | --- | --- |
 | `init` | nothing | Creating an inventory: its `.env`, every key at its default, to fill in before `install` |
 | `install` | the `accounts` leg, then the `system` leg: `bootstrap`, `show-keyset`, `converge`, the version recorded, `validate`, and the keyset again; then the installer's outside checks | A fresh server, and a running one: run again, it asks nothing and re-applies the release the server records, the bootstrap roles included. `--release` moves the server to that release with that release's code. Reaches the server at its SSH address when one is set, else its public IP; `--address` reaches it at another address for one run, such as its tailnet address after a Lockdown, and `--tags` scopes the converge leg. Leaves public SSH open |
-| `connect` | nothing | Opening the forward of the `panel` account, to the dashboard and Portainer, from the client's machine |
+| `connect` | nothing | Opening the forward of the `panel` account, to the dashboard, from the client's machine |
 | `uninstall` | `uninstall.yml`, on the server | Handing the server back to Debian |
 
 The `accounts` leg runs through the provider's login and creates the `ops` and
@@ -148,7 +148,7 @@ dashboard owns.
 | `converge.yml` | The full converge. Safe to re-run |
 | `lockdown.yml` | The access posture, run on the host by the dashboard only. Joins the private network when one is saved. Closes public SSH behind it once the network proves it reaches the host, and opens public SSH when no private network is chosen |
 | `reconcile.yml` | The half a host runs against itself, from the dashboard image, with no controller inventory. Has no verb: only the host runs it |
-| `validate.yml` | Two vantages, both on the host: per-role checks, and access (the dashboard and Portainer on the host's loopback, the public hostnames once a domain is set, the published ports). The install's last step, after which the installer makes the checks only another machine can make; runnable on its own |
+| `validate.yml` | Two vantages, both on the host: per-role checks, and access (the dashboard on the host's loopback, the public hostnames once a domain is set, the published ports). The install's last step, after which the installer makes the checks only another machine can make; runnable on its own |
 | `show-keyset.yml` | Right after bootstrap: mints the admin and console passwords if absent and shows them once, with the journal verification key. The install repeats the block when it ends |
 | `rotate-tunnel.yml` | Deletes the host's Cloudflare tunnel and mints a new one, run on the host by the dashboard's Settings > Domain > Apply, followed by `reconcile.yml`. Applying the domain already in use is how the tunnel is regenerated. Takes no secret: it authenticates as the Cloudflare token already in the store |
 | `rotate-tailscale.yml` | Forces re-authentication to the private network, run on the host by the dashboard |
@@ -213,13 +213,11 @@ Order is the converge order, which is dependency order.
 | `swarm` | The swarm's own settings (task history, the data-node label), which a restore does not bring back, and the self-heal that restarts containers which lost the race to the overlay at daemon start |
 | `traefik` | The reverse proxy and the `catena-network` overlay |
 | `postgres` | The infrastructure Postgres swarm service, hosting the sign-on database |
-| `portainer` | The container control plane |
 | `cloudflare_tunnel` | The cloudflared swarm service, the tunnel and wildcard DNS. Self-defers when the store holds no Cloudflare token |
 | `keycloak` | The sign-on identity provider and its realm |
 | `oauth2_proxy` | One auth proxy per gated admin tool, each keeping its own sign-in session |
-| `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the antivirus watch, the mail canary, the external heartbeat's configuration, the application wiring scripts, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
-| `catena-admin` | The action catalogue, the bind-mount targets, the update lanes' per-host configuration and the list of services they may update, the dashboard's port declarations, and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run. The image is the release the install fetched, or, on a converge the host runs itself, the image the dashboard runs; a converge that names none stops before any role runs. An install fetches the release it is given, else the one the server records, else the newest the registry names |
-| `coturn` | The shared TURN and STUN relay for the audio and video media plane |
+| `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the external heartbeat's configuration, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
+| `catena-admin` | The action catalogue, the bind-mount targets, the update lanes' per-host configuration and the list of services they may update, the dashboard's port declarations, and the dashboard container, created directly against the local swarm. The image is the release the install fetched, or, on a converge the host runs itself, the image the dashboard runs; a converge that names none stops before any role runs. An install fetches the release it is given, else the one the server records, else the newest the registry names |
 | `backup` | The backup lane's per-host configuration (repository, credentials, paths, excludes) and the first snapshot. restic, rclone, the backup wrapper and its units ship in the payload |
 
 ### How a role is reached
@@ -314,10 +312,9 @@ label vocabulary of the dashboard image the host runs, and validation and the
 external scan check against the merged set.
 
 ufw is default-deny. No web port is bound on the host: web traffic enters
-through the Cloudflare tunnel. The ports bound on the public IP are the TURN
-relay's UDP media plane, present only while a consumer runs, and the non-web
-ports an application template declares, such as mail, a video bridge's UDP
-media and a SIP gateway.
+through the Cloudflare tunnel. The ports bound on the public IP are the non-web
+ports an application template declares, such as mail, a relay's or a video
+bridge's UDP media and a SIP gateway.
 
 SSH is key-only, with no root and no password login. Public port 22 follows
 the private network:
@@ -413,9 +410,8 @@ bucket.
 
 ### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
-Scheduled work is default-deny. This repository ships two local-maintenance
-timers (the antivirus watch, the mail canary) and enables seven the payload
-ships (the public-port reconcile, the dashboard and Gatus syncs, the hourly
+Scheduled work is default-deny. This repository ships no local-maintenance
+timers and enables seven the payload ships (the public-port reconcile, the dashboard and Gatus syncs, the hourly
 reboot-required probe, the hourly licence check, the hourly application verify,
 and the five-minute error reports to Catena support, which send nothing until
 an administrator switches them on). None spends object storage.
@@ -561,11 +557,10 @@ both run the same version.
 
 The dashboard deploys applications from a catalogue resolved per host: domain
 names, sign-on, and a password per application generated on the host. Per-app
-compose lives in `catena-templates`; this repository owns the wiring that makes
-the suite one product: mail, chat and video calling, file and office
-integration, the antivirus watch and delivery canaries. The action that wires
-Nextcloud Talk to the call relay installs Talk from Nextcloud's app store when
-it is missing, and changes nothing when the store cannot be reached.
+compose and wiring live in `catena-templates`: each application's own hooks
+configure it after every deploy, update and restore, and one application reads
+what another provides (antivirus, office editing) by declaring it. This
+repository holds no application's wiring.
 
 An application can live in its own folder on the server,
 `/srv/catena/compose/<stack>`: its compose file, its `.env` and a record of
@@ -619,7 +614,7 @@ through the outgoing mail; with outgoing mail off they reach only the channels
 added in Healthchecks.
 
 Each shared service answers on `<subdomain>.<domain>`: `auth` (the sign-on),
-`dash` (the dashboard), `portainer`, `gatus`, `healthchecks` and `beszel`. Each
+`dash` (the dashboard), `gatus`, `healthchecks` and `beszel`. Each
 subdomain is a setting in the dashboard; a host with none stored uses that
 name. Gatus names each service it monitors without its version, so a service
 keeps its history across updates; the dashboard shows administrators the
@@ -638,7 +633,7 @@ versions.
 | Every admin surface sits behind the identity gate | `threat:CV2` |
 | The dashboard dispatches its actions without a converge, and refuses an action it does not know | `bench:ce_admin_smoke`, `bench:ce_admin_actions`, `bench:admin_action_unknown_rejected` |
 | The record of administrative actions can be exported and checked off the box: an edited or shortened trail fails verification | `bench:audit_chain_tamper_evident`, `threat:CV10` |
-| Application sign-in provisioning and mailbox reconciliation keep running while the Cloudflare tunnel is down | `bench:mailbox_sync_ownership#stage-5-sync-without-the-tunnel` |
+| Application sign-in provisioning and each application's user sync keep running while the Cloudflare tunnel is down | `bench:mailbox_sync_ownership#stage-5-sync-without-the-tunnel` |
 | An application that asks for single sign-on gets its own sign-in entry, kept in step with its labels and removed with the application; entries made by hand are left alone | `bench:oidc_label_client_provisioned`, `threat:CV13` |
 | Catalogue applications that offer single sign-on in their free edition sign in with the suite's account | `bench:catalog_app_sign_in` |
 | A sign-in cookie a client application or another admin tool sees opens no admin tool | `bench:app_container_cannot_claim_an_identity`, `threat:CV2` |
