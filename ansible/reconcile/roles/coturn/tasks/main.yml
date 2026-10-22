@@ -11,24 +11,22 @@
 # Deployed only while a consumer runs: on a tenant with none of them it would
 # be a dead relay behind four open public port entries (3478/udp,
 # 5349/tcp+udp, the media relay range), a turn.<zone> DNS record, and a
-# certificate renewing for nothing. The gate reads container presence, the
-# same shape as reconcile/roles/infrastructure/tasks/clamav.yml, which says
-# why presence and not a flag. On a fresh install coturn lands on the
+# certificate renewing for nothing. The gate reads container presence, not a
+# flag: a flag would have to be kept in step with the apps a client deploys,
+# and presence is correct everywhere. On a fresh install coturn lands on the
 # converge after the consumer is first deployed, the same converge that runs
 # the Talk/Jitsi wire scripts.
 #
-# Unlike clamav there is nothing to pre-create: consumers reach coturn by
-# hostname (turn.<zone>), so DNS, cert, ports and service can ALL wait.
+# There is nothing to pre-create: consumers reach coturn by hostname
+# (turn.<zone>), so DNS, cert, ports and service can ALL wait.
 #
 # NOT a teardown. A consumer that goes away leaves an already-deployed
 # coturn running -- ripping out a relay would drop calls in progress, and
-# the public-ports fragment already on disk keeps its ufw rules. Same
-# deliberate asymmetry as clamav.
+# the public-ports fragment already on disk keeps its ufw rules.
 
 - name: "coturn: detect a running consumer (Talk HPB or a Jitsi JVB)"
   # Emits each matching consumer container name; empty when none is
-  # running. Shaped like clamav.yml's consumer probe, which says why it lists
-  # every match.
+  # running.
   #
   # `status=running` is load-bearing: bare `docker ps` also lists RESTARTING
   # containers, so a crash-looping Talk HPB reads as a live TURN consumer.

@@ -2,8 +2,8 @@
 # Deploy one catena-DECLARED compose stack as SWARM services.
 #
 # Every app deployed through this file is something catena declares -- the
-# monitoring plane (gatus, healthchecks, beszel), the SSO plane (keycloak,
-# oauth2-proxy), the shared clamd.
+# monitoring plane (gatus, healthchecks, beszel) and the SSO plane (keycloak,
+# oauth2-proxy).
 #
 # Inputs (caller sets via include_tasks vars):
 #

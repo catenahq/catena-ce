@@ -328,16 +328,16 @@ backup_exclude_patterns:
   # agent, so only the charts reset.
   - "*/docker/volumes/beszel-hub-data"
   - "*/docker/volumes/beszel-hub-data/*"
-  # Shared ClamAV signature database (clamav-db:/var/lib/clamav, see
-  # reconcile/roles/infrastructure/templates/clamav.compose.yml.j2). Re-downloadable
-  # by freshclam on container start AND refreshed multiple times daily, so
-  # the on-disk bytes churn and defeat restic content-defined chunking --
-  # backing it up is client-paid cold-storage bloat for data that is fetched
-  # free from Spamhaus/ClamAV mirrors. A fresh volume on restore is correct:
-  # freshclam repopulates it within minutes. The mailboxes themselves
+  # The antivirus scanner's signature database (the clamav-db volume of the
+  # ClamAV application, named <stack>_clamav-db). Re-downloadable by freshclam
+  # on container start AND refreshed multiple times daily, so the on-disk bytes
+  # churn and defeat restic content-defined chunking -- backing it up is
+  # client-paid cold-storage bloat for data that is fetched free from the
+  # ClamAV mirrors. A fresh volume on restore is correct: freshclam
+  # repopulates it within minutes. The mailboxes themselves
   # (mail-data/mail-state) are NOT excluded -- only this regenerable cache.
-  - "*/docker/volumes/clamav-db"
-  - "*/docker/volumes/clamav-db/*"
+  - "*/docker/volumes/*_clamav-db"
+  - "*/docker/volumes/*_clamav-db/*"
   # Postgres runtime lock files, in EVERY data dir -- the infra DB and
   # every app that ships its own postgres. They are process state, not
   # data: postmaster.pid holds the PID, port and shared-memory key of a

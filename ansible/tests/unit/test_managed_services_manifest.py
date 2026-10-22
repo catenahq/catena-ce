@@ -162,5 +162,5 @@ def test_the_exclusions_are_written_down():
     removes the surface you would roll it back from."""
     header = MANIFEST.read_text().split("#}")[0]
     for name in ("catena-postgres", "cloudflared", "catena-admin",
-                 "oauth2-proxy", "clamav"):
+                 "oauth2-proxy"):
         assert name in header, f"{name} is absent from the manifest silently"

@@ -68,12 +68,12 @@ def test_a_path_dropped_from_the_declaration_is_withdrawn():
 def test_a_feature_switched_off_is_not_a_withdrawal():
     """THE distinction the whole design rests on.
 
-    A host with clamav disabled declares its units and installs none of them.
+    A host with a feature disabled declares its units and installs none of them.
     If the diff were taken between the two INSTALLED sets, the next converge
     would read that as a withdrawal and delete the units of a feature the
     client merely turned off -- and turning it back on would leave them gone
     until something re-ran the role."""
-    declared = ["/etc/systemd/system/catena-clamav-watch.timer"]
+    declared = ["/etc/systemd/system/catena-feature-watch.timer"]
     # Last converge had it on and installed it; this one has it off.
     previous = {
         "declared": declared,
@@ -267,7 +267,7 @@ def test_the_gate_reads_real_writes():
                     task_file.read_text(encoding="utf-8", errors="ignore")):
                 if _resolve(raw, defaults, shared).startswith(_MANAGED_PREFIXES):
                     seen += 1
-    assert seen > 10, f"only {seen} managed-prefix writes found across the roles"
+    assert seen > 3, f"only {seen} managed-prefix writes found across the roles"
 
 
 def test_every_declared_path_is_absolute_once_resolved():

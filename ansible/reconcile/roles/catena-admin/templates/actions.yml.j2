@@ -112,24 +112,6 @@ actions:
   # after a secret rotation, image bump, or redeploy converges to the same
   # state.
 
-  # Office editors (Collabora / OnlyOffice): one script, one button per
-  # editor, mutually reversing (scripts/wire-nextcloud-office.sh).
-  - name: wire-nextcloud-collabora
-    title: "Wire Nextcloud Collabora (LibreOffice editor)"
-    title_fr: "Câbler Collabora pour Nextcloud (éditeur LibreOffice)"
-    category: "Initial apps setup"
-    icon: "&#128221;" # 📝
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-office collabora"
-
-  - name: wire-nextcloud-onlyoffice
-    title: "Wire Nextcloud OnlyOffice (MS Office editor)"
-    title_fr: "Câbler OnlyOffice pour Nextcloud (éditeur MS Office)"
-    category: "Initial apps setup"
-    icon: "&#128196;" # 📄
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-office onlyoffice"
-
   # Rocket.Chat -> bundled Jitsi conferencing wiring. Calls RC's
   # settings REST API as the bootstrap admin to flip Jitsi_Enabled
   # + Jitsi_Domain. Idempotent.

@@ -127,13 +127,13 @@ coturn_cloudflare_creds_path: "/etc/letsencrypt/cloudflare.ini"
 coturn_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
 
 # Use Let's Encrypt's STAGING CA when true. Development only: the
-# COTURN_CERTBOT_STAGING store key, false on every client install. The
+# CATENA_ACME_STAGING store key, false on every client install. The
 # production CA enforces "5 certs / 168h / exact identifier", which repeated
 # test installs of one turn.<zone> exhaust; the staging CA has no such limit
 # and the cert is functionally identical for coturn (which validates
 # presence + expiry, not trust chain). Browsers and TURN clients reject
 # staging certs.
-coturn_certbot_use_staging: "{{ cfg_coturn_certbot_staging | default('false') | bool }}"
+coturn_certbot_use_staging: "{{ cfg_acme_staging | default('false') | bool }}"
 coturn_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
 
 # Effective --server: the local ACME server (group_vars/all/main.yml) wins;

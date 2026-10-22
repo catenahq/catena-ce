@@ -4,8 +4,7 @@
 # coturn lives directly on the public IP -- the TURN hostname must resolve
 # there, NOT to Cloudflare's edge.
 #
-# Same upsert idiom as reconcile/roles/infrastructure/tasks/mailserver_dns.yml
-# (look up + create-if-absent + update-if-drift), for an A record with
+# Upsert: look up, create if absent, update if drifted, for an A record with
 # proxied=false.
 #
 # This record stays when a client changes their domain. The tunnel engine
@@ -13,10 +12,8 @@
 # resolving; turn.<old-zone> keeps pointing at this host's public IP until
 # someone deletes it.
 
-# cloudflare_zone_id is resolved by whichever Ansible-side Cloudflare caller
-# needs it first in the run (this file, or mailserver_dns.yml, which runs
-# earlier in a full converge) and reused after. A `--tags coturn` run resolves
-# it here.
+# cloudflare_zone_id is resolved here when no earlier Ansible-side Cloudflare
+# caller of the run has resolved it, and reused after.
 - name: "coturn DNS: resolve cloudflare_zone_id (when not resolved yet)"
   when: cloudflare_zone_id is not defined
   delegate_to: localhost

@@ -39,7 +39,6 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 SWARM_COMPOSE = (
     ANSIBLE / "reconcile/roles/infrastructure/templates/gatus.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/healthchecks.compose.yml.j2",
-    ANSIBLE / "reconcile/roles/infrastructure/templates/clamav.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hub.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-agent.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
@@ -82,8 +81,7 @@ def test_no_ignored_compose_only_keys(path: Path):
 @pytest.mark.parametrize("path", SWARM_COMPOSE, ids=lambda p: p.name)
 def test_every_service_declares_a_restart_policy(path: Path):
     """Swarm's default restart condition is already `any`, so this is about
-    the DELAY: with none, a service whose dependency is not up yet hot-loops.
-    clamd re-pulls a ~250 MB signature DB on each of those."""
+    the DELAY: with none, a service whose dependency is not up yet hot-loops."""
     body = _body(path)
     assert body.count("restart_policy:") >= 1, (
         f"{path.name}: no deploy.restart_policy"
@@ -104,51 +102,6 @@ def test_no_app_level_vps_label(path: Path):
         f"{path.name}: {found} -- nothing reads an app-level vps.* label on a "
         f"Catena stack. A gate belongs in oauth2_proxy_apps."
     )
-
-
-def test_clamav_is_a_swarm_stack_on_an_overlay():
-    """The two halves have to stay consistent.
-
-    A swarm service cannot attach to a bridge, and `docker stack deploy`
-    refuses a stack whose external network is local-scope at all -- so a
-    bridge here would stop the mailserver and Nextcloud templates from
-    deploying, not merely keep clamd off swarm.
-
-    The overlay's deadlock risk: an attachable overlay is materialized on a
-    node only once a swarm task there uses it, and a STANDALONE container asking
-    for an unmaterialized one stays Created ("network catena-clamav not
-    found"). With standalone consumers the only swarm task that could
-    materialize the network would be clamd, which does not deploy until a
-    consumer runs. Both consumers are swarm services, so the first of them
-    materializes it and the deadlock has no hold.
-    """
-    tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
-        encoding="utf-8")
-    assert "include_tasks: swarm_stack.yml" in tasks
-    assert "overlay" in tasks and "--attachable" in tasks
-
-    compose = (
-        ANSIBLE / "reconcile/roles/infrastructure/templates/clamav.compose.yml.j2"
-    ).read_text(encoding="utf-8")
-    assert "restart: unless-stopped" not in compose, (
-        "`restart:` is dropped by docker stack deploy with a warning nobody "
-        "reads"
-    )
-
-
-def test_the_clamav_consumers_are_matched_by_their_swarm_service():
-    """clamd deploys only when a consumer is running, and the probe that
-    decides asks catena-container for <app> dms and <app> app, the swarm
-    service names. A container NAME carries a swarm task id, so a probe that
-    matched one would quietly stop finding either consumer and clamd would
-    never deploy again -- with the mail path silently unscanned."""
-    tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
-        encoding="utf-8")
-    assert "/usr/local/bin/catena-container {{ clamav_consumer_mail_app | quote }} dms" in tasks
-    assert "/usr/local/bin/catena-container {{ clamav_consumer_files_app | quote }} app" in tasks
-    assert "label=vps." not in tasks
-    assert "com.docker.compose" not in tasks
-    assert "--filter 'name=" not in tasks
 
 
 def test_published_ports_use_long_syntax_host_mode():
