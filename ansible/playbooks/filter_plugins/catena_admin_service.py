@@ -126,20 +126,22 @@ def secret_entries(specs):
     return out
 
 
-def secrets_unmounted(names, services, bases):
+def secrets_unmounted(names, services, bases, kind="secret"):
     """The secrets of `names` that secret_name made for one of `bases` and
     that no service of `services` (`docker service inspect` output) mounts:
     what a rotation left behind, for playbooks/tasks/swarm_secrets_prune.yml.
     A name is matched whole, base and 8-hex suffix, so a secret of another
-    base sharing a prefix is not touched."""
+    base sharing a prefix is not touched. `kind` "config" does the same for
+    swarm configs named the same way."""
     if not bases:
         return []
     pattern = re.compile(
         "^(?:" + "|".join(re.escape(str(b)) for b in bases) + ")-[0-9a-f]{8}$")
+    label = "Config" if kind == "config" else "Secret"
     mounted = {
-        str(entry.get("SecretName") or "")
+        str(entry.get(f"{label}Name") or "")
         for service in services or []
-        for entry in _container_spec(service).get("Secrets") or []
+        for entry in _container_spec(service).get(f"{label}s") or []
         if isinstance(entry, dict)
     }
     return sorted(n for n in names if pattern.match(str(n)) and n not in mounted)

@@ -33,6 +33,10 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 ENV_TEMPLATE = (ANSIBLE / "reconcile" / "roles" / "infrastructure" / "templates"
                 / "dashboard-sync.env.j2")
 
+# The refusal step: the id of the extension's authenticator
+# (reconcile/roles/keycloak/provider).
+REFUSAL = "catena-tier-refusal"
+
 ADMITTED = {
     "catena-signin-admin": {"catena-tier-admin"},
     "catena-signin-staff": {"catena-tier-admin", "catena-tier-staff"},
@@ -108,7 +112,7 @@ def test_the_sign_in_steps_run_first_and_the_deny_step_last():
         assert [(e["flowAlias"], e["requirement"]) for e in top] == [
             (f"{alias} sign-in", "REQUIRED"), (f"{alias} tier check", "CONDITIONAL")]
         steps = flows[f"{alias} tier check"]["authenticationExecutions"]
-        assert steps[-1]["authenticator"] == "deny-access-authenticator"
+        assert steps[-1]["authenticator"] == REFUSAL
         assert all(s["requirement"] == "REQUIRED" for s in steps)
 
 

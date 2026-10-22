@@ -12,7 +12,13 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
    password and initial admin password are a config file
    (`templates/keycloak.conf.j2`) mounted as a swarm secret named after its
    content and read through `KC_CONFIG_FILE`; a secret of that name no
-   service mounts is removed after the deploy.
+   service mounts is removed after the deploy. Beside it, the Catena extension
+   JAR (`provider/`, built into the catena-admin image and carried in
+   `files/catena-keycloak.jar`) is copied to `/var/lib/catena/keycloak` and
+   mounted in Keycloak's providers directory from a swarm config named after
+   its content, removed the same way once no service mounts it; the deploy
+   stops when the JAR is missing or over 500 KB, as it is in any tree not taken
+   out of an image.
 3. Bootstrap the `vps` realm (`realm_bootstrap.yml`) with
    keycloak-config-cli:
    - Every import and kcadm session signs in to the master realm as the
@@ -51,8 +57,8 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      (`catena-tier-admin`, `catena-tier-staff`) and grants each to its group
      (`/admin`, `/staff`), adds the scopes applications need to the realm's
      default client scopes, puts the realm admin back in `/admin` when
-     `/admin` has no member, and names the post-broker-login flow on each
-     identity provider that names none. It reports a realm switched off,
+     `/admin` has no member, and fails the converge naming each identity
+     provider that names no post-broker-login flow. It reports a realm switched off,
      moves the sign-in page name to a new domain (below), then reads the two
      sign-in flows' ids (`keycloak_signin_flows`), which dashboard-sync's env
      file carries, and fails the converge when either is missing.
@@ -61,7 +67,12 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      `catena-post-broker-login` runs its tier check after the provider's
      sign-in: it denies an account outside the tier of the entry it signs in
      to, which dashboard-sync marks with the client scope named after the
-     entry's flow (`catena-signin-admin`, `catena-signin-staff`).
+     entry's flow (`catena-signin-admin`, `catena-signin-staff`). Both checks
+     end in the extension's `catena-tier-refusal` step, which refuses without
+     counting toward the lockout. The extension's `catena-tier-binding` names
+     the flow on each provider that names none, when an administrator creates,
+     updates or imports one and for the providers present when Keycloak starts;
+     the converge first checks that Keycloak lists both providers.
    - The realm admin's account and the realm's tunable settings are a seed:
      rendered into `/etc/catena/keycloak/seed`, imported while a bootstrap
      marker under `/var/lib/catena` or the realm itself is missing, then

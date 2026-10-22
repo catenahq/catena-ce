@@ -12,12 +12,13 @@ tier's flow (conditional-client-scope reads the entry's default scopes,
 TokenManager getRequestedClientScopes) for an account holding none of the roles
 the tier admits, and ends in deny; then an allow step, without which a flow
 whose conditions all fail would not succeed (AuthenticationProcessor
-authenticateOnly). realm_bootstrap.yml names the flow on every provider that
-names none.
+authenticateOnly). The extension's binding listener names the flow on every
+provider that names none, and realm_bootstrap.yml fails the converge on any
+provider still naming none.
 
 The flow is rendered and walked here the way DefaultAuthenticationFlow runs
-these steps, against the browser flows' own tier check; the binding step's
-script runs against a stand-in `docker`.
+these steps, against the browser flows' own tier check; the converge's check
+of the providers and of the loaded extension run against a stand-in `docker`.
 
 Run: uv run pytest tests/unit/test_realm_post_broker_login.py
 """
@@ -35,7 +36,7 @@ from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
 from test_realm_bootstrap_settles import BOOTSTRAP, _render
-from test_realm_signin_flows import ADMITTED
+from test_realm_signin_flows import ADMITTED, REFUSAL
 
 FLOW = "catena-post-broker-login"
 BIND = "every identity provider runs the tier check after a brokered sign-in"
@@ -77,7 +78,7 @@ def _post_broker_refuses(realm, scopes: set, roles: set) -> bool:
             assert e["requirement"] == "CONDITIONAL"
             sub = flows[e["flowAlias"]]
             if _conditions_hold(sub, configs, scopes, roles):
-                assert sub["authenticationExecutions"][-1]["authenticator"] == "deny-access-authenticator"
+                assert sub["authenticationExecutions"][-1]["authenticator"] == REFUSAL
                 return True
     return False
 
@@ -114,7 +115,7 @@ def test_each_tier_checks_its_scope_and_its_roles_then_denies():
         assert all(s["authenticator"] == "conditional-user-role" for s in roles)
         assert {configs[s["authenticatorConfig"]]["condUserRole"] for s in roles} == admitted
         assert all(configs[s["authenticatorConfig"]]["negate"] == "true" for s in roles)
-        assert steps[-1]["authenticator"] == "deny-access-authenticator"
+        assert steps[-1]["authenticator"] == REFUSAL
 
 
 def test_each_tier_has_a_scope_named_after_its_flow_that_carries_no_claim():
@@ -171,79 +172,123 @@ FAKE_DOCKER = textwrap.dedent('''\
     assert args[:3] == ["exec", "keycloak_server.1.abc", "/opt/keycloak/bin/kcadm.sh"], args
     kc = args[3:]
     state["calls"].append(kc)
+    json.dump(state, open(path, "w"))
+    if kc[:2] == ["get", "serverinfo"]:
+        info = {"systemInfo": {}, "providers": state["serverinfo"]}
+        if "--fields" in kc:
+            # kcadm keeps only the named top-level fields and drops the children
+            # of one named without brackets.
+            info = {name: ({} if "(" not in kc[kc.index("--fields") + 1] else info[name])
+                    for name in kc[kc.index("--fields") + 1].split("(")[0].split(",")}
+        print(json.dumps(info))
+        sys.exit(0)
     def opt(name):
         return kc[kc.index(name) + 1]
-    def done(code=0):
-        json.dump(state, open(path, "w"))
-        sys.exit(code)
+    queries = [kc[i + 1] for i, a in enumerate(kc) if a == "-q"]
+    assert kc[:2] == ["get", "identity-provider/instances"], kc
     assert opt("-r") == "vps", kc
-    if kc[:2] == ["get", "identity-provider/instances"]:
-        assert "realmOnly=true" in kc and opt("--format") == "csv" and "--noquotes" in kc, kc
-        assert opt("--fields") == "alias,postBrokerLoginFlowAlias", kc
-        for p in state["providers"]:
-            if not p.get("org"):
-                print(p["alias"] + "," + (p.get("post") or ""))
-        done()
-    if kc[0] == "update" and kc[1].startswith("identity-provider/instances/"):
-        alias = kc[1].rsplit("/", 1)[1]
-        key, value = opt("-s").split("=", 1)
-        assert key == "postBrokerLoginFlowAlias", kc
-        next(p for p in state["providers"] if p["alias"] == alias)["post"] = value
-        done()
-    done(f"unexpected kcadm call {kc}")
+    assert "type=USER_AUTHENTICATION" in queries and "realmOnly=true" not in queries, kc
+    assert any(q.startswith("max=") and int(q[4:]) > 100 for q in queries), kc
+    assert opt("--format") == "csv" and "--noquotes" in kc, kc
+    assert opt("--fields") == "alias,postBrokerLoginFlowAlias", kc
+    for p in state["providers"]:
+        print(p["alias"] + "," + (p.get("post") or ""))
 ''')
 
+LISTED = {"authenticator": {"providers": {"catena-tier-refusal": {}}},
+          "eventsListener": {"providers": {"catena-tier-binding": {}}}}
 
-def _bind_task() -> dict:
+
+def _task(fragment: str) -> dict:
     return next(t for t in yaml.safe_load(BOOTSTRAP.read_text())
-                if BIND in str(t.get("name", "")))
+                if fragment in str(t.get("name", "")))
 
 
-def _bind(tmp_path: Path, providers: list[dict]):
-    task = _bind_task()
+def _run(tmp_path: Path, task: dict, state_in: dict, variables: dict):
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
     docker = bindir / "docker"
     docker.write_text(FAKE_DOCKER)
     docker.chmod(docker.stat().st_mode | stat.S_IEXEC)
     state = tmp_path / "state.json"
-    state.write_text(json.dumps({"providers": providers, "calls": []}))
-    variables = {"_keycloak_realm_server_ct": {"stdout": CT}, "keycloak_realm": "vps"}
+    state.write_text(json.dumps({"calls": [], **state_in}))
     script = Templar(loader=DataLoader(), variables=variables).template(
         trust_as_template(task["ansible.builtin.shell"]))
     proc = subprocess.run(["bash", "-c", script], text=True, capture_output=True,
                           env={"PATH": f"{bindir}:/usr/bin:/bin", "FAKE_KC_STATE": str(state)})
+    return proc, json.loads(state.read_text())
+
+
+def _check(tmp_path: Path, providers: list[dict]):
+    return _run(tmp_path, _task(BIND), {"providers": providers},
+                {"_keycloak_realm_server_ct": {"stdout": CT}, "keycloak_realm": "vps"})
+
+
+def test_providers_all_naming_a_flow_pass_and_nothing_is_written(tmp_path):
+    proc, state = _check(tmp_path, [
+        {"alias": "corp", "post": FLOW},
+        {"alias": "partner", "post": "otp-after-broker", "org": "o1"}])
     assert proc.returncode == 0, proc.stderr
-    variables[task["register"]] = {"stdout": proc.stdout}
-    changed = Templar(loader=DataLoader(), variables=variables).template(
-        trust_as_template("{{ " + task["changed_when"] + " }}"))
-    return proc.stdout, changed, json.loads(state.read_text())
-
-
-def test_a_provider_naming_no_flow_gets_the_check(tmp_path):
-    out, changed, state = _bind(tmp_path, [{"alias": "google"}, {"alias": "corp", "post": ""}])
-    assert [p["post"] for p in state["providers"]] == [FLOW, FLOW]
-    assert out == "bound: google\nbound: corp\n" and changed
-
-
-def test_a_flow_named_by_hand_and_an_organizations_provider_are_left_alone(tmp_path):
-    providers = [{"alias": "corp", "post": "otp-after-broker"},
-                 {"alias": "partner", "org": "o1"}]
-    out, changed, state = _bind(tmp_path, [dict(p) for p in providers])
-    assert state["providers"] == providers
-    assert out == "" and not changed
     assert all(c[0] == "get" for c in state["calls"])
 
 
-def test_a_realm_without_providers_changes_nothing(tmp_path):
-    out, changed, state = _bind(tmp_path, [])
-    assert out == "" and not changed
+def test_a_realm_without_providers_passes(tmp_path):
+    proc, _ = _check(tmp_path, [])
+    assert proc.returncode == 0, proc.stderr
 
 
-def test_the_binding_names_the_flow_the_realm_declares_after_the_import():
-    assert f"flow={FLOW}\n" in _bind_task()["ansible.builtin.shell"]
+def test_a_provider_naming_no_flow_fails_the_converge_by_name(tmp_path):
+    proc, state = _check(tmp_path, [
+        {"alias": "google"}, {"alias": "corp", "post": FLOW},
+        {"alias": "partner", "post": "", "org": "o1"}])
+    assert proc.returncode != 0
+    assert proc.stderr.splitlines() == [
+        "identity provider google names no post-broker-login flow",
+        "identity provider partner names no post-broker-login flow"]
+    assert all(c[0] == "get" for c in state["calls"])
+
+
+def test_the_check_only_reads_and_follows_the_import():
+    task = _task(BIND)
+    assert task["changed_when"] is False and "update" not in task["ansible.builtin.shell"]
     assert FLOW in _flows(_realm())
     names = [str(t.get("name", "")) for t in yaml.safe_load(BOOTSTRAP.read_text())]
     imported = next(i for i, n in enumerate(names) if "import the realm config" in n)
     login = next(i for i, n in enumerate(names) if "kcadm login to master" in n)
     assert imported < login < names.index(f"Keycloak realm: {BIND}")
+
+
+# --- the extension is loaded ---------------------------------------------------
+
+LOADED = "the Catena extension is loaded"
+
+
+def _loaded(tmp_path: Path, serverinfo: dict):
+    return _run(tmp_path, _task(LOADED), {"serverinfo": serverinfo},
+                {"_kc_master_login": {"stdout": CT}})
+
+
+def test_a_keycloak_listing_both_providers_passes(tmp_path):
+    proc, state = _loaded(tmp_path, LISTED)
+    assert proc.returncode == 0, proc.stderr
+    assert state["calls"] == [["get", "serverinfo"]]
+
+
+@pytest.mark.parametrize("missing", ["authenticator", "eventsListener"])
+def test_a_keycloak_missing_either_provider_stops_the_converge(tmp_path, missing):
+    listed = {spi: info for spi, info in LISTED.items() if spi != missing}
+    proc, _ = _loaded(tmp_path, listed)
+    assert proc.returncode != 0
+    wanted = {"authenticator": "authenticator/catena-tier-refusal",
+              "eventsListener": "eventsListener/catena-tier-binding"}[missing]
+    assert wanted in proc.stderr and "not loaded" in proc.stderr
+
+
+def test_the_extension_is_checked_before_the_import_that_needs_it():
+    names = [str(t.get("name", "")) for t in yaml.safe_load(BOOTSTRAP.read_text())]
+    loaded = next(i for i, n in enumerate(names) if LOADED in n)
+    login = next(i for i, n in enumerate(names) if "sign kcadm in to the master realm" in n)
+    imported = next(i for i, n in enumerate(names) if "import the realm config" in n)
+    assert login < loaded < imported
+
+

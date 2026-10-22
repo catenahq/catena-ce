@@ -33,6 +33,72 @@
   vars:
     swarm_secrets: "{{ _keycloak_secrets }}"
 
+# The Catena extension JAR reaches Keycloak's providers directory from a swarm
+# config named after the JAR's content, so a changed JAR is a new config and
+# redeploys Keycloak. Only a tree taken out of a catena-admin image carries it.
+# Checked on the controller, where the copy below reads it.
+- name: "Keycloak: the extension JAR in this tree"
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/{{ keycloak_providers_jar }}"
+  delegate_to: localhost
+  become: false
+  register: _keycloak_providers_source
+
+- name: "Keycloak: the extension JAR is there and of a plausible size"
+  ansible.builtin.assert:
+    that:
+      - _keycloak_providers_source.stat.exists
+      - _keycloak_providers_source.stat.size < keycloak_providers_jar_max_bytes
+    fail_msg: >-
+      {{ keycloak_providers_jar }} is not in reconcile/roles/keycloak/files, or
+      is larger than {{ keycloak_providers_jar_max_bytes }} bytes. Only the tree
+      of a catena-admin image carries it (the image build compiles it from
+      reconcile/roles/keycloak/provider); converge from an image's tree.
+
+- name: "Keycloak: the host directory of the extension JAR"
+  ansible.builtin.file:
+    path: "{{ keycloak_providers_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Keycloak: copy the extension JAR to the host"
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/{{ keycloak_providers_jar }}"
+    dest: "{{ keycloak_providers_dir }}/{{ keycloak_providers_jar }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Keycloak: read the copied JAR's checksum"
+  ansible.builtin.stat:
+    path: "{{ keycloak_providers_dir }}/{{ keycloak_providers_jar }}"
+    checksum_algorithm: sha256
+  register: _keycloak_providers_copy
+
+- name: "Keycloak: name the extension JAR's swarm config after its content"
+  ansible.builtin.set_fact:
+    _keycloak_providers_config: "{{ keycloak_providers_config_base }}-{{ _keycloak_providers_copy.stat.checksum[:8] }}"
+
+- name: "Keycloak: which extension swarm config exists"
+  ansible.builtin.command:
+    argv: [docker, config, inspect, "{{ _keycloak_providers_config }}"]
+  register: _keycloak_providers_exists
+  changed_when: false
+  failed_when: false
+
+# The JAR is binary, so it goes in by path, not on stdin.
+- name: "Keycloak: create the missing extension swarm config"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - config
+      - create
+      - "{{ _keycloak_providers_config }}"
+      - "{{ keycloak_providers_dir }}/{{ keycloak_providers_jar }}"
+  when: _keycloak_providers_exists.rc != 0
+
 - name: "Keycloak: deploy as a swarm stack"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/swarm_stack.yml
   vars:
@@ -58,3 +124,9 @@
   ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
   vars:
     swarm_secret_bases: ["{{ keycloak_config_secret_base }}"]
+
+- name: "Keycloak: remove the swarm configs no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_kind: config
+    swarm_secret_bases: ["{{ keycloak_providers_config_base }}"]

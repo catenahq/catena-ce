@@ -302,6 +302,27 @@
     apply:
       tags: [always]
 
+# The realm file's deny steps are the extension's catena-tier-refusal and the
+# identity providers are named by its catena-tier-binding (provider/): a
+# Keycloak that does not list both has not loaded the JAR, and the import below
+# would fail on an unknown step or leave providers unbound.
+- name: "Keycloak realm: the Catena extension is loaded"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker exec {{ _kc_master_login.stdout | quote }} /opt/keycloak/bin/kcadm.sh get serverinfo \
+      | python3 -c '
+    import json, sys
+    providers = json.load(sys.stdin)["providers"]
+    need = {"authenticator": "catena-tier-refusal", "eventsListener": "catena-tier-binding"}
+    missing = [spi + "/" + pid for spi, pid in need.items()
+               if pid not in providers.get(spi, {}).get("providers", {})]
+    if missing:
+        sys.exit("Keycloak does not list " + ", ".join(missing) + ": the extension JAR is not loaded")
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+
 # --- An admin email change moves the admin, and adds none ---
 #
 # The realm seed keys the realm admin on its username, admin_email.
@@ -923,30 +944,32 @@
 
 # A sign-in through an external identity provider finishes in Keycloak's broker
 # flows and never returns to the application's sign-in flow, so its tier check
-# does not run (IdentityBrokerService, Keycloak 26.6.7). The post-broker-login
-# flow realm-vps.yaml.j2 declares runs it, and a provider runs that flow only
-# when it names it; the realm has no default for it. So each provider that
-# names none is bound to it, adding only: a provider bound to another flow by
-# hand keeps it. A provider linked to an organization is left out, since this
-# update would unlink it (IdentityProviderResource strips the organization).
+# does not run (IdentityBrokerService). The post-broker-login flow
+# realm-vps.yaml.j2 declares runs it, and a provider runs that flow only when
+# it names it; the realm has no default for it. The extension's binding
+# listener names the flow on each provider that names none, one linked to an
+# organization included (provider/). This only reads: it stops the converge,
+# naming each provider that still names no flow, since such a provider would
+# let an account outside the tier through. A provider bound to another flow by
+# hand passes.
 - name: "Keycloak realm: every identity provider runs the tier check after a brokered sign-in"
   ansible.builtin.shell: |
     set -euo pipefail
     kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
     realm={{ keycloak_realm | quote }}
-    flow=catena-post-broker-login
-    providers=$(kc get identity-provider/instances -r "$realm" -q realmOnly=true --fields alias,postBrokerLoginFlowAlias --format csv --noquotes)
+    providers=$(kc get identity-provider/instances -r "$realm" -q type=USER_AUTHENTICATION -q max=100000 --fields alias,postBrokerLoginFlowAlias --format csv --noquotes)
+    unbound=0
     while IFS=, read -r alias bound; do
       if [ -z "$alias" ] || [ -n "$bound" ]; then
         continue
       fi
-      kc update "identity-provider/instances/$alias" -r "$realm" -s "postBrokerLoginFlowAlias=$flow"
-      echo "bound: $alias"
+      echo "identity provider $alias names no post-broker-login flow" >&2
+      unbound=1
     done <<<"$providers"
+    exit "$unbound"
   args:
     executable: /bin/bash
-  register: _keycloak_post_broker_binding
-  changed_when: "'bound:' in _keycloak_post_broker_binding.stdout"
+  changed_when: false
 
 # The whole realm, for its switch and its sign-in page name. `--fields` would
 # print the attributes map with its values dropped.

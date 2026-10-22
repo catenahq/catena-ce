@@ -45,6 +45,28 @@ def test_the_extension_registers_both_provider_kinds():
     }
 
 
+def _provider_id(factory: str) -> str:
+    source = (SOURCES / "run" / "catena" / "keycloak" / f"{factory}.java").read_text()
+    found = re.search(r'PROVIDER_ID = "([^"]+)"', source)
+    assert found, f"{factory} declares no PROVIDER_ID"
+    return found.group(1)
+
+
+def test_the_realm_file_denies_with_the_refusal_steps_id():
+    refusal = _provider_id("CatenaTierRefusalAuthenticatorFactory")
+    realm = (ROLE / "templates" / "realm-vps.yaml.j2").read_text()
+    steps = re.findall(r"^\s*- authenticator: (\S*(?:deny|refusal)\S*)$", realm, re.M)
+    assert steps and set(steps) == {refusal}
+
+
+def test_the_compose_sets_the_binding_listeners_option_by_its_id():
+    binding = _provider_id("CatenaTierBindingListenerFactory")
+    source = (SOURCES / "run" / "catena" / "keycloak" / "CatenaTierBindingListenerFactory.java").read_text()
+    assert 'EXEMPT_CLIENT = "exemptClient"' in source
+    compose = (ROLE / "templates" / "keycloak.compose.yml.j2").read_text()
+    assert f"--spi-events-listener--{binding}--exempt-client=" in compose
+
+
 @pytest.mark.parametrize("service", _service_files(), ids=lambda p: p.name)
 def test_every_service_entry_names_an_existing_class(service):
     entries = [line.strip() for line in service.read_text().splitlines()

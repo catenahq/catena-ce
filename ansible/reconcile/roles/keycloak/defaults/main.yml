@@ -37,6 +37,14 @@ keycloak_internal_port: 8080 # KC's HTTP port inside the container
 keycloak_config_secret_base: "keycloak-conf"
 keycloak_config_target: "keycloak.conf"
 
+# The Catena extension JAR (provider/), which an image's tree carries in files/.
+# It is copied to the host dir and mounted into Keycloak's providers directory
+# from a swarm config named <base>-<hash of the JAR> (tasks/deploy.yml).
+keycloak_providers_jar: "catena-keycloak.jar"
+keycloak_providers_config_base: "keycloak-providers"
+keycloak_providers_dir: "/var/lib/catena/keycloak"
+keycloak_providers_jar_max_bytes: 512000
+
 # Keycloak 26 split health/metrics off onto a separate "management"
 # port (default 9000). Probes against http://localhost:8080/health/*
 # return 404 even when KC_HEALTH_ENABLED=true. Used by validate.yml's

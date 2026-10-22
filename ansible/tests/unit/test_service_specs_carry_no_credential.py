@@ -69,6 +69,9 @@ def _keycloak_service() -> tuple[dict, dict]:
         "keycloak_db_password": DB_PASSWORD,
         "keycloak_config_target": defaults["keycloak_config_target"],
         "_keycloak_secrets": [{"name": "keycloak-conf-0123abcd"}],
+        "_keycloak_providers_config": "keycloak-providers-0123abcd",
+        "keycloak_providers_jar": defaults["keycloak_providers_jar"],
+        "keycloak_automation_client_id": defaults["keycloak_automation_client_id"],
         "keycloak_http_enabled": True,
         "catena_secondary_zones": [],
         "keycloak_hostname": "auth.acme.test",
@@ -92,6 +95,42 @@ def test_keycloaks_spec_carries_neither_password():
     assert env["KC_CONFIG_FILE"] == f"/run/secrets/{target}"
     assert server["secrets"] == [{"source": "keycloak-conf-0123abcd", "target": target}]
     assert doc["secrets"] == {"keycloak-conf-0123abcd": {"external": True}}
+
+
+def test_keycloak_mounts_the_extension_jar_from_a_swarm_config():
+    doc, defaults = _keycloak_service()
+    server = doc["services"]["server"]
+    jar = defaults["keycloak_providers_jar"]
+    assert server["configs"] == [{
+        "source": "keycloak-providers-0123abcd",
+        "target": f"/opt/keycloak/providers/{jar}", "mode": 0o444}]
+    assert doc["configs"] == {"keycloak-providers-0123abcd": {"external": True}}
+
+
+def test_keycloak_is_told_which_client_the_binding_leaves_alone():
+    doc, defaults = _keycloak_service()
+    assert doc["services"]["server"]["command"] == [
+        "start",
+        "--spi-events-listener--catena-tier-binding--exempt-client="
+        + defaults["keycloak_automation_client_id"]]
+
+
+def test_the_extension_jar_is_checked_then_given_to_swarm_before_the_stack_deploys():
+    tasks = _tasks(KEYCLOAK / "tasks" / "deploy.yml")
+    check = _index(tasks, "the extension JAR is there and of a plausible size")
+    copy = _index(tasks, "copy the extension JAR to the host")
+    create = _index(tasks, "create the missing extension swarm config")
+    deploy = _index(tasks, "deploy as a swarm stack")
+    assert check < copy < create < deploy
+    argv = tasks[create]["ansible.builtin.command"]["argv"]
+    assert argv[:3] == ["docker", "config", "create"]
+    assert argv[-1] == "{{ keycloak_providers_dir }}/{{ keycloak_providers_jar }}"
+    assert "stdin" not in tasks[create]["ansible.builtin.command"]
+    assert "catena-admin image" in tasks[check]["ansible.builtin.assert"]["fail_msg"]
+    # The copy reads its src on the controller, so the stat that feeds the check
+    # runs there too.
+    stat = tasks[_index(tasks, "the extension JAR in this tree")]
+    assert stat["delegate_to"] == "localhost" and stat["become"] is False
 
 
 def test_keycloaks_config_file_holds_both_passwords_as_properties():

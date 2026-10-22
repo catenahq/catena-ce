@@ -270,17 +270,21 @@ attributes:
 # required sub-flow (cookie, Kerberos, identity provider redirector,
 # organization identity-first login, the login form with its conditional second
 # factor), then a conditional sub-flow that denies an account holding none of
-# the tier roles the flow admits.
+# the tier roles the flow admits. That step is catena-tier-refusal, from the
+# extension JAR in Keycloak's providers directory (provider/): it refuses like
+# Keycloak's deny-access step, with the access-denied page, and does not count
+# toward the lockout, so a refusal by tier never locks the account.
 #
 # An account that signs in through an external identity provider finishes in
-# Keycloak's broker flows and never returns to these (IdentityBrokerService,
-# Keycloak 26.6.7). For it, catena-post-broker-login runs the same check after
+# Keycloak's broker flows and never returns to these (IdentityBrokerService).
+# For it, catena-post-broker-login runs the same check after
 # the provider's sign-in: one conditional sub-flow per tier, which denies at an
 # entry carrying that tier's scope (above) an account holding none of the roles
 # the tier admits, then a step that admits everybody else, without which a flow
 # whose conditions all fail would not succeed (AuthenticationProcessor). A
-# provider runs it when it names it as its post-login flow, and
-# realm_bootstrap.yml names it on every provider that names none.
+# provider runs it when it names it as its post-login flow. The extension names
+# it on every provider that names none, and realm_bootstrap.yml fails the
+# converge on any provider still naming none.
 #
 # keycloak-config-cli leaves a flow that matches this file as it is, and
 # rebuilds one that differs under the same id, keeping every client and
@@ -395,7 +399,7 @@ authenticationFlows:
         requirement: REQUIRED
         priority: {{ loop.index * 10 }}
 {%   endfor %}
-      - authenticator: deny-access-authenticator
+      - authenticator: catena-tier-refusal
         requirement: REQUIRED
         priority: {{ (admitted | length + 1) * 10 }}
 {% endfor %}
@@ -431,7 +435,7 @@ authenticationFlows:
         requirement: REQUIRED
         priority: {{ (loop.index + 1) * 10 }}
 {%   endfor %}
-      - authenticator: deny-access-authenticator
+      - authenticator: catena-tier-refusal
         requirement: REQUIRED
         priority: {{ (admitted | length + 2) * 10 }}
 {% endfor %}

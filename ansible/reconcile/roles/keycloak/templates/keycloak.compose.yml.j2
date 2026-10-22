@@ -25,6 +25,9 @@ services:
     # zero-rebuild operator workflow.
     command:
       - "start"
+      # The extension's binding listener leaves the updates of this client
+      # alone (catena-ce/ansible/reconcile/roles/keycloak/provider/README.md).
+      - "--spi-events-listener--catena-tier-binding--exempt-client={{ keycloak_automation_client_id }}"
     environment:
       # --- Build-time options preserved across `start`'s rebuild ---
       # Without --optimized, every container start re-runs the
@@ -108,6 +111,12 @@ services:
     secrets:
       - source: {{ _keycloak_secrets[0].name }}
         target: {{ keycloak_config_target }}
+    # The Catena extension JAR (tasks/deploy.yml). Keycloak's start step reads
+    # the providers directory on every boot.
+    configs:
+      - source: {{ _keycloak_providers_config }}
+        target: /opt/keycloak/providers/{{ keycloak_providers_jar }}
+        mode: 0444
     networks:
       catena-network:
         aliases:
@@ -153,4 +162,10 @@ networks:
 # its content, so a changed credential is a new secret and redeploys Keycloak.
 secrets:
   {{ _keycloak_secrets[0].name }}:
+    external: true
+
+# Created by tasks/deploy.yml before this deploys, named after the JAR's
+# content, so a changed JAR is a new config and redeploys Keycloak.
+configs:
+  {{ _keycloak_providers_config }}:
     external: true

@@ -54,12 +54,35 @@ def test_no_base_picks_nothing():
     assert svc.secrets_unmounted([svc.secret_name("b", "v")], [], []) == []
 
 
+def _config_service(*names):
+    return {"Spec": {"TaskTemplate": {"ContainerSpec": {
+        "Configs": [{"ConfigName": n, "File": {"Name": "x"}} for n in names]}}}}
+
+
+def test_the_kind_config_reads_the_configs_a_service_mounts():
+    old = svc.secret_name("keycloak-providers", "old")
+    new = svc.secret_name("keycloak-providers", "new")
+    other = svc.secret_name("other-config", "x")
+    services = [_config_service(new), _service(old)]
+    assert svc.secrets_unmounted([old, new, other], services, ["keycloak-providers"],
+                                 "config") == [old]
+
+
+def test_the_kind_secret_ignores_a_config_of_the_same_name():
+    name = svc.secret_name("keycloak-providers", "v")
+    assert svc.secrets_unmounted([name], [_config_service(name)], ["keycloak-providers"]) == [name]
+    assert svc.secrets_unmounted([name], [_service(name)], ["keycloak-providers"], "config") == [name]
+
+
 def test_the_prune_runs_no_shell_and_removes_what_the_filter_picks():
     tasks = yaml.safe_load(PRUNE.read_text())
     assert all("ansible.builtin.command" in t for t in tasks), "a task runs through a shell"
+    kind = "{{ swarm_secret_kind | default('secret') }}"
+    assert tasks[0]["ansible.builtin.command"]["argv"][:3] == ["docker", kind, "ls"]
     remove = tasks[-1]
-    assert remove["ansible.builtin.command"]["argv"] == ["docker", "secret", "rm", "{{ item }}"]
+    assert remove["ansible.builtin.command"]["argv"] == ["docker", kind, "rm", "{{ item }}"]
     assert "swarm_secrets_unmounted" in remove["loop"] and "swarm_secret_bases" in remove["loop"]
+    assert "swarm_secret_kind | default('secret')" in remove["loop"]
 
 
 def _tasks(path: Path) -> list[dict]:
@@ -93,6 +116,16 @@ def test_each_creator_prunes_its_own_bases_after_its_deploy():
         prune = _prune(tasks)
         assert _index(tasks, deploy) < prune, path
         assert tasks[prune]["vars"]["swarm_secret_bases"] == bases, path
+
+
+def test_keycloak_prunes_the_configs_of_its_extension_after_its_deploy():
+    tasks = _tasks(ROLES / "keycloak" / "tasks" / "deploy.yml")
+    prunes = [t for t in tasks if str(t.get("ansible.builtin.include_tasks", "")).endswith(
+        "/tasks/swarm_secrets_prune.yml")]
+    assert len(prunes) == 2
+    assert prunes[1]["vars"] == {"swarm_secret_kind": "config",
+                                 "swarm_secret_bases": ["{{ keycloak_providers_config_base }}"]}
+    assert _index(tasks, "deploy as a swarm stack") < tasks.index(prunes[1])
 
 
 def test_the_oauth2_proxy_bases_are_the_ones_its_secrets_are_named_after():
