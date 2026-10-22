@@ -1,6 +1,6 @@
 ---
 # End-of-role aggregate readiness probe for the gated services
-# (gatus, healthchecks, portainer, beszel).
+# (gatus, healthchecks, beszel).
 #
 # Provider-neutral probe: each service must return one of 200, 301,
 # 302, OR 307. 401 is not accepted: oauth2-proxy, in reverse-proxy mode,
@@ -40,7 +40,6 @@
   loop:
     - { name: "gatus", url: "https://{{ infrastructure_gatus_hostname }}/" }
     - { name: "healthchecks", url: "https://{{ healthchecks_hostname }}/" }
-    - { name: "portainer", url: "https://{{ portainer_admin_hostname }}/" }
     - { name: "beszel", url: "https://{{ beszel_hostname }}/" }
   loop_control:
     label: "{{ item.name }} -> {{ item.url }}"
@@ -141,8 +140,8 @@
 # fan out concurrently inside the script, so wall-clock is ~one timeout,
 # not 10s per host.
 - name: "Verify gated client apps: intent-driven verifier"
-  # Sources the dashboard-sync env file (PORTAINER_API_*, TRAEFIK_DYNAMIC_
-  # DIR, AUTH_HOSTNAME, CLOUDFLARE_ZONE*) the writer itself runs with.
+  # Sources the dashboard-sync env file (TRAEFIK_DYNAMIC_DIR, AUTH_HOSTNAME,
+  # CLOUDFLARE_ZONE*) the writer itself runs with.
   ansible.builtin.shell: >-
     set -a &&
     . {{ dashboard_sync_env_path }} &&

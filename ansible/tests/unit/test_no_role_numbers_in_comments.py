@@ -16,7 +16,7 @@ from pathlib import Path
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 
-# Lowercase `role`: Portainer's "Role 2" is a role id, not a position.
+# Lowercase `role`: a product's own "Role 2" is a role id, not a position.
 _BANNED = re.compile(
     r"\brole (?:position )?\d+(?:\.\d+)?\b"
     r"|\bposition \d+\b"

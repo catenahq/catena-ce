@@ -267,7 +267,7 @@ def test_the_gate_reads_real_writes():
                     task_file.read_text(encoding="utf-8", errors="ignore")):
                 if _resolve(raw, defaults, shared).startswith(_MANAGED_PREFIXES):
                     seen += 1
-    assert seen > 15, f"only {seen} managed-prefix writes found across the roles"
+    assert seen > 10, f"only {seen} managed-prefix writes found across the roles"
 
 
 def test_every_declared_path_is_absolute_once_resolved():

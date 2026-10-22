@@ -18,11 +18,11 @@
   Adding a service here without its image resolving through that filter would
   mean the lane bumps it and the next converge puts it back.
 
-  Client application stacks are bumped through the Portainer compose path and
-  are discovered from Portainer, not listed here. `compose_name` on a
-  stack-deployed entry is what keeps the two apart: the engine builds its
-  client-walk skip set from that key, so a stack Portainer can see is not also
-  bumped as if a client had chosen it.
+  Client application stacks are bumped through their folders
+  (catena-admin payload/engines/stackupdate) and are not listed here.
+  `compose_name` on a stack-deployed entry is what keeps the two apart: the
+  engine builds its client-walk skip set from that key, so a stack of Catena's
+  own is not also bumped as if a client had chosen it.
 
   The services this manifest leaves out, each with its reason:
 
@@ -48,17 +48,6 @@
                       pin moves with a catena-ce release.
 #}
 [
-  {
-    "name": "{{ portainer_service_name }}",
-    "kind": "infra-swarm",
-    "swarm_service": "{{ portainer_service_name }}",
-    "policy": "patch+minor",
-    "upstream": {
-      "source": "dockerhub",
-      "repo": "portainer/portainer-ce",
-      "tag_pattern": "^\\d+\\.\\d+\\.\\d+$"
-    }
-  },
   {
     "name": "{{ traefik_container_name }}",
     "kind": "infra-swarm",

@@ -13,8 +13,8 @@ docker_log_max_files: 5
 
 # live-restore lets dockerd restart without killing running containers.
 # HOWEVER: it is incompatible with Docker Swarm mode, which the catena
-# control plane requires (catena-traefik, catena-postgres, catena-portainer
-# all run as swarm services). live-restore must be false; swarm's own
+# control plane requires (catena-traefik and catena-postgres run as swarm
+# services). live-restore must be false; swarm's own
 # orchestrator handles container lifecycle across daemon restarts instead.
 docker_live_restore: false
 

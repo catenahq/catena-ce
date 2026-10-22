@@ -40,9 +40,9 @@ if [ "${#missing[@]}" -gt 0 ]; then
     echo "error: missing required env on $ct:" >&2
     for m in "${missing[@]}"; do echo "  - $m" >&2; done
     echo >&2
-    echo "The stack sets these on its rocketchat service. In Portainer, open" >&2
-    echo "Stacks > catena-rocketchat, check them in the editor and in the" >&2
-    echo "stack's environment variables, then update the stack." >&2
+    echo "The stack sets these on its rocketchat service. In the panel, open" >&2
+    echo "the catena-rocketchat app, check them in its compose file and in its" >&2
+    echo "environment settings, then redeploy it." >&2
     exit 2
 fi
 

@@ -1,14 +1,9 @@
 ---
-# Deploy one catena-DECLARED compose stack as SWARM services, with no
-# Portainer in the path.
+# Deploy one catena-DECLARED compose stack as SWARM services.
 #
-# WHY. Every app deployed through this file is something catena declares --
-# the monitoring plane (gatus, healthchecks, beszel), the SSO plane (keycloak,
-# oauth2-proxy), the shared clamd. Deploying them around Portainer keeps the
-# things that report on Portainer independent of it: a control plane that
-# will not start leaves the monitors up, at exactly the moment somebody needs
-# them to find out why. Portainer's DB is the record of CLIENT choices -- the
-# one state that cannot be recomputed -- and nothing else.
+# Every app deployed through this file is something catena declares -- the
+# monitoring plane (gatus, healthchecks, beszel), the SSO plane (keycloak,
+# oauth2-proxy), the shared clamd.
 #
 # Inputs (caller sets via include_tasks vars):
 #

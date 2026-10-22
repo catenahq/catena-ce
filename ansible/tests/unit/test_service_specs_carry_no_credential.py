@@ -1,6 +1,6 @@
 """Keycloak's credentials, the shared admin password, the Beszel agent's token
 and the alert shim's ping key are absent from the service specs `docker service
-inspect` shows, and the panel is given no Portainer API key (CV7).
+inspect` shows (CV7).
 
 Keycloak reads its DB password and its initial admin's password from a config
 file mounted as a swarm secret (KC_CONFIG_FILE). The Beszel hub is given no
@@ -26,7 +26,6 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 ROLES = ANSIBLE / "reconcile" / "roles"
 KEYCLOAK = ROLES / "keycloak"
 INFRA = ROLES / "infrastructure"
-PANEL = ROLES / "catena-admin"
 
 add_all_plugin_dirs(str(ANSIBLE / "playbooks"))
 
@@ -226,16 +225,3 @@ def test_both_secrets_exist_before_either_service_deploys():
     assert tasks[name].get("no_log") is True
     assert tasks[create]["ansible.builtin.include_tasks"].endswith("/tasks/swarm_secrets.yml")
     assert tasks[prune]["ansible.builtin.include_tasks"].endswith("/tasks/swarm_secrets_prune.yml")
-
-
-# --- the panel ------------------------------------------------------------
-
-def test_the_panel_is_given_no_portainer_api_key():
-    """The panel reads none of Portainer's API settings, so its spec names
-    neither."""
-    defaults = yaml.safe_load((PANEL / "defaults" / "main.yml").read_text())
-    targets = {s["target"] for s in defaults["catena_admin_secret_specs"]}
-    spec = next(t["ansible.builtin.set_fact"]["_ca_spec"]
-                for t in _tasks(PANEL / "tasks" / "deploy.yml")
-                if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {}))
-    assert not [n for n in targets | set(spec["env"]) if n.startswith("PORTAINER_API")]

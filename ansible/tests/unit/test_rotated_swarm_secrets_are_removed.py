@@ -36,7 +36,7 @@ def test_only_unmounted_secrets_of_the_given_bases_are_picked():
              svc.secret_name("oauth2-proxy-clients", "y"),
              "healthchecks_secret_key-notahash",
              "healthchecks_secret_key-0123abcd-extra",
-             "catena_portainer_admin_password"]
+             "catena_postgres_password"]
     picked = svc.secrets_unmounted(
         names, [_service(new), _service()],
         ["healthchecks_secret_key", "healthchecks_email_password"])

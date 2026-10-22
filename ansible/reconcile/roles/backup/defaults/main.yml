@@ -179,9 +179,9 @@ restore_test_healthcheck_url: >-
 #      -> /srv/catena/docker/volumes/<name>/_data/
 #      ✓ covered by {{ storage_mount_point }}/docker/volumes
 #
-#   B. Relative bind mounts in a Portainer stack (`- ./myapp:/app`)
-#      -> the stack's working dir inside the Portainer data volume
-#      ✓ covered by {{ storage_mount_point }}/docker/volumes
+#   B. Relative bind mounts in an application folder (`- ./myapp:/app`)
+#      -> the folder under /srv/catena/compose
+#      ✓ covered by {{ storage_mount_point }}/compose
 #
 #   C. catena host config (traefik, gatus, keycloak realms, ...)
 #      -> /etc/catena/<component>

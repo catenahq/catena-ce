@@ -95,11 +95,7 @@
   changed_when: false
   no_log: true
 
-# Publish every store secret as a fact, the Portainer API key included: it
-# is minted mid-converge by reconcile/roles/portainer, which set_facts the fresh
-# value, and a later set_fact wins over an earlier one -- so publishing the
-# stored value here is what stops the role re-minting a key on every single
-# converge.
+# Publish every store secret as a fact.
 - name: "onbox: publish store secrets as facts (on-box source of truth)"
   ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"

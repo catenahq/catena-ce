@@ -17,7 +17,7 @@
 # A pin that stops matching FAILS the scan, so a moved defaults file cannot
 # leave an image unscanned behind a green gate.
 #
-# cloudflared, traefik, postgres, portainer and coturn are deliberately absent:
+# cloudflared, traefik, postgres and coturn are deliberately absent:
 # their tags live where the host engines read them, in catena-admin, and
 # scanning them here would gate a PR on a tag no host runs.
 image_pins:

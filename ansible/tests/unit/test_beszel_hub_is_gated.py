@@ -1,7 +1,7 @@
 """Beszel's hub is public only through its own admin-only oauth2-proxy.
 
 The hub deploys as a swarm stack with no route of its own, on a network
-Traefik is not on. dashboard-sync gates only Portainer stacks, so its one
+Traefik is not on. dashboard-sync gates only client stacks, so its one
 public route is the one reconcile/roles/oauth2_proxy writes from
 oauth2_proxy_apps. The hub's own login is behind that gate: its password is
 the shared admin password, and its Keycloak sign-in creates a hub account for

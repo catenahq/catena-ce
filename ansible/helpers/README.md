@@ -22,7 +22,6 @@ Unit tests for these live in `../tests/unit/`.
 
 | File | What it does |
 | --- | --- |
-| `bootstrap_portainer_admin.py` | Leaf utility: mint a Portainer X-API-Key from the initial admin. |
 | `catena_admin_release.py` | Registry rules for picking the newest catena-admin release. |
 | `dispatch_path.py` | Move the panel's dispatch path to this tree's generation: beside the running one, proven, then switched. |
 | `fetch_release.py` | Pull a catena-admin release image from its registry and unpack the catena-ce tree and the payload out of it. |

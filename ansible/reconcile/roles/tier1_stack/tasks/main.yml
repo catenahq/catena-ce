@@ -12,13 +12,13 @@
 #
 # TWO FILES, TWO LIFECYCLES.
 #
-#   tier1.yml       the control plane: traefik, postgres, portainer. Present on
+#   tier1.yml       the control plane: traefik, postgres. Present on
 #                   every host, always the same set, so the file is stable and
 #                   a change to it is a change somebody made.
 #   companions.yml  app companions: coturn today. Directly-created swarm
 #                   services for the same reasons (coturn needs host networking
-#                   and global mode, neither of which survives a Portainer
-#                   stack), but presence-gated on a consumer application. They
+#                   and global mode, neither of which survives a stack
+#                   deploy), but presence-gated on a consumer application. They
 #                   appear the converge after a Talk or Jitsi deploy.
 #
 # Two files is what keeps the control-plane render stable: deploy an app with a

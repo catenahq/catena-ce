@@ -185,7 +185,7 @@ def test_the_engines_and_the_shell_come_from_one_image():
     shared = yaml.safe_load(SHARED_VARS.read_text())
     assert "catena_admin_image" in shared
     assert "catena_admin_service_name" in shared, (
-        "reconcile/roles/portainer names the panel's service before "
+        "an earlier role names the panel's service before "
         "reconcile/roles/catena-admin runs, so catena-admin's defaults are not "
         "in scope there")
     admin = yaml.safe_load(

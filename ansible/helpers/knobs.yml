@@ -353,7 +353,7 @@ config:
 
   # ---- the administrator, whose email is the panel's login ----
   #
-  # One address for the Portainer admin and the initial realm admin. A host
+  # The initial realm admin's address. A host
   # fact by any reading: the `.env` only seeds the store with it.
   - key: ADMIN_EMAIL
     step: configuration
@@ -513,12 +513,6 @@ config:
   # Each is a single DNS label, never an FQDN: the zone is appended by the
   # converge, so "auth.example.com" here would render auth.example.com.example.com.
   # Blank means the product's own default, which `panel.default` names.
-  - key: PORTAINER_SUBDOMAIN
-    residence: store
-    var: cfg_portainer_admin_subdomain
-    panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: portainer}
-
   - key: KEYCLOAK_SUBDOMAIN
     residence: store
     var: cfg_keycloak_subdomain
@@ -794,17 +788,4 @@ config:
     var: cfg_acme_ca_bundle_b64
     help:
       en: The local ACME server's CA bundle, base64-encoded.
-    env: {section: development, default: "", reseed: true}
-
-  # ---- app catalog, development only ----
-  #
-  # The panel's marketplace reads the catalog at this base (http(s):// or
-  # file://) instead of the published one, as the test bench does with the
-  # catalog of the run it tests. A store key for the reason the certificate
-  # keys above are: the host's own converge renders the panel's environment.
-  - key: CATENAHQ_TEMPLATES_BASE
-    residence: store
-    var: cfg_catenahq_templates_base
-    help:
-      en: An app catalog's base URL. Blank reads the published catalog.
     env: {section: development, default: "", reseed: true}

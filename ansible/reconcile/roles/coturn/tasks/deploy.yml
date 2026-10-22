@@ -158,8 +158,8 @@
 # node, so there is nothing to publish; the public-port registry fragment
 # above is what opens the firewall for it.
 
-# ASKED FOR, not assembled here, as reconcile/roles/postgres, reconcile/roles/traefik
-# and reconcile/roles/portainer do. The engine owns what the service IS; this role keeps
+# ASKED FOR, not assembled here, as reconcile/roles/postgres and reconcile/roles/traefik
+# do. The engine owns what the service IS; this role keeps
 # what it alone knows: WHETHER it belongs on this host (the consumer gate above)
 # and the rendered turnserver.conf the spec only points at.
 #

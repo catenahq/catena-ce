@@ -184,10 +184,6 @@
     # hosting the Keycloak DB. Runs after traefik (needs catena-network) and
     # BEFORE keycloak (which provisions its DB inside it).
     - { role: postgres, tags: [postgres] } # infra Postgres (Keycloak DB)
-    # Portainer CE -- the container control plane, whose stack API the client
-    # apps deploy through. Runs after postgres (both are swarm services on
-    # catena-network).
-    - { role: portainer, tags: [portainer] } # container control plane
     # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
     # keycloak + oauth2_proxy so the public auth.<zone> URL answers by the
     # time oauth2_proxy waits for Keycloak's OIDC discovery doc; in the other
@@ -202,12 +198,13 @@
     # infrastructure deploys those apps with their Traefik routes.
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
+    # A Portainer left from before the application folders: its client stacks
+    # are given folders, and it is removed once none is left on it. After
+    # oauth2_proxy, whose gate for it is gone by then.
+    - { role: portainer_exit, tags: [portainer_exit] }
     - { role: infrastructure, tags: [infrastructure] } # gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
     # catena-admin: the host lanes' configuration, the action catalog, AND the
-    # Go shell container, created directly against the local swarm. It holds the API key
-    # that drives Portainer, so it cannot depend on Portainer to run: the one
-    # tool that can repair a Portainer that will not start must not be deployed
-    # by it.
+    # Go shell container, created directly against the local swarm.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] } # shared TURN/STUN for Nextcloud Talk HPB + the Jitsi bridges (UDP media plane, direct on the public IP)
     - { role: backup, tags: [backup] } # backup configuration + the first snapshot

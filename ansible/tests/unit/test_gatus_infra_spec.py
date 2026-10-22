@@ -38,7 +38,6 @@ def _spec(edge_up: bool = True, zone: str = ZONE) -> list[dict]:
         "cloudflare_zone": zone,
         "infrastructure_gatus_hostname": f"gatus.{zone}",
         "catena_admin_hostname": f"dash.{zone}",
-        "portainer_admin_hostname": f"portainer.{zone}",
         "healthchecks_hostname": f"healthchecks.{zone}",
         "keycloak_hostname": f"auth.{zone}",
         "beszel_hostname": f"beszel.{zone}",
@@ -116,7 +115,7 @@ def test_the_edge_probes_arrive_with_the_edge():
     """The converge that brings the edge up for a domain writes every probe
     through it, the tunnel's included."""
     public = {e["label"] for e in _spec() if e["url"].startswith("https://")}
-    assert public == {f"gatus.{ZONE}", f"dash.{ZONE}", f"portainer.{ZONE}",
+    assert public == {f"gatus.{ZONE}", f"dash.{ZONE}",
                       f"healthchecks.{ZONE}", f"auth.{ZONE}", f"beszel.{ZONE}",
                       "cloudflared"}
 

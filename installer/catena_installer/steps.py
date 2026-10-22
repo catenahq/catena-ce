@@ -273,13 +273,12 @@ def blocked(checks: list[Check]) -> bool:
 
 def forward_command(answers: dict[str, str]) -> str:
     """The SSH command that opens the same forward as the installer, for a
-    machine without it: the panel and Portainer answer the server's loopback
-    only, and the panel account can do nothing but forward."""
+    machine without it: the panel answers the server's loopback only, and the
+    panel account can do nothing but forward."""
     host = ssh_address(answers) or "<server-address>"
     port = (answers.get("HOST_SSH_PORT") or "22").strip() or "22"
     key = (answers.get("SSH_PRIVATE_KEY") or "").strip()
     opts = f" -i {key}" if key else ""
     opts += f" -p {port}" if port != "22" else ""
-    return (f"ssh -N -L {install.PANEL_PORT}:127.0.0.1:{install.PANEL_PORT} "
-            f"-L {install.PORTAINER_PORT}:127.0.0.1:{install.PORTAINER_PORT}{opts} "
+    return (f"ssh -N -L {install.PANEL_PORT}:127.0.0.1:{install.PANEL_PORT}{opts} "
             f"{install.PANEL_USER}@{host}")

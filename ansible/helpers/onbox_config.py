@@ -33,9 +33,6 @@ Design constraints:
   - INTERNAL secrets are minted here; EXTERNAL secrets (vendor creds the
     client supplies) are only ever *stored*, never generated -- they arrive
     via the two-phase bootstrap or the catena-admin settings API.
-  - ROLE_MINTED secrets are minted by the service itself and captured by the
-    role that provisioned it. This module neither generates nor accepts them;
-    it only names them, so "belongs to no category" is not a valid state.
   - USER_HELD secrets (the admin, restic + console-recovery passwords) are
     minted on-box IF ABSENT (like internal), but are the DR / break-glass /
     first-login keyset the user must hold
@@ -148,8 +145,7 @@ def mint_oauth2_proxy_cookie_secret() -> str:
 
 
 def mint_admin_password() -> str:
-    """token_urlsafe(15) -> 20 url-safe chars. Portainer + Keycloak both
-    accept it."""
+    """token_urlsafe(15) -> 20 url-safe chars, which Keycloak accepts."""
     return _secrets.token_urlsafe(15)
 
 
@@ -224,7 +220,6 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "healthchecks_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "gatus_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "beszel_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
-    "portainer_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "oauth2_proxy_client_secret": mint_strong_password,
     "dashboard_sync_client_secret": mint_strong_password,
     # The admin panel's own realm service account: users, groups and
@@ -264,7 +259,7 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 # USER_HELD: the DR keyset + first-login credential, generated on-box and shown
 # ONCE so the user keeps an off-box copy in their password manager. NOT in
 # EXTERNAL_SECRETS, so the config-write API (settings save) cannot set them:
-#   - admin_password    -- first-login credential (Portainer + Keycloak).
+#   - admin_password    -- first-login credential (Keycloak + the panel).
 #     Minted right after bootstrap by playbooks/show-keyset.yml, which shows
 #     it then, or by any converge that finds it absent.
 #   - console_recovery_password -- the ops account's break-glass password
@@ -306,30 +301,11 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset(
     entry["key"] for entry in _KNOBS["secrets"]
 )
 
-# ROLE_MINTED: minted by the SERVICE, captured by the role that provisioned it.
-# Neither internal-minted (this module never generates them) nor client-supplied
-# (no human ever sees one), so they belong to no set above -- but "belongs to no
-# set" has to be a category with members, not a sentence in a comment, or the
-# provenance gate has nothing to check them against and the next one to appear
-# is invisible.
-#
-# Value is the role that writes it into the store, so a failure names the owner.
-#   - portainer_api_key -- Portainer's own token API mints it
-#     (helpers/bootstrap_portainer_admin.py); reconcile/roles/portainer adopts it, with
-#     --overwrite, because a /data restore invalidates the stored one.
-#
-# NOT minted here and NOT adoptable through apply_inputs: a role-minted secret
-# has exactly one writer, and that writer is the role.
-ROLE_MINTED_SECRETS: dict[str, str] = {
-    "portainer_api_key": "portainer",
-}
-
 # PANEL: the secrets the settings API's `read` hands catena-admin, beside the
 # whole non-secret `config` (panel_view). The panel is the most exposed
 # component on the host, and a credential it never reads is one a compromised
 # panel cannot take: the master realm's automation client, Keycloak's database
-# password, the console break-glass password and Portainer's API key stay on
-# the host. A settings write merges into the whole file (dump), so a key
+# password and the console break-glass password stay on the host. A settings write merges into the whole file (dump), so a key
 # outside this set survives every write the panel makes.
 #   - each client-supplied secret the Settings page offers (a knob with a
 #     `panel`): the page reports which are set, and the tailnet and backup
@@ -497,7 +473,7 @@ def secret_names() -> list[str]:
 
     This is the converge loader's discriminator: it selects which in-scope
     Ansible variables get captured into the store. Naming secrets here, by
-    declared name rather than by a spelling convention, means the four
+    declared name rather than by a spelling convention, means the three
     category tables above are the single declaration, and a key that belongs
     to no category is already impossible by construction.
 
@@ -507,7 +483,7 @@ def secret_names() -> list[str]:
     """
     return sorted(
         set(INTERNAL_SECRETS) | set(USER_HELD_SECRETS)
-        | set(EXTERNAL_SECRETS) | set(ROLE_MINTED_SECRETS)
+        | set(EXTERNAL_SECRETS)
     )
 
 
@@ -674,14 +650,10 @@ def adopt(store: dict, mapping: dict | None, *, overwrite: bool = False) -> list
     """Capture secret values into the store. Fill-only by default: the
     converge loader passes every declared secret in scope, and a value already
     in the store is the source of truth. Never stores a blank. Accepts ANY key
-    -- the caller pre-filters against secret_names() -- so the
-    ROLE_MINTED_SECRETS are captured too, which is why this is separate from
-    apply_inputs and its EXTERNAL_SECRETS allowlist.
+    -- the caller pre-filters against secret_names() -- which is why this is
+    separate from apply_inputs and its EXTERNAL_SECRETS allowlist.
 
-    ``overwrite=True`` replaces an existing value. Used by reconcile/roles/portainer
-    when Portainer REJECTS the stored API key (the admin was recreated, or a
-    /data restore replaced the BoltDB the token lived in): the freshly minted
-    key has to win, and fill-only would keep serving the dead one.
+    ``overwrite=True`` replaces an existing value.
 
     Returns the keys written."""
     secrets_map = store.setdefault("secrets", {})

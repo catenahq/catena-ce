@@ -1,7 +1,7 @@
 """The catena-admin swarm-service argv, its env and its secrets.
 
-The panel is created with `docker service create` rather than through
-Portainer's stack API, so the shape of that argv IS the deployment. Two
+The panel is created with `docker service create` rather than through a
+stack deploy, so the shape of that argv IS the deployment. Two
 consumers render it -- the converge and the test bench -- which is why the
 mounts live in the plugin and not in either caller.
 
@@ -281,16 +281,13 @@ def _converge_env() -> dict:
     "INFRA_GATUS_HOSTNAME",
     "INFRA_HEARTBEAT_HOSTNAME",
     "INFRA_BESZEL_HOSTNAME",
-    "INFRA_PORTAINER_HOSTNAME",
 ])
 def test_the_converge_names_every_public_hostname_the_panel_links_to(name):
     """Each of these is a per-host name the panel cannot derive: it builds the
-    "open in <service>" links and the Portainer console tile out of them, and an
-    empty one makes the panel drop the link rather than render a dead one. So a
-    name silently stopping being passed removes a working link with no error
-    anywhere -- which is what INFRA_PORTAINER_HOSTNAME's absence did to the Apps
-    tab, where Portainer can never appear on its own because it is not one of
-    its own stacks."""
+    "open in <service>" links and the console tiles out of them, and an empty
+    one makes the panel drop the link rather than render a dead one. So a name
+    silently stopping being passed removes a working link with no error
+    anywhere."""
     env = _converge_env()
     assert name in env, f"{name} is no longer passed to the panel"
     assert env[name].strip(), f"{name} is passed empty"
@@ -327,14 +324,13 @@ def test_the_reconcile_checks_that_it_settled():
 
 def test_the_converge_joins_the_private_networks():
     """Healthchecks is on its own network and nowhere else, so a panel left off
-    it reads no checks. Beszel's hub and Portainer are not read by the panel."""
+    it reads no checks. Beszel's hub is not read by the panel."""
     spec = next(
         t["ansible.builtin.set_fact"]["_ca_spec"]
         for t in _deploy_tasks()
         if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {})
     )
     assert "{{ healthchecks_network }}" in spec["networks"]
-    assert "{{ portainer_network }}" not in spec["networks"]
     assert "{{ beszel_network }}" not in spec["networks"]
 
 

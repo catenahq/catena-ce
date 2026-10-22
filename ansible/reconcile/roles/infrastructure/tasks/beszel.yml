@@ -22,7 +22,7 @@
 # only ASSERTS it (healthchecks preflight pattern).
 #
 # The hub login is the SHARED admin_password, the same one that opens
-# Portainer, Keycloak and this panel. It is deliberately not a per-service
+# Keycloak and this panel. It is deliberately not a per-service
 # mint: the hub is a tab the panel links to, and the install surfaces exactly
 # one first-login password. A credential minted for this service alone would
 # appear in no keyset and on no page, which locks the operator out of a tab

@@ -53,8 +53,8 @@ it runs, and repairs it.
 5. The checks only another machine can make: a scan of every TCP port of the
    public IP against what the server declares, and the containers' network
    out of reach from here.
-6. The page opens the `panel` account's forward and links the panel and
-   Portainer; `connect` does the same from the console.
+6. The page opens the `panel` account's forward and links the panel;
+   `connect` does the same from the console.
 
 `--release vX.Y.Z` moves the server to that release with that release's own
 code and records it, the same end state as the panel's update. Without it the

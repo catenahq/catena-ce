@@ -68,15 +68,11 @@ access.forward_open: >-
   rouvre.
 access.connect: "Se connecter au panneau"
 access.connect_about: >-
-  Ouvre une connexion au panneau du serveur et à Portainer par le compte
+  Ouvre une connexion au panneau du serveur par le compte
   'panel', qui ne sert qu'à cela, avec la clé SSH de l'inventaire.
 access.panel: >-
   Le panneau d'administration Catena est accessible dans votre navigateur à
   {url}. Se connecter avec le courriel et le mot de passe administrateur.
-access.portainer: >-
-  Le panneau Portainer (gestion des applications) est accessible dans votre
-  navigateur à {url}. Se connecter avec l'utilisateur 'admin' et le mot de
-  passe administrateur.
 access.settings: >-
   L'onglet Settings du panneau d'administration configure le domaine et
   l'accès DNS (Cloudflare), le tunnel d'administration (Tailnet), les courriels

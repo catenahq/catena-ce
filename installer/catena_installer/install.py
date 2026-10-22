@@ -36,10 +36,9 @@ REPOSITORY = "ghcr.io/catenahq/catena-admin"
 KEYSET_BEGIN = "-----BEGIN CATENA PASSWORDS-----"
 KEYSET_END = "-----END CATENA PASSWORDS-----"
 
-# The host-only UIs the panel account forwards to. Product constants
+# The host-only UI the panel account forwards to. Product constants
 # (catena-ce playbooks/group_vars/all/main.yml).
 PANEL_PORT = 9010
-PORTAINER_PORT = 9000
 PANEL_USER = "panel"
 
 # install-host.sh's status for an install whose checks failed.
@@ -281,8 +280,8 @@ def uninstall(inv_dir: Path, opts: Options, line: Callable[[str], None]) -> int:
 
 
 def connect(inv_dir: Path, address: str = "") -> remote.Forward:
-    """The panel and Portainer, forwarded to this machine through the panel
-    account, which can do nothing but that."""
+    """The panel, forwarded to this machine through the panel account, which can
+    do nothing but that."""
     server = Server.of(inv_dir, address)
     session = remote.connect_key(server.host, server.port, PANEL_USER, server.key)
-    return remote.Forward(session, [PANEL_PORT, PORTAINER_PORT])
+    return remote.Forward(session, [PANEL_PORT])

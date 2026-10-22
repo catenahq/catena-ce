@@ -181,8 +181,8 @@
         - Task in `docker service ps` with Rejected / Failed + an Error
           column -> image pull / placement / config failure.
         - Service replicas=0/1 and no task history -> the control plane
-          accepted the compose but never scheduled it; check the stack
-          status in the Portainer UI.
+          accepted the compose but never scheduled it; check
+          `docker stack ps healthchecks`.
   when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 # The Django seed lives at scripts/healthchecks-seed.py -- plain

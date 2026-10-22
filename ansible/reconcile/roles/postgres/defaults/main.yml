@@ -3,8 +3,6 @@
 #
 # Project convention is "one Postgres per VPS, multiple DBs inside" -- per-app
 # DBs (Nextcloud, etc.) keep their own containers; this hosts the infra DBs.
-# Portainer stores its own state in BoltDB, so nothing else on the host
-# provides a shared Postgres.
 
 catena_postgres_service_name: catena-postgres
 

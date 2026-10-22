@@ -14,8 +14,8 @@
 # and docker does NOT retry it: the boot-time restore gets exactly one
 # attempt per container, so the container stays Exited with RestartCount=0
 # until something starts it. Swarm SERVICES reconcile themselves (the task
-# manager re-dispatches by name), but the compose containers the Portainer
-# stacks deploy (keycloak-server-1, nextcloud-talk-hpb-1, oauth2-proxy,
+# manager re-dispatches by name), but the compose containers the stacks
+# deploy (keycloak-server-1, nextcloud-talk-hpb-1, oauth2-proxy,
 # gatus, ...) have nothing to heal them. Observed live: a VM boot where the
 # overlay appeared 2.5s after "Loading containers: done" left
 # keycloak-server-1 and nextcloud-talk-hpb-1 dead, while every container
@@ -37,7 +37,7 @@
 # name, with no recorded error, is a start-anything-named-X path with no
 # evidence gate -- and it would have no subject: every catena swarm service
 # is re-dispatched by the task manager and skipped by the swarm-task check
-# below. The containers this script protects are all Portainer compose
+# below. The containers this script protects are all compose
 # stacks, which is why it lives in bootstrap/roles/docker (which owns docker.service
 # and the swarm init the race happens between).
 #

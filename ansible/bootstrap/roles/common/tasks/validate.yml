@@ -39,9 +39,9 @@
       - "'sudo' in _ops_groups.stdout.split()"
     fail_msg: "ops user is not in sudo group (got: {{ _ops_groups.stdout }})"
 
-# The panel account is how an administrator reaches the two host-only UIs, and
+# The panel account is how an administrator reaches the host-only panel, and
 # it must be able to do NOTHING else: no shell, no sudo, every key restricted to
-# forwarding to the panel and Portainer ports.
+# forwarding to the panel port.
 - name: "validate/common: panel forwarding account"
   ansible.builtin.getent:
     database: passwd
@@ -66,8 +66,8 @@
       - _keys | select('search', 'permitopen="127.0.0.1:' ~ catena_admin_ui_port ~ '"') | list | length == _keys | length
     fail_msg: >-
       The {{ catena_panel_user }} account must have /usr/sbin/nologin and only
-      keys restricted to forwarding to 127.0.0.1:{{ catena_admin_ui_port }} and
-      :{{ portainer_ui_port }}. A key without `restrict` is a shell on this host.
+      keys restricted to forwarding to 127.0.0.1:{{ catena_admin_ui_port }}.
+      A key without `restrict` is a shell on this host.
   vars:
     _keys: >-
       {{ ((_panel_keys.content | default('')) | b64decode).splitlines()

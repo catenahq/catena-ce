@@ -8,9 +8,7 @@
 # user (`keycloak`) inside the catena-postgres swarm service that
 # reconcile/roles/postgres deploys. Project convention is one Postgres per VPS,
 # multiple DBs inside (see the PLANNING.md sec 2 decision in the sibling
-# catenahq/sales repo). This DB lives in catena-owned Postgres, not the
-# control plane's own (Portainer uses BoltDB, no shared Postgres to
-# piggyback on).
+# catenahq/sales repo). This DB lives in catena-owned Postgres.
 
 # --- Hostname ---
 keycloak_subdomain: "{{ cfg_keycloak_subdomain | default('auth', true) }}"

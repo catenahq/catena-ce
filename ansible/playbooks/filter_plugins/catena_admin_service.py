@@ -1,11 +1,9 @@
 """Ansible filters: the catena-admin panel as a tier-1 swarm service, not a
-Portainer stack.
+stack.
 
-The panel is the tool that repairs the host, the restore that brings Portainer
-back included, so deploying it VIA Portainer would let a Portainer that will
-not start take down the only tool that could repair it. The converge creates
-the service directly instead, the same way reconcile/roles/traefik,
-reconcile/roles/postgres and reconcile/roles/portainer do.
+The panel is the tool that repairs the host, so it does not depend on a
+stack deploy of its own. The converge creates the service directly, the same
+way reconcile/roles/traefik and reconcile/roles/postgres do.
 
 Four filters over one spec dict:
 

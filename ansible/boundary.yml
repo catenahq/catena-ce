@@ -80,10 +80,10 @@ reconcile_roles:
   - swarm
   - traefik
   - postgres
-  - portainer
   - cloudflare_tunnel
   - keycloak
   - oauth2_proxy
+  - portainer_exit
   - infrastructure
   - catena-admin
   - coturn
@@ -98,8 +98,8 @@ reconcile_roles:
 post_task_roles:
   - name: tier1_stack
     why: >-
-      A fold over the converge rather than a step in it. traefik, postgres,
-      portainer and coturn each append their service spec to an accumulator;
+      A fold over the converge rather than a step in it. traefik, postgres
+      and coturn each append their service spec to an accumulator;
       this renders the accumulated set and type-checks it against the docker
       actually installed. It can only run once every contributor has.
 

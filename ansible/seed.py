@@ -20,7 +20,7 @@ refused, with the panel named, rather than having the value dropped in
 silence.
 
 The one secret an input file may carry is an admin password override, which
-the first converge creates the panel and Portainer admins with. seed writes it
+the first converge creates the panel and SSO admins with. seed writes it
 to the TRANSIENT 0600 file given by `--secrets-out`; the installer sends it to
 the server for the run as `-e @file`, so the on-box loader ADOPTS it into
 /etc/catena/config.json, and deletes it.
@@ -166,8 +166,8 @@ def warn_server_held_lines(env_path: Path) -> None:
              "Settings, and delete them from the .env.")
 
 
-# Minimum admin password length when a user PINS one via install.yaml (Portainer
-# and the SSO provider both accept it).
+# Minimum admin password length when a user PINS one via install.yaml (the SSO
+# provider accepts it).
 ADMIN_PASSWORD_MIN_LEN = 16
 
 

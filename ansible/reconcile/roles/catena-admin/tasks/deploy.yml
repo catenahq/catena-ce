@@ -1,14 +1,11 @@
 ---
-# Deploy the catena-admin Go shell as a TIER-1 SWARM SERVICE, not a Portainer
-# stack: the panel is the tool that repairs the host, so deploying it VIA
-# Portainer would let a Portainer that would not start take down the only tool
-# that could repair it, including the restore that needs the panel at exactly
-# the moment Portainer is what did not come back.
+# Deploy the catena-admin Go shell as a TIER-1 SWARM SERVICE, not a stack: the
+# panel is the tool that repairs the host, so nothing in its path may be
+# something that can fail to come back.
 #
-# So it is created the same way reconcile/roles/traefik, reconcile/roles/postgres and
-# reconcile/roles/portainer create theirs -- `docker service create` against the local
-# swarm, with the spec reconciled on every converge. Nothing in the path
-# needs Portainer to be up, or an API key to exist.
+# So it is created the same way reconcile/roles/traefik and reconcile/roles/postgres
+# create theirs -- `docker service create` against the local swarm, with the
+# spec reconciled on every converge.
 #
 # The argv is rendered by filter_plugins/catena_admin_service.py, which the
 # TEST BENCH imports too: the bench recreates this same container on a host a
@@ -89,8 +86,9 @@
       # `docker service update --env-add` on THIS service is removed by the next
       # converge, because the converge is what the panel's environment is. It is
       # the one place in the tree where a hand-made change is deliberately not
-      # preserved -- everything a client owns lives in the on-box store, in
-      # Portainer, or in an app's own database, none of which this touches. A
+      # preserved -- everything a client owns lives in the on-box store, in the
+      # application folders, or in an app's own database, none of which this
+      # touches. A
       # value that needs to survive belongs in /etc/catena/config.json.
       env:
         # :8000 to match the oauth2-proxy upstream and the dash.<zone> route;
@@ -139,10 +137,6 @@
         INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
         INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
-        # Portainer is not one of its own stacks, so it can never appear in the
-        # Apps grid the panel derives from Portainer. This is what lets the panel
-        # add the console tile itself. Host fact, like the four above.
-        INFRA_PORTAINER_HOSTNAME: "{{ portainer_admin_hostname }}"
         # Every address Catena answers on, a JSON list, which the Check tab
         # holds as Catena's (catena-admin shell/appcheck OwnHosts), as
         # dashboard-sync's app checker does.

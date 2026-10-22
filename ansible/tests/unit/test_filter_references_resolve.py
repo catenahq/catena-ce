@@ -4,7 +4,7 @@ Ansible resolves filters at RENDER time, so a template calling a filter that
 is not registered fails nowhere near startup: the converge gets most of the way
 through and then dies on the one task that renders that template:
 
-    Syntax error in template: No filter named 'portainer_container_regex'.
+    Syntax error in template: No filter named 'old_filter_name'.
 
 A filter rename is the usual cause: a code search that covers .py and .yml
 misses the call sites in .j2 templates, so the task files carry the new name

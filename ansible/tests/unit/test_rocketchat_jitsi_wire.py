@@ -76,7 +76,7 @@ def test_a_missing_jitsi_host_is_refused_before_any_setting(tmp_path: Path) -> N
     out, settings = _run(tmp_path, {k: v for k, v in ENV.items() if k != "JITSI_HOSTNAME"})
     assert out.returncode == 2
     assert "  - JITSI_HOSTNAME" in out.stderr
-    assert "Stacks > catena-rocketchat" in out.stderr
+    assert "the catena-rocketchat app" in out.stderr
     assert settings == {}
 
 

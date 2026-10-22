@@ -25,11 +25,9 @@ catena_admin_deploy_from_converge: >-
   {{ lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true') | bool }}
 
 # --- tier-1 swarm service ---------------------------------------------
-# The panel is created directly with `docker service create`, not through
-# Portainer's stack API. It is the tool that repairs the host, so being
-# deployed BY Portainer would let a broken Portainer take down the one tool
-# that can repair it -- including the restore that needs the panel precisely
-# when Portainer is the thing that did not come back.
+# The panel is created directly with `docker service create`, not through a
+# stack deploy. It is the tool that repairs the host, so it depends on nothing
+# but the local swarm.
 #
 # catena_admin_service_name lives in playbooks/group_vars/all/main.yml for the same reason
 # the image does: reconcile/roles/payload, which runs well before this role,
@@ -86,8 +84,7 @@ catena_admin_supplementary_gid: "1000"
 # survives every converge -- and `docker service ls` reading 1/1 means the
 # listener answers, not merely that the process started.
 #
-# stop-first for the same reason as Portainer: the UI port is published
-# mode=host, so two tasks cannot hold it at once and start-first would have
+# stop-first: the UI port is published mode=host, so two tasks cannot hold it at once and start-first would have
 # the new task fail its bind while the old one still listens.
 catena_admin_limit_memory: "512m"
 catena_admin_reserve_memory: "128m"
@@ -123,8 +120,7 @@ catena_admin_desired:
 # Native-login listener inside the container, published on the host as
 # catena_admin_ui_port and confined to this host by the public-ports registry
 # (lanes.yml fragment), so the panel is reachable through an SSH forward
-# without the Cloudflare/oauth2-proxy edge -- the same pattern as Portainer's
-# UI port.
+# without the Cloudflare/oauth2-proxy edge.
 catena_admin_direct_port: 8001
 
 # How long the converge waits for a newly-created service to report a Running
@@ -186,10 +182,6 @@ catena_managed_services_path: /etc/catena/managed-services.json
 # Schedules page).
 catena_stack_update_stabilize_seconds: 120
 catena_stack_update_cve_severity: "HIGH,CRITICAL"
-# ON-BOX base: the update lane is a unit running on the host, and the Portainer
-# UI port answers this host only.
-catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('') }}"
-
 # Gatus's endpoint statuses, on the loopback port reconcile/roles/infrastructure
 # publishes it on. The daily chain's pre-update gate reads it (daily.env), and
 # so does the health baseline the update lanes compare a bump against

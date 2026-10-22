@@ -30,8 +30,7 @@ tier1_engine_bin: /usr/local/bin/catena-tier1
 # This is the guard against a partial render. A `--tags postgres` converge
 # runs one role, so one spec accumulates, and a stack file holding one service
 # is not an incomplete description of the control plane -- once applied it is
-# an instruction to DELETE the other two.
+# an instruction to DELETE the other one.
 tier1_stack_required:
   - catena-traefik
   - catena-postgres
-  - catena-portainer

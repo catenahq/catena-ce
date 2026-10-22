@@ -181,7 +181,7 @@ def test_the_panel_is_reached_through_the_panel_accounts_forward():
     command = steps_mod.forward_command({"HOST_PUBLIC_IP": "203.0.113.10",
                                          "SSH_PRIVATE_KEY": "~/.ssh/k"})
     assert command == (
-        "ssh -N -L 9010:127.0.0.1:9010 -L 9000:127.0.0.1:9000 -i ~/.ssh/k "
+        "ssh -N -L 9010:127.0.0.1:9010 -i ~/.ssh/k "
         "panel@203.0.113.10")
 
 

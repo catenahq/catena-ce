@@ -2,7 +2,7 @@
 
 Installs the catena host engine payload -- the Go binaries every later role
 dispatches -- onto the VPS, by extracting them from the public catena-admin
-image. No container is deployed here and Portainer is not involved.
+image. No container is deployed here.
 
 ## Why it runs right after docker
 

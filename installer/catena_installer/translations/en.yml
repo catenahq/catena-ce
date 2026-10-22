@@ -65,14 +65,11 @@ access.forward_open: >-
   open. Closing the window closes it; `catena-installer connect` opens it again.
 access.connect: "Connect to the panel"
 access.connect_about: >-
-  Opens a connection to the server's panel and Portainer through the
+  Opens a connection to the server's panel through the
   forward-only 'panel' account, with the inventory's SSH key.
 access.panel: >-
   You can reach the Catena administration panel in your browser at {url}. Log
   in using the admin email and password.
-access.portainer: >-
-  You can reach the Portainer (applications management) panel in your browser
-  at {url}. Log in using user 'admin' and the admin password.
 access.settings: >-
   Visit the Settings tab in the admin panel to configure Domain and DNS access
   (Cloudflare), Administrator tunnel (Tailnet), outgoing emails, backups, and

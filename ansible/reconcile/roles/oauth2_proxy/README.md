@@ -43,7 +43,7 @@ the browser through Keycloak once, silently while the Keycloak session lasts.
   sends its upstream as a Basic password (the panel's
   `catena_admin_gate_secret`, without which the panel serves every request
   as nobody), and `networks`, the overlays it joins besides `catena-network`
-  (the private networks of Healthchecks, Beszel's hub and Portainer). Client apps are
+  (the private networks of Healthchecks and Beszel's hub). Client apps are
   not listed here:
   dashboard-sync provisions one per gated address of an app, from the
   `vps.auth.*` labels of the service that declares the address.

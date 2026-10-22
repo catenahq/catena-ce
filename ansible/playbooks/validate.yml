@@ -299,15 +299,9 @@
   become: false
   tags: [tailnet, vantage2]
   tasks:
-    # The two UIs answer this host's loopback only, and an administrator reaches
-    # them through an SSH local forward that lands there. So the probe runs ON
-    # the host, against 127.0.0.1 -- the address the forward delivers to.
-    - name: "Probe Portainer UI on the host's loopback"
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ portainer_ui_port | default(9000) }}/"
-        status_code: [200, 301, 302, 307, 308]
-        timeout: 10
-
+    # The panel's UI answers this host's loopback only, and an administrator
+    # reaches it through an SSH local forward that lands there. So the probe
+    # runs ON the host, against 127.0.0.1 -- the address the forward delivers to.
     - name: "Probe catena-admin native-login page on the host's loopback"
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ catena_admin_ui_port | default(9010) }}/login"
@@ -383,7 +377,7 @@
     #
     # Coverage:
     #   - The platform's gated apps (gatus, catena-admin at dash.<zone>,
-    #     healthchecks, portainer, beszel) are always probed.
+    #     healthchecks, beszel) are always probed.
     #   - `validate_extra_gated_hosts` adds ad-hoc gated hostnames.
     #   - Client apps get a Traefik route per address and an oauth2-proxy
     #     per gated address from dashboard-sync, each read from the
@@ -409,7 +403,6 @@
                 infrastructure_gatus_hostname | default(''),
                 catena_admin_hostname | default(''),
                 healthchecks_hostname | default(''),
-                portainer_admin_hostname | default(''),
                 beszel_hostname | default(''),
               ]
               + (validate_extra_gated_hosts | default([]))
@@ -482,8 +475,8 @@
     # from tailnet (catena-network is host-internal), so the actual
     # attack surface is host-published ports. Enumerate every
     # listening TCP port on the host and assert the set matches the
-    # allowlist (Traefik 80/443, SSH 22, Portainer admin 9000 on the
-    # tailnet alias, anything explicitly opted-in via .env).
+    # allowlist (Traefik 80/443, SSH 22, anything explicitly opted-in via
+    # .env).
     #
     # Runs ON the host (no delegate_to), so it sees the full ss(8)
     # output including loopback-only binds. We filter to public-
@@ -541,8 +534,8 @@
             | list
           }}
         # Allowlist = 22 (SSH, public until the panel's Lockdown narrows it),
-        # 80 and 443, plus the registry's bound TCP ports (Portainer 9000,
-        # coturn 5349, mailserver 25/465/587/993, ...) from
+        # 80 and 443, plus the registry's bound TCP ports (coturn 5349,
+        # mailserver 25/465/587/993, ...) from
         # /etc/catena/public-ports.summary.json (all_tcp_bound). No catena
         # service binds 80 or 443 on the host: web traffic enters through the
         # Cloudflare tunnel, and catena-traefik publishes no port. A static
@@ -554,7 +547,7 @@
             ([22, 80, 443] +
               ((_pp_summary_raw.content | b64decode | from_json).all_tcp_bound
                if (_pp_summary_stat.stat.exists | default(false))
-               else [portainer_ui_port | default(9000) | int, 5349]))
+               else [5349]))
             | map('int') | unique | sort | list
           }}
 

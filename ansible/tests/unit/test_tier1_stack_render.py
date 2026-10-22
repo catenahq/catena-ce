@@ -229,7 +229,7 @@ def test_a_secret_without_a_target_is_refused() -> None:
 
 
 def test_mount_accepts_both_destination_and_target_spellings() -> None:
-    """The roles use both: traefik/postgres/portainer say destination=,
+    """The roles use both: traefik/postgres say destination=,
     coturn says target=. Docker accepts either, so this must too."""
     assert mount(
         "type=bind,source=/etc/catena/traefik,destination=/etc/traefik"
@@ -300,8 +300,8 @@ def test_empty_service_list_is_refused() -> None:
 
 def test_whole_control_plane_renders_together() -> None:
     """The blast-radius case: the control-plane set in one file. A render error
-    in any one of them must surface HERE, before the engine takes traefik,
-    postgres and portainer down together.
+    in any one of them must surface HERE, before the engine takes traefik
+    and postgres down together.
 
     catena-admin is deliberately absent: it needs a supplementary group,
     which `docker stack config` rejects, so it keeps its own create argv."""
@@ -311,23 +311,23 @@ def test_whole_control_plane_renders_together() -> None:
          "networks": ["catena-network"],
          "volumes": ["/etc/catena/traefik:/etc/traefik:ro"],
          "constraints": ["node.role==manager"]},
-        {"name": "catena-portainer", "image": "portainer/portainer-ce:2.43.0",
+        {"name": "catena-manager", "image": "example/manager:2.43.0",
          "networks": ["catena-network"],
-         "secrets": ["catena_portainer_admin_password"],
+         "secrets": ["catena_manager_admin_password"],
          "volumes": ["/var/run/docker.sock:/var/run/docker.sock",
-                     "catena-portainer-data:/data"],
+                     "catena-manager-data:/data"],
          "ports": [{"target": 9000, "published": 9443}],
          "command": ["--admin-password-file=/run/secrets/"
-                     "catena_portainer_admin_password"]},
+                     "catena_manager_admin_password"]},
     ]
     out = render(services)
     assert set(out["services"]) == {
-        "catena-postgres", "catena-traefik", "catena-portainer",
+        "catena-postgres", "catena-traefik", "catena-manager",
     }
     assert set(out["networks"]) == {"catena-network"}
     # Only the two NAMED volumes; the two bind sources are host paths.
     assert set(out["volumes"]) == {
-        "catena-postgres-data", "catena-portainer-data"}
+        "catena-postgres-data", "catena-manager-data"}
     # Every service carries a restart policy; that IS the ordering model.
     for svc in out["services"].values():
         assert svc["deploy"]["restart_policy"]["condition"] == "any"

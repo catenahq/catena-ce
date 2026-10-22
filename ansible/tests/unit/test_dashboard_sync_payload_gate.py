@@ -50,7 +50,8 @@ _REQUIRED_MODULES = (
     "clients_provisioner.py",
     "gate_routes.py",
     "keycloak_client.py",
-    "portainer_api.py",
+    "docker_api.py",
+    "http_util.py",
 )
 
 
@@ -215,7 +216,7 @@ def test_a_failed_reconciler_reports_its_own_log_and_still_fails():
 
 def test_the_env_file_is_written_unconditionally():
     """It is the one artifact here whose correct value changes with the HOST,
-    not with the payload -- the Portainer key, the oauth2-proxy client secret,
+    not with the payload -- the oauth2-proxy client secret,
     the per-zone cookie secrets. Withholding it until the payload lands would
     make the next converge's first act a secret rotation."""
     task = _find("env file")

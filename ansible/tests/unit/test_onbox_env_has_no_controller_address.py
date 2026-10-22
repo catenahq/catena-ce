@@ -28,10 +28,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-# Word-bounded: `catena_stack_update_portainer_api_base` is the correct
-# indirection (it resolves to the on-box base) and merely CONTAINS the name.
-# `_` is a word character, so \b does not match inside it.
-_CONTROLLER_BASE = re.compile(r"\bportainer_api_base\b")
 _ANSIBLE_HOST = re.compile(r"\bansible_host\b")
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
@@ -43,26 +39,13 @@ _ONBOX_ENV_TEMPLATES = (
 )
 
 
-def test_the_onbox_base_is_loopback():
-    main = yaml.safe_load(
-        (_ANSIBLE / "playbooks/group_vars/all/main.yml").read_text())
-    assert "127.0.0.1" in main["portainer_api_base_onbox"]
-    # No controller-facing base exists: the UI port answers this host only, so
-    # an address the controller would dial is one the firewall refuses.
-    assert "portainer_api_base" not in main
-
-
 @pytest.mark.parametrize("rel", _ONBOX_ENV_TEMPLATES)
-def test_onbox_env_does_not_reference_the_controller_base(rel):
+def test_onbox_env_does_not_reference_the_controller_address(rel):
     text = (_ANSIBLE / rel).read_text()
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
             continue
-        assert not _CONTROLLER_BASE.search(stripped), (
-            f"{rel} renders the controller-facing portainer_api_base into a "
-            f"file read on the host; use portainer_api_base_onbox"
-        )
         assert not _ANSIBLE_HOST.search(stripped), (
             f"{rel} renders ansible_host into a file read on the host; that "
             f"address is the controller's view and is not stable"
@@ -96,13 +79,13 @@ def test_no_role_template_renders_the_controller_address():
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
-            if _ANSIBLE_HOST.search(stripped) or _CONTROLLER_BASE.search(stripped):
+            if _ANSIBLE_HOST.search(stripped):
                 offenders.append(f"{rel}:{number}: {stripped}")
     assert not offenders, (
         "these render the controller's address into a file on the host:\n  "
         + "\n  ".join(offenders)
         + "\nUse a stable on-box name (127.0.0.1, host.docker.internal, "
-          "portainer_api_base_onbox, inventory_hostname)."
+          "inventory_hostname)."
     )
 
 

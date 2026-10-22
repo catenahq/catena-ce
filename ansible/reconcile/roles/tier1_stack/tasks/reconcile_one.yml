@@ -1,7 +1,7 @@
 ---
 # Create-or-reconcile ONE directly-created swarm service by handing its spec to
-# the catena-tier1 host engine. Included by reconcile/roles/traefik, reconcile/roles/postgres,
-# reconcile/roles/portainer and reconcile/roles/coturn, each passing the same spec it contributes to
+# the catena-tier1 host engine. Included by reconcile/roles/traefik, reconcile/roles/postgres
+# and reconcile/roles/coturn, each passing the same spec it contributes to
 # the rendered stack file.
 #
 # Caller contract:
@@ -35,7 +35,7 @@
 # No deferral branch, unlike reconcile/roles/cloudflare_tunnel. That role can legitimately
 # put the tunnel off to the next converge, because a host with no edge is a host
 # that is merely unreachable from outside. There is no equivalent here: without
-# the engine there is no traefik, no postgres and no portainer, so a converge
+# the engine there is no traefik and no postgres, so a converge
 # that carried on would report success over a host with no control plane at all.
 - name: "tier1: the reconcile engine is missing"
   ansible.builtin.fail:

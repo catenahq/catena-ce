@@ -97,7 +97,7 @@ _APP_LABEL = re.compile(r"vps\.(?:auth|route|health|homepage)\.[\w.-]*|vps\.disp
 @pytest.mark.parametrize("path", SWARM_COMPOSE, ids=lambda p: p.name)
 def test_no_app_level_vps_label(path: Path):
     """The app intent reads these labels off client-app stacks alone (catena-admin
-    payload/lib/portainer_api.py INFRA_STACKS lists these), and a gated tool's
+    payload/lib/docker_api.py INFRA_STACKS lists these), and a gated tool's
     gate is its reconcile/roles/oauth2_proxy oauth2_proxy_apps entry."""
     found = _APP_LABEL.findall(_body(path))
     assert not found, (
@@ -125,7 +125,6 @@ def test_clamav_is_a_swarm_stack_on_an_overlay():
     tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
         encoding="utf-8")
     assert "include_tasks: swarm_stack.yml" in tasks
-    assert "include_tasks: portainer_stack.yml" not in tasks
     assert "overlay" in tasks and "--attachable" in tasks
 
     compose = (

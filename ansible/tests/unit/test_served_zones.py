@@ -121,7 +121,6 @@ def _hostnames(zone: str) -> dict:
         "catena_admin_hostname": f"dash.{zone}",
         "infrastructure_gatus_hostname": f"gatus.{zone}",
         "healthchecks_hostname": f"healthchecks.{zone}",
-        "portainer_admin_hostname": f"portainer.{zone}",
         "beszel_hostname": f"beszel.{zone}",
     }
 
@@ -139,8 +138,6 @@ def _catena_hostnames(zone: str, secondaries: list[str]) -> list[str]:
 def _sync_env(zone: str, secondaries: list[str], secrets: dict | None = None) -> str:
     return _render(SYNC_ENV.read_text(), {
         "ansible_managed": "managed",
-        "portainer_api_base_onbox": "http://127.0.0.1:9000/api",
-        "portainer_api_key": "ptr-key",
         "traefik_dynamic_dir": "/etc/catena/traefik/dynamic",
         **_hostnames(zone),
         "catena_hostnames": _catena_hostnames(zone, secondaries),

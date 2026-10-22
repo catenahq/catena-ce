@@ -2,8 +2,8 @@
 
 Configures the single-node swarm `bootstrap/roles/docker` creates, on every
 converge, from either path: the task-history bound, the `catena.role` label
-stateful services constrain to, the private overlays of Healthchecks,
-Beszel and Portainer, and the `catena-network-nudge` self-heal.
+stateful services constrain to, the private overlays of Healthchecks
+and Beszel, and the `catena-network-nudge` self-heal.
 
 ## Inputs
 
@@ -19,14 +19,13 @@ Beszel and Portainer, and the `catena-network-nudge` self-heal.
 - `docker node update --label-add catena.role=<label>`, only when the label
   differs. The label lives in the swarm raft, which no snapshot carries.
 - `docker network create --driver overlay` for `healthchecks_network`,
-  `beszel_network` and `portainer_network`, each when it is absent.
+  and `beszel_network`, each when it is absent.
   Healthchecks takes the signed-in user from a header anyone who reaches it
   can set, so it is on its network instead of `catena-network`, with only the
   services that call it: its sign-in gate, the panel, Gatus and the Beszel
   alert shim. Beszel's hub signs in any realm user who reaches it and its
   superuser holds the shared admin password, so the hub and its alert shim are
-  on theirs, with the hub's gate and Gatus. Portainer's login takes
-  the shared admin password, so it is on its own, with its gate.
+  on theirs, with the hub's gate and Gatus.
   Not attachable, so no standalone
   container joins any of them.
 - Installs `/usr/local/bin/catena-network-nudge`, its unit, and the
@@ -36,6 +35,6 @@ Beszel and Portainer, and the `catena-network-nudge` self-heal.
 ## Related
 
 - Upstream: `bootstrap/roles/docker` (the swarm itself).
-- Downstream: `traefik`, `postgres`, `portainer` (constrained to the label);
-  `portainer`, `oauth2_proxy`, `infrastructure`, `catena-admin` (join the
-  private overlays).
+- Downstream: `traefik`, `postgres` (constrained to the label);
+  `oauth2_proxy`, `infrastructure`, `catena-admin` (join the private
+  overlays).

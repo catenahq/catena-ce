@@ -120,7 +120,7 @@
           ==================================================================
           SAVE THESE TO YOUR PASSWORD MANAGER NOW -- shown once.
 
-            Admin password (Portainer + Keycloak): {{ _secrets.admin_password }}
+            Admin password (Keycloak + the panel): {{ _secrets.admin_password }}
             Console password for `{{ ops_user | default('ops') }}` (break-glass): {{ _secrets.console_recovery_password }}
 
           The backup encryption password is generated in the panel, under
@@ -155,18 +155,10 @@
           {% endif %}
                                 username: {{ admin_email }}
 
-            Portainer           http://localhost:{{ portainer_ui_port }}  (over the SSH forward below)
-          {% if not (catena_public_surface_deferred | bool) %}
-                                https://{{ portainer_admin_hostname }}
-          {% endif %}
-                                username: admin
-                                (the literal word `admin`, NOT an email address --
-                                 Portainer's first-boot admin has no email field)
-
-          The localhost addresses work whenever SSH does, through a forward
+          The localhost address works whenever SSH does, through a forward
           as the `{{ catena_panel_user }}` account, which can only forward:
 
-            ssh -N -L {{ _admin_port }}:127.0.0.1:{{ _admin_port }} -L {{ portainer_ui_port }}:127.0.0.1:{{ portainer_ui_port }} {{ catena_panel_user }}@{{ catena_ssh_address | default(ansible_host) }}
+            ssh -N -L {{ _admin_port }}:127.0.0.1:{{ _admin_port }} {{ catena_panel_user }}@{{ catena_ssh_address | default(ansible_host) }}
 
           The installer opens the same forward when it ends, and again with
           `catena-installer connect`.
@@ -176,9 +168,6 @@
           {% if not (catena_public_surface_deferred | bool) %}
 
           The public hostnames are SSO-gated and go through the Cloudflare
-          tunnel. There the SSO gate asks first, and it wants {{ admin_email }}.
-          The service's own login form comes after it, and asks for the
-          username listed above -- so reaching Portainer through the tunnel
-          means the email once, then `admin`.
+          tunnel. The SSO gate wants {{ admin_email }}.
           {% endif %}
           ==================================================================

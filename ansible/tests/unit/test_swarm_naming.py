@@ -5,9 +5,9 @@ task container by (stack, service, slot) in `docker ps` output. `docker stack
 deploy` creates services named `<stack>_<service>` and swarm names their task
 containers `<stack>_<service>.<slot>.<task-id>`.
 
-The Portainer form `<stack>-<service>-<index>` must NOT match. A host
-converged by an older build still has those containers, and matching them
-would let a task operate on the stack it just replaced.
+The compose form `<stack>-<service>-<index>` must NOT match. A host may
+still have those containers, and matching them would let a task operate on a
+container swarm does not schedule.
 
 Run: uv run pytest tests/unit/test_swarm_naming.py
 """
@@ -38,7 +38,7 @@ def test_defaults_app_slot_1():
     assert not re.match(rx, "gatus_app.1")
 
 
-def test_portainer_form_does_not_match():
+def test_compose_form_does_not_match():
     rx = sn.swarm_container_regex("gatus")
     assert not re.match(rx, "gatus-app-1")
     assert not re.match(rx, "gatus-a1b2c3-app-1")

@@ -5,7 +5,7 @@
 # catena-daily, the lane scripts, the systemd units, the dispatch drop-ins)
 # are Go binaries built into the PUBLIC catena-admin image. This role extracts
 # them from that image and installs them to /usr/local/bin -- WITHOUT deploying
-# the container, and without Portainer.
+# the container.
 #
 # It runs immediately after bootstrap/roles/docker, because
 # reconcile/roles/cloudflare_tunnel dispatches catena-cloudflared-sync: engines

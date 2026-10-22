@@ -60,13 +60,12 @@
     mode: "0600"
   loop: "{{ ops_ssh_public_keys }}"
 
-# ─── panel account: SSH local forwards to the two host-only UIs ─────────
-# The panel (9010) and Portainer (9000) answer this host's loopback only. An
-# administrator reaches them through `ssh -N -L 9010:127.0.0.1:9010
-# panel@<host>`, and doing that as ops would mean holding a sudo shell open to
-# look at a web page. This account can do nothing else: no shell, no password,
-# and a key restricted to forwarding to exactly those two ports. Same keys as
-# ops -- the ones the installer was given.
+# ─── panel account: SSH local forward to the host-only panel ─────────────
+# The panel (9010) answers this host's loopback only. An administrator reaches
+# it through `ssh -N -L 9010:127.0.0.1:9010 panel@<host>`, and doing that as ops
+# would mean holding a sudo shell open to look at a web page. This account can
+# do nothing else: no shell, no password, and a key restricted to forwarding to
+# exactly that port. Same keys as ops -- the ones the installer was given.
 - name: Create the panel forwarding account
   ansible.builtin.user:
     name: "{{ catena_panel_user }}"
@@ -92,7 +91,7 @@
     path: "{{ _panel_account.home }}/.ssh/authorized_keys"
     regexp: '(^|\s){{ item.split()[1] | regex_escape }}(\s|$)'
     line: >-
-      restrict,port-forwarding,permitopen="127.0.0.1:{{ catena_admin_ui_port }}",permitopen="127.0.0.1:{{ portainer_ui_port }}" {{ item }}
+      restrict,port-forwarding,permitopen="127.0.0.1:{{ catena_admin_ui_port }}" {{ item }}
     create: true
     owner: "{{ catena_panel_user }}"
     group: "{{ _panel_account.group }}"

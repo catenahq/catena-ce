@@ -85,7 +85,7 @@ That matters most for an application's own object storage, where the
 application keeps file versions. Nextcloud is the worked example: it
 writes directly to S3 as its primary object storage, and
 `NEXTCLOUD_VERSIONS_RETENTION` (set in the app template's own Environment
-tab in Portainer, not in this installer) bounds that live bucket's
+settings of the app, not in this installer) bounds that live bucket's
 steady-state size. Raising it mainly grows the LIVE bucket, not the
 accumulation rate offsite -- a daily copy catches new versions well before
 a 7-day or 30-day live-side cap prunes them. The real cost driver over a

@@ -160,11 +160,10 @@ def _registries(oc) -> dict[str, set[str]]:
         "INTERNAL_SECRETS": set(oc.INTERNAL_SECRETS),
         "EXTERNAL_SECRETS": set(oc.EXTERNAL_SECRETS),
         "USER_HELD_SECRETS": set(oc.USER_HELD_SECRETS),
-        "ROLE_MINTED_SECRETS": set(oc.ROLE_MINTED_SECRETS),
     }
 
 
-def test_the_four_registries_are_pairwise_disjoint(oc):
+def test_the_three_registries_are_pairwise_disjoint(oc):
     """A name in two registries has two provenances, which means the one the
     reader believes is a coin flip. Enumerated pairwise rather than by total
     length so the failure names the collision."""
@@ -183,10 +182,10 @@ def test_every_registry_is_non_empty(oc):
 
 
 # --- secret_names: the converge loader's discriminator ----------------------
-def test_secret_names_is_the_union_of_the_four_registries(oc):
+def test_secret_names_is_the_union_of_the_three_registries(oc):
     """playbooks/tasks/load_onbox_config.yml reads this list to decide which
     in-scope Ansible variables to capture into the store. The union of the
-    four registries is the declaration, so a variable is captured because
+    three registries is the declaration, so a variable is captured because
     someone declared it a secret, whatever its name looks like."""
     expected = set().union(*_registries(oc).values())
     assert set(oc.secret_names()) == expected
@@ -211,22 +210,13 @@ def test_secret_names_emit_touches_no_store(oc, tmp_path, capsys):
     assert printed == oc.secret_names()
 
 
-def test_portainer_api_key_is_role_minted(oc):
-    """Portainer mints its own API key: not internal (this module never
-    generates it), not external (no human ever supplies one). It is
-    ROLE_MINTED, which is a category with members rather than a comment
-    saying it belongs to none."""
-    assert oc.ROLE_MINTED_SECRETS["portainer_api_key"] == "portainer"
-    for reg in (oc.INTERNAL_SECRETS, oc.EXTERNAL_SECRETS, oc.USER_HELD_SECRETS):
-        assert "portainer_api_key" not in reg
-
-
-def test_role_minted_secrets_are_not_settable_through_the_api(oc):
-    # apply_inputs' allowlist is EXTERNAL_SECRETS; a role-minted secret has
-    # exactly one writer and the settings form is not it.
-    store = {"secrets": {}, "config": {}}
+def test_the_old_portainer_keys_belong_to_no_registry(oc):
+    """A host with application folders may still hold these in its store. The
+    store keeps undeclared keys, and nothing declares or mints them."""
+    for key in ("portainer_api_key", "portainer_gate_cookie_secret"):
+        assert key not in oc.secret_names()
     with pytest.raises(ValueError):
-        oc.apply_inputs(store, secrets_in={"portainer_api_key": "x"})
+        oc.apply_inputs({"secrets": {}, "config": {}}, secrets_in={"portainer_api_key": "x"})
 
 
 def test_dr_keyset_is_user_held_not_external(oc):
@@ -336,87 +326,84 @@ def test_adopt_fills_only_and_captures_any_key(oc):
     store = {"secrets": {"admin_password": "keep"}, "config": {}}
     adopted = oc.adopt(store, {
         "admin_password": "IGNORED-existing-wins",
-        "portainer_api_key": "ptr",       # out-of-registry, still captured
+        "some_role_key": "ptr",           # out-of-registry, still captured
         "cloudflare_api_token": "cf",
         "blank_secret": "   ",                   # blank skipped
     })
-    assert set(adopted) == {"portainer_api_key", "cloudflare_api_token"}
+    assert set(adopted) == {"some_role_key", "cloudflare_api_token"}
     assert store["secrets"]["admin_password"] == "keep"
-    assert store["secrets"]["portainer_api_key"] == "ptr"
+    assert store["secrets"]["some_role_key"] == "ptr"
     assert "blank_secret" not in store["secrets"]
 
 
 def test_adopt_overwrite_replaces_a_dead_value(oc):
-    """reconcile/roles/portainer re-mints when Portainer REJECTS the stored key. Without
-    overwrite the store would keep serving the dead one and every API call
-    would 401 for the rest of the converge."""
-    store = {"secrets": {"portainer_api_key": "revoked"}, "config": {}}
-    adopted = oc.adopt(store, {"portainer_api_key": "fresh"}, overwrite=True)
-    assert adopted == ["portainer_api_key"]
-    assert store["secrets"]["portainer_api_key"] == "fresh"
+    """Without overwrite the store would keep serving the dead value."""
+    store = {"secrets": {"some_role_key": "revoked"}, "config": {}}
+    adopted = oc.adopt(store, {"some_role_key": "fresh"}, overwrite=True)
+    assert adopted == ["some_role_key"]
+    assert store["secrets"]["some_role_key"] == "fresh"
 
 
 def test_adopt_overwrite_still_refuses_a_blank(oc):
-    store = {"secrets": {"portainer_api_key": "keep"}, "config": {}}
-    assert oc.adopt(store, {"portainer_api_key": "  "}, overwrite=True) == []
-    assert store["secrets"]["portainer_api_key"] == "keep"
+    store = {"secrets": {"some_role_key": "keep"}, "config": {}}
+    assert oc.adopt(store, {"some_role_key": "  "}, overwrite=True) == []
+    assert store["secrets"]["some_role_key"] == "keep"
 
 
 def test_adopt_reports_no_change_when_the_value_is_identical(oc):
-    """An unchanged re-adopt must not report a write: the portainer role's
-    task reports changed from this, and a converge that changed nothing has
-    to recap changed=0 for the bench idempotency gates."""
-    store = {"secrets": {"portainer_api_key": "same"}, "config": {}}
-    assert oc.adopt(store, {"portainer_api_key": "same"}, overwrite=True) == []
+    """An unchanged re-adopt must not report a write: a converge that changed
+    nothing has to recap changed=0 for the bench idempotency gates."""
+    store = {"secrets": {"some_role_key": "same"}, "config": {}}
+    assert oc.adopt(store, {"some_role_key": "same"}, overwrite=True) == []
 
 
 def test_cli_overwrite_reaches_adopt(oc, tmp_path, capsys, monkeypatch):
     import io
     p = tmp_path / "config.json"
-    oc.dump({"secrets": {"portainer_api_key": "revoked"}, "config": {}}, p)
-    monkeypatch.setattr("sys.stdin", io.StringIO('{"portainer_api_key": "fresh"}'))
+    oc.dump({"secrets": {"some_role_key": "revoked"}, "config": {}}, p)
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"some_role_key": "fresh"}'))
     rc = oc.main(["--path", str(p), "--adopt-stdin", "--overwrite",
                   "--no-mint", "--emit", "none"])
     assert rc == 0
     assert capsys.readouterr().out == ""
-    assert oc.load(p)["secrets"]["portainer_api_key"] == "fresh"
+    assert oc.load(p)["secrets"]["some_role_key"] == "fresh"
 
 
 def test_cli_adopt_without_overwrite_keeps_the_stored_value(oc, tmp_path, monkeypatch):
     import io
     p = tmp_path / "config.json"
-    oc.dump({"secrets": {"portainer_api_key": "stored"}, "config": {}}, p)
-    monkeypatch.setattr("sys.stdin", io.StringIO('{"portainer_api_key": "other"}'))
+    oc.dump({"secrets": {"some_role_key": "stored"}, "config": {}}, p)
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"some_role_key": "other"}'))
     assert oc.main(["--path", str(p), "--adopt-stdin", "--no-mint",
                     "--emit", "none"]) == 0
-    assert oc.load(p)["secrets"]["portainer_api_key"] == "stored"
+    assert oc.load(p)["secrets"]["some_role_key"] == "stored"
 
 
 def test_cli_adopt_stdin_then_mint(oc, tmp_path, capsys, monkeypatch):
     import io
     p = tmp_path / "config.json"
     monkeypatch.setattr("sys.stdin", io.StringIO(
-        '{"portainer_api_key": "ptr", "admin_password": "adopted-admin"}'
+        '{"some_role_key": "ptr", "admin_password": "adopted-admin"}'
     ))
     rc = oc.main(["--path", str(p), "--adopt-stdin", "--emit", "secrets"])
     assert rc == 0
     emitted = json.loads(capsys.readouterr().out)
     # adopted values survive; missing internal secrets get minted
-    assert emitted["portainer_api_key"] == "ptr"
+    assert emitted["some_role_key"] == "ptr"
     assert emitted["admin_password"] == "adopted-admin"  # adopt beats mint
     assert emitted["catena_postgres_password"]           # minted
     on_disk = oc.load(p)
-    assert on_disk["secrets"]["portainer_api_key"] == "ptr"
+    assert on_disk["secrets"]["some_role_key"] == "ptr"
 
 
 def test_cli_adopt_file_then_mint(oc, tmp_path, capsys):
     p = tmp_path / "config.json"
     adopt = tmp_path / "adopt.json"
-    adopt.write_text('{"portainer_api_key": "ptr", "admin_password": "adopted"}')
+    adopt.write_text('{"some_role_key": "ptr", "admin_password": "adopted"}')
     rc = oc.main(["--path", str(p), "--adopt-file", str(adopt), "--emit", "secrets"])
     assert rc == 0
     emitted = json.loads(capsys.readouterr().out)
-    assert emitted["portainer_api_key"] == "ptr"
+    assert emitted["some_role_key"] == "ptr"
     assert emitted["admin_password"] == "adopted"
     assert emitted["catena_postgres_password"]  # minted
 
@@ -533,7 +520,7 @@ def test_the_panels_read_holds_the_secrets_it_uses_and_no_others(oc, tmp_path, m
     # reveals, beside every Settings field.
     for key in ("admin_password", "backup_restic_password", "cloudflare_api_token"):
         assert got["secrets"][key] == f"value-of-{key}"
-    for key in ("console_recovery_password", "portainer_api_key", "turn_static_auth_secret",
+    for key in ("console_recovery_password", "turn_static_auth_secret",
                 "catena_admin_session_key", "catena_marketplace_token"):
         assert key not in got["secrets"]
 
@@ -774,7 +761,7 @@ def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path,
     assert not p.exists(), "a pure query must not create the store"
     names = json.loads(capsys.readouterr().out)
     assert {"ADMIN_EMAIL", "ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"} <= set(names)
-    assert not {"BACKUP_RESTIC_REPO", "CLOUDFLARE_ZONE", "PORTAINER_SUBDOMAIN"} & set(names)
+    assert not {"BACKUP_RESTIC_REPO", "CLOUDFLARE_ZONE", "KEYCLOAK_SUBDOMAIN"} & set(names)
 
 
 def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_path, capsys):
@@ -790,7 +777,7 @@ def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_pat
     assert set(names) == {
         "COTURN_CERTBOT_STAGING", "MAILSERVER_CERTBOT_STAGING",
         "CATENA_ACME_DIRECTORY_URL", "CATENA_ACME_HOST_IP",
-        "CATENA_ACME_CA_BUNDLE_PEM_B64", "CATENAHQ_TEMPLATES_BASE",
+        "CATENA_ACME_CA_BUNDLE_PEM_B64",
     }
     assert set(names) <= oc.ENV_SEEDED_CONFIG
     assert not {"ADMIN_EMAIL", "ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"} & set(names)

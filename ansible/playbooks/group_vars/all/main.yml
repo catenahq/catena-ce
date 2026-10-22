@@ -33,8 +33,8 @@ ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
 # installer sends it with each leg and ansible/install-host.sh passes it as an
 # extra var; bootstrap/roles/common refuses to run with none.
 ops_ssh_public_keys: []
-# The forward-only account an administrator opens the panel and Portainer
-# through (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). A product constant:
+# The forward-only account an administrator opens the panel through
+# (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). A product constant:
 # the installer's access page and the keyset banner print it.
 catena_panel_user: panel
 # The account a server taking this one over signs in as, the one file sshd
@@ -184,14 +184,6 @@ beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 # beside healthchecks_network.
 beszel_network: "catena-beszel"
 
-# The overlay Portainer is on, instead of catena-network. Its login takes the
-# shared admin password, so only its callers join: its sign-in gate
-# (reconcile/roles/oauth2_proxy). Everything on the host reaches
-# it at portainer_api_base_onbox. reconcile/roles/swarm creates it beside
-# healthchecks_network; catena-admin payload/engines/tier1 catalog.go names the
-# same overlay for the service it creates.
-portainer_network: "catena-portainer-net"
-
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
 # front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are
 # defined in reconcile/roles/keycloak/defaults, from the store's
@@ -217,55 +209,12 @@ admin_last_name: "{{ cfg_admin_last_name | default('') }}"
 # oauth2-proxy in front of each gated host. User membership in the access
 # groups controls access to the gated subdomains.
 
-# --- Portainer API (container control plane) ---
-# Global so any role (infrastructure stack seam, dashboard-sync env) can
-# reference it. reconcile/roles/portainer consumes the same names.
-# The port, like the hostname scheme, is the product's. It is published
-# host-mode and confined to this host by the public-ports registry, so no client
-# picks it to avoid a collision -- nothing else on the box may bind it either
-# way. An administrator opens the UI through an SSH local forward.
-portainer_ui_port: "9000"
-
-# The API, addressed from ON the host, which is the only place it answers. The
-# converge's own API calls run on the host against it, and so does everything
-# that runs on the box -- catena-dashboard-sync, the container-update lane.
-#
-# Never ansible_host. It is where the CONTROLLER reaches the box, the UI port
-# refuses it, and it is not stable: it flips between the public and tailnet
-# address across converges and differs again after a restore onto other
-# infrastructure. Baking it into a file a host-local service reads gives that
-# service an address for a machine it is already running on, which stops
-# working the moment the address changes:
-#
-#   catena-dashboard-sync.service: FAILED
-#   request failed on GET /stacks: <urlopen error [Errno 113] No route to
-#   host>            (env says 10.139.244.121, the host is at 10.139.244.110)
-#
-# dashboard-sync is what renders the Traefik route files for client apps, so
-# a stale base means every app deployed after the address moves gets NO route
-# and answers 404, while the app reads healthy at 1/1 with a correct
-# vps.route.host label.
-#
-# It would also make these env files non-idempotent: a rendered address that
-# changes between converges rewrites the file every time.
-portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
-
-# Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
-# tunnel (admin-only; wired by reconcile/roles/oauth2_proxy oauth2_proxy_apps). This is
-# the client admin's self-serve deploy surface. Distinct from
-# portainer_api_base_onbox above, which only this host reaches -- both reach
-# the same catena-portainer service.
-# A store key (PORTAINER_SUBDOMAIN), set in catena-admin > Settings like the
-# subdomains above; the literal is the name a host with nothing stored uses.
-portainer_admin_subdomain: "{{ cfg_portainer_admin_subdomain | default('portainer', true) }}"
-portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
-
 # --- Declarative public-port registry ---
 # The directory the registry is built from. Here rather than in
-# reconcile/roles/public_ports because SIX roles write the fragment dir --
-# coturn, portainer, infrastructure's three lanes and catena-admin's host setup
+# reconcile/roles/public_ports because five roles write the fragment dir --
+# coturn, infrastructure's three lanes and catena-admin's host setup
 # all drop a <owner>.json into it -- and a role default is only reliably in
-# scope once that role has run. A constant six roles share is the product's,
+# scope once that role has run. A constant five roles share is the product's,
 # not one role's. The reconciler that reads it ships in the catena-admin
 # payload.
 public_ports_fragment_dir: /etc/catena/public-ports.d

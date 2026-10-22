@@ -392,12 +392,12 @@ class _Forward(remote.Forward):
     """An open forward, without a server behind it."""
 
     def __init__(self):
-        self.local = {install.PANEL_PORT: 19010, install.PORTAINER_PORT: 19000}
+        self.local = {install.PANEL_PORT: 19010}
 
 
-def test_the_access_section_connects_then_links_both_panels(client, started, monkeypatch):
+def test_the_access_section_connects_then_links_the_panel(client, started, monkeypatch):
     """Before the forward is open the section offers it; once it is, it links
-    the panel and Portainer on the local ports the forward listens on. The
+    the panel on the local port the forward listens on. The
     command for another machine is there either way."""
     request, _ = client
     request("POST", "/inventory", {"create": "newco"})
@@ -412,7 +412,7 @@ def test_the_access_section_connects_then_links_both_panels(client, started, mon
     monkeypatch.setattr(server.install, "connect", lambda path, address="": _Forward())
     assert request("POST", "/connect", {})[1] == "/#access"
     access = _section(request("GET", "/")[2], "access")
-    assert "http://127.0.0.1:19010/" in access and "http://127.0.0.1:19000/" in access
+    assert "http://127.0.0.1:19010/" in access and "19000" not in access
     assert 'action=/connect' not in access
 
 

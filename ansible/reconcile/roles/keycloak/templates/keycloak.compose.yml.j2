@@ -102,8 +102,8 @@ services:
       # --- Initial admin (idempotent: skipped after first boot) ---
       # Keycloak 26 reads the bootstrap admin ONLY when the master realm is
       # created. On a DR converge the restored Postgres already has the admin
-      # row, so it is ignored. Same identity as the Portainer admin: the one
-      # admin credential (admin_password, in the config file above).
+      # row, so it is ignored. The one admin credential is admin_password, in the
+      # config file above.
       KC_BOOTSTRAP_ADMIN_USERNAME: "{{ admin_email }}"
     secrets:
       - source: {{ _keycloak_secrets[0].name }}

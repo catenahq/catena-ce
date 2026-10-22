@@ -18,7 +18,7 @@ None of that fails a converge. It reports success for a host with half its
 wiring missing, which is why this is a gate rather than a convention.
 
 Container NAMES are out too: a name carries a swarm task id, and its stack
-half is whatever a client typed into Portainer's deploy form. What swarm puts
+half is whatever a client typed into the deploy form. What swarm puts
 on every task is `com.docker.swarm.service.name=<app>_<service>`, the
 application's stack name and the compose service key, and that is what a
 lookup asks for, through scripts/catena-container.sh. A `vps.app` or
@@ -132,7 +132,7 @@ def test_no_task_greps_for_the_random_half_of_a_stack_name():
     defect as a `--filter name=`, wearing different clothes.
 
     reconcile/roles/infrastructure/tasks/wordpress_plugins.yml matched
-    `wordpress-[0-9a-z]{6,}-wp-`: the stack name Portainer generated, plus a
+    `wordpress-[0-9a-z]{6,}-wp-`: the stack name a deploy generated, plus a
     swarm task id. A client who deploys the template under a name of their own
     choosing produced no match, the whole block skipped, and the converge
     reported success on a site with no plugin curation and no option seeding.
@@ -179,5 +179,5 @@ def test_no_task_finds_a_container_by_name_shape():
             offenders.append(f"{path.relative_to(ANSIBLE)}:{line}")
     assert not offenders, (
         "these look up a CONTAINER by name, which depends on the stack name a "
-        "client typed into Portainer:\n  " + "\n  ".join(offenders)
+        "client typed at deploy:\n  " + "\n  ".join(offenders)
     )

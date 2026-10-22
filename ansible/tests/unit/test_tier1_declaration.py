@@ -96,7 +96,7 @@ def test_changed_comes_from_the_engines_own_count():
 
 def test_a_missing_engine_stops_the_converge():
     """Unlike the Cloudflare tunnel, there is no deferral: without the engine
-    there is no traefik, no postgres and no portainer, so a converge that
+    there is no traefik and no postgres, so a converge that
     carried on would report success over a host with no control plane."""
     task = _task(RECONCILE, "the reconcile engine is missing")
     assert "ansible.builtin.fail" in task

@@ -50,7 +50,7 @@ def test_no_pins_at_all_is_the_fresh_host():
 
 
 def test_a_pin_for_another_service_is_not_applied():
-    pins = {"portainer/portainer-ce": "portainer/portainer-ce:2.44.1"}
+    pins = {"example/other": "example/other:1.0.1"}
     assert catena_image_pin(TRAEFIK_FLOOR, pins) == TRAEFIK_FLOOR
 
 

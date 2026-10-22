@@ -29,12 +29,10 @@ def test_the_three_loopback_ports_declare_the_dnat_bind():
             f"{name}: bind=host claims ufw INPUT can enforce this port")
 
 
-def test_the_two_ui_ports_are_host_only():
-    """The panel and Portainer answer this host only: an administrator reaches
-    them through an SSH forward that lands on the loopback, and the panel's
-    direct login is a password over plain HTTP."""
-    portainer = (ROLES / "portainer" / "tasks" / "main.yml").read_text(encoding="utf-8")
-    assert '"scope": "loopback", "bind": "docker", "owner": "portainer"' in portainer
+def test_the_panels_ui_port_is_host_only():
+    """The panel answers this host only: an administrator reaches it through an
+    SSH forward that lands on the loopback, and its direct login is a password
+    over plain HTTP."""
     admin = (ROLES / "catena-admin" / "tasks" / "lanes.yml").read_text(encoding="utf-8")
     assert '"port": catena_admin_ui_port | int,\n           "scope": "loopback"' in admin
 

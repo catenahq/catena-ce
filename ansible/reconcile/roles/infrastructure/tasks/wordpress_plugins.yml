@@ -65,7 +65,7 @@
 - name: "WordPress plugins: skip wiring (no running container)"
   ansible.builtin.debug:
     msg: >-
-      WordPress not yet deployed (Portainer marketplace / wordpress). On
+      WordPress not yet deployed (catalog / wordpress). On
       the next converge AFTER the operator clicks Deploy and runs the
       install wizard, this task will auto-install the curated plugin set.
   when: (_wp_ct.stdout | default('') | length) == 0
@@ -261,8 +261,8 @@
     # on the first converge after the install wizard, the mail sender on the
     # first converge with outgoing mail on, which can come later.
     #
-    # Per SITE, keyed on com.docker.stack.namespace -- the Portainer stack
-    # Name, the stable identifier the app intent keys every app on -- because
+    # Per SITE, keyed on com.docker.stack.namespace -- the stack
+    # name, the stable identifier the app intent keys every app on -- because
     # one host can run more than one WordPress and each is seeded the first
     # time this reaches it. A container name carries the swarm task id, which
     # changes on every reschedule, and a marker keyed on it would reset itself

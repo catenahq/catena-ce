@@ -33,7 +33,7 @@
 
 # --- host-only firewall for the native-login UI port (registry fragment) ---
 # The panel's host-published port (mode=host -> :8001) answers this host only,
-# the same posture as Portainer's UI port. Its login is the recovery admin
+# confined to this host. Its login is the recovery admin
 # password over plain HTTP, so the transport has to be something else's: an
 # administrator opens it through an SSH local forward
 # (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). The public-ports reconciler

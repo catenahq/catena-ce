@@ -89,14 +89,14 @@ def test_the_server_s_settings_are_not_install_inputs(seed):
     refused = seed.not_install_inputs(_inp(
         env={"CLOUDFLARE_ZONE": "client.test", "TAILNET_PROVIDER": "tailscale",
              "TAILSCALE_TAGS": "tag:vps", "BACKUP_RESTIC_REPO": "s3:x/y",
-             "PORTAINER_SUBDOMAIN": "admin"},
+             "KEYCLOAK_SUBDOMAIN": "admin"},
         secrets={"cloudflare_api_token": "t", "tailscale_oauth_client_id": "i",
                "tailscale_oauth_client_secret": "s", "headscale_api_key": "h",
                "backup_s3_access_key": "a", "backup_s3_secret_key": "b",
                "backup_restic_password": "r"}))
     assert refused == sorted([
         "CLOUDFLARE_ZONE", "TAILNET_PROVIDER", "TAILSCALE_TAGS",
-        "BACKUP_RESTIC_REPO", "PORTAINER_SUBDOMAIN", "cloudflare_api_token",
+        "BACKUP_RESTIC_REPO", "KEYCLOAK_SUBDOMAIN", "cloudflare_api_token",
         "tailscale_oauth_client_id", "tailscale_oauth_client_secret",
         "headscale_api_key", "backup_s3_access_key", "backup_s3_secret_key",
         "backup_restic_password"])
@@ -129,7 +129,7 @@ def test_a_filled_env_line_the_server_holds_is_named(seed, tmp_path, capsys):
     """Nothing reads it: the store seeds only the keys the `.env` declares."""
     env = tmp_path / ".env"
     env.write_text("ADMIN_EMAIL=a@client.test\nCLOUDFLARE_ZONE=client.test\n"
-                   "PORTAINER_SUBDOMAIN=\n")
+                   "KEYCLOAK_SUBDOMAIN=\n")
     seed.warn_server_held_lines(env)
     err = capsys.readouterr().err
     assert "sets CLOUDFLARE_ZONE," in err

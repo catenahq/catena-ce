@@ -108,7 +108,7 @@ def test_the_one_block_carries_both_the_secrets_and_the_urls():
     for needed in ("admin_password", "console_recovery_password"):
         assert needed in banner, needed
     assert "catena_admin_hostname" in banner, "panel URL missing"
-    assert "portainer_admin_hostname" in banner, "Portainer URL missing"
+    assert "portainer" not in banner.lower()
     # The SSH forward is the way in when Cloudflare or SSO is not working, so
     # it is the half that has to survive an edit. Its port comes through
     # _admin_port, which is where the role default is read.
@@ -118,32 +118,14 @@ def test_the_one_block_carries_both_the_secrets_and_the_urls():
         "the banner does not say how to open the forward, as which account")
 
 
-def test_the_banner_names_portainers_username_and_it_is_not_the_email():
-    """Portainer's admin username is the literal string `admin`, fixed at
-    first boot by --admin-password-file (helpers/bootstrap_portainer_admin.py
-    DEFAULT_ADMIN_USER). Keycloak takes admin_email. A banner that offers one
-    "First login: <email>" line for both sends the user to Portainer with a
-    username Portainer has never had, and the resulting failure reads as a
-    wrong password -- for the one password they were told to save."""
-    helper = (ANSIBLE_DIR / "helpers" / "bootstrap_portainer_admin.py").read_text()
-    assert 'DEFAULT_ADMIN_USER = "admin"' in helper, (
-        "Portainer's admin username moved; the banner below now lies")
-
+def test_the_banner_names_the_panels_username_and_it_is_the_email():
+    """The panel signs in with admin_email, and the banner says so under the
+    panel's address."""
     lines = _banner().splitlines()
-    portainer_at = next(
-        i for i, ln in enumerate(lines) if "portainer_admin_hostname" in ln)
     panel_at = next(
         i for i, ln in enumerate(lines) if "catena_admin_hostname" in ln)
-
-    def username_after(start: int) -> str:
-        for ln in lines[start:start + 4]:
-            if "username:" in ln:
-                return ln.split("username:", 1)[1].strip()
-        raise AssertionError(f"no username line follows line {start}")
-
-    assert username_after(portainer_at) == "admin", (
-        "the Portainer entry does not name `admin` as its username")
-    assert "admin_email" in username_after(panel_at), (
+    follow = [ln for ln in lines[panel_at:panel_at + 4] if "username:" in ln]
+    assert follow and "admin_email" in follow[0], (
         "the panel entry no longer names admin_email")
 
 
@@ -160,7 +142,7 @@ def test_the_public_urls_wait_for_a_domain():
     resolves nowhere; the SSH forward is the way in until there is one. The
     names come from store facts, so the play publishes them first."""
     banner = _banner()
-    for name in ("catena_admin_hostname", "portainer_admin_hostname"):
+    for name in ("catena_admin_hostname",):
         line = next(i for i, ln in enumerate(banner.splitlines()) if name in ln)
         assert "catena_public_surface_deferred" in banner.splitlines()[line - 1], name
     pre = " ".join(str(t) for t in yaml.safe_load(PLAYBOOK.read_text())[0]["pre_tasks"])

@@ -1,7 +1,7 @@
 # reconcile/roles/tier1_stack
 
 The swarm services Catena creates directly: the control plane (traefik,
-postgres, portainer) and coturn, the one app companion.
+postgres) and coturn, the one app companion.
 The service roles include two shared task files from here, and every converge
 ends on this role's own render.
 
@@ -40,7 +40,7 @@ ends on this role's own render.
 - `reconcile_one.yml` creates or updates one swarm service, and reports a
   change when the engine's summary line counts one.
 - `main.yml` creates `/etc/catena/stacks` (0750 root) and writes `tier1.yml`
-  (0640 root) once traefik, postgres and portainer have all contributed. A
+  (0640 root) once traefik and postgres have both contributed. A
   tag-scoped converge that ran fewer of them names the missing ones and keeps
   the previous file. `companions.yml` is written when coturn contributed,
   deleted when nothing did and coturn does not run, and kept when coturn runs
@@ -53,7 +53,7 @@ ends on this role's own render.
 
 ## Related
 
-- Callers: the `traefik`, `postgres` and `portainer` roles (control plane)
+- Callers: the `traefik` and `postgres` roles (control plane)
   and `coturn` (companion), beside this one in
   `catena-ce/ansible/reconcile/roles/`.
 - The engine: `catena-admin/payload/engines/tier1`, its catalog and its

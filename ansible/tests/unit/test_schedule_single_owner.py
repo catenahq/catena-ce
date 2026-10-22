@@ -125,7 +125,6 @@ def test_the_converge_applies_the_stored_schedule():
     # backup-retention.env for run-backup.sh to source.
     gate = str(applies[0].get("when", ""))
     assert "catena_admin_deploy_from_converge" not in gate
-    assert "portainer_api_key" not in gate
     assert "stat.exists" in gate
 
 
@@ -208,7 +207,7 @@ def test_every_lane_config_file_is_rendered_exactly_once():
 
 
 def test_the_secret_bearing_lane_config_is_not_world_readable():
-    # stack-update.env carries the Portainer API key.
+    # stack-update.env is the lane's host configuration, root-only.
     tasks = yaml.safe_load(ADMIN_LANES.read_text())
     for src in ("stack-update.env.j2",):
         tpl = next(

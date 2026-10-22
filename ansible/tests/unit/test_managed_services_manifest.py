@@ -30,8 +30,7 @@ def _role_vars() -> dict:
     """Every default and var the manifest can reference.
 
     Role defaults leak into the play scope for roles that run later, which is
-    how this template already reads portainer_service_name and
-    traefik_container_name. Collect them the same way."""
+    how this template already reads traefik_container_name. Collect them the same way."""
     out: dict = {}
     for path in sorted(ANSIBLE.glob("*/roles/*/defaults/main.yml")):
         out.update(yaml.safe_load(path.read_text()) or {})
@@ -84,7 +83,7 @@ def test_the_stack_deployed_services_use_the_swarm_naming_convention(manifest):
 
 
 def test_the_monitoring_plane_is_covered(manifest):
-    """The services that fell out of discovery when they left Portainer."""
+    """The services of the monitoring plane."""
     names = {s["name"] for s in manifest}
     for expected in ("gatus", "healthchecks", "beszel-hub", "beszel-agent",
                      "keycloak"):
@@ -124,7 +123,7 @@ def test_the_declared_tag_patterns_match_the_pins_the_converge_ships(manifest):
 
 def test_stack_deployed_entries_declare_their_stack(manifest):
     """The engine builds its client-walk skip set from compose_name. Without
-    it, a stack Portainer can see would be bumped twice: once as infra and once
+    it, a stack of Catena's own would be bumped twice: once as infra and once
     as if a client had chosen it."""
     for spec in manifest:
         if "_" not in spec["swarm_service"]:

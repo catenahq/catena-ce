@@ -342,9 +342,7 @@ def _access_html(current: run_mod.Run, values: dict[str, str], lang: str) -> str
     forward = current.forward
     if isinstance(forward, remote.Forward):
         panel = _link(forward.url(install.PANEL_PORT))
-        portainer = _link(forward.url(install.PORTAINER_PORT))
         way_in = (f"<p>{_h(lang, 'access.panel', url=panel)}</p>"
-                  f"<p>{_h(lang, 'access.portainer', url=portainer)}</p>"
                   f"<p class=doc>{_h(lang, 'access.forward_open')}</p>")
     else:
         way_in = (

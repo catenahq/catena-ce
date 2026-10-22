@@ -6,7 +6,7 @@ its panel.
     catena-installer install --inventory clientco [-i FILE] [--release vX.Y.Z]
                                              install or re-apply, in the console
     catena-installer connect --inventory clientco
-                                             forward the panel and Portainer here
+                                             forward the panel here
     catena-installer init --inventory clientco
                                              write an inventory's .env to fill in
     catena-installer uninstall --inventory clientco
@@ -152,7 +152,6 @@ def cmd_connect(args: argparse.Namespace) -> int:
         _print(f"catena-installer: {exc}")
         return 1
     _print(f"catena-admin  {forward.url(install.PANEL_PORT)}")
-    _print(f"Portainer     {forward.url(install.PORTAINER_PORT)}")
     _print("catena-installer: forwarding until this window is closed (Ctrl-C)")
     if args.open:
         webbrowser.open(forward.url(install.PANEL_PORT))
@@ -220,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_target(p)
     p.set_defaults(func=cmd_install)
 
-    p = sub.add_parser("connect", help="forward the panel and Portainer to this machine")
+    p = sub.add_parser("connect", help="forward the panel to this machine")
     _add_inventory(p, required=True)
     p.add_argument("--address", type=_address)
     p.add_argument("--open", action="store_true", help="open the panel in a browser")

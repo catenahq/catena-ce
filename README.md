@@ -5,7 +5,6 @@ Catena installs a curated list of open-source services and software to a compute
 - Fully hardened installation: key-only SSH with no root and no password login, the admin panel reached through an SSH forward, and optionally [Tailscale](https://tailscale.com/)/[Headscale](https://headscale.net), over which the panel's Lockdown closes public SSH
 - Secure application access and DDoS protection with [Cloudflared](https://github.com/cloudflare/cloudflared)
 - Scheduled, incremental, encrypted backups with [restic](https://restic.net/)
-- Container management interface with [Portainer](https://www.portainer.io/)
 - Identity and Access Management with [Phase Two](https://phasetwo.io/) [Keycloak](https://github.com/p2-inc/phasetwo-containers)
 - Authentication for any application that does not include it with [OAuth2 Proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
 - Automated app routing with [Traefik](https://doc.traefik.io/)
@@ -51,9 +50,9 @@ uvx catena-installer install --inventory prod
 
 3. Save the **admin password**, the **console password for `ops`** and the **journal verification key** to your password manager. The installer shows them once the server is bootstrapped, a few minutes in, while the rest of the install runs, and again when it ends; the page shows them in its `Catena server access` section. You need the console password to log in from your provider's console if SSH is unavailable. Running the install again shows the passwords again; the journal key is shown once.
 
-4. Log in to the Catena-Admin interface with the admin email and password. The installer keeps a connection to the server open while it runs, through the `panel` account, which can do nothing but forward, and its page links the panel and Portainer. `uvx catena-installer connect --inventory prod` opens that connection again; from a machine without the installer, the same forward is:
+4. Log in to the Catena-Admin interface with the admin email and password. The installer keeps a connection to the server open while it runs, through the `panel` account, which can do nothing but forward, and its page links the panel. `uvx catena-installer connect --inventory prod` opens that connection again; from a machine without the installer, the same forward is:
 ```sh
-ssh -N -L 9010:127.0.0.1:9010 -L 9000:127.0.0.1:9000 panel@<your-server-address>
+ssh -N -L 9010:127.0.0.1:9010 panel@<your-server-address>
 ```
    The server's address is its public IP, or its tailnet IP once the lockdown has closed public SSH. Then go to the `Settings` tab to finish the installation:
    - Enter your S3 endpoint and credentials, then `Generate backup encryption password` and save it to your password manager: you need it to read and restore your backups
@@ -81,7 +80,7 @@ The installer's console verbs:
 ```sh
 uvx catena-installer install   --inventory prod                   # re-apply the release the server runs
 uvx catena-installer install   --inventory prod --release vX.Y.Z  # move the server to that release
-uvx catena-installer connect   --inventory prod                   # open the panel and Portainer here
+uvx catena-installer connect   --inventory prod                   # open the panel here
 uvx catena-installer uninstall --inventory prod                   # hand unattended-upgrades back to the OS
 ```
 
