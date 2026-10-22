@@ -22,6 +22,17 @@
 # Metrics history (/beszel_data) is a named volume EXCLUDED from restic
 # (see reconcile/roles/backup/defaults backup_exclude_patterns) -- disposable
 # telemetry, reconstructed from live agents within a cycle after restore.
+#
+# x-catena declares that volume: a newer hub migrates it on its first start, so
+# the data is copied before the image moves and put back with the previous
+# image when the move rolls back.
+x-catena:
+  schema: 2
+  data:
+    app:
+      volume: {{ beszel_hub_data_volume }}
+      upgrade: in_place
+
 services:
   app:
     image: {{ beszel_image }}

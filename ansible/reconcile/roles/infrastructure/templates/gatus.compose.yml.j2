@@ -1,5 +1,15 @@
 ---
 # {{ ansible_managed }}
+# x-catena declares the SQLite volume: a newer Gatus migrates it on its first
+# start, so the data is copied before the image moves and put back with the
+# previous image when the move rolls back.
+x-catena:
+  schema: 2
+  data:
+    app:
+      volume: gatus-data
+      upgrade: in_place
+
 services:
   app:
     image: {{ gatus_image }}

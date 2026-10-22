@@ -47,8 +47,8 @@ removed after the deploy.
 
 `swarm_stack.yml` runs `catena-stack-update-managed infra-data copy` between
 writing a stack file and deploying it. A stack whose `x-catena` block declares
-data (`data.<service>.volume`, or `.database` for Keycloak's in catena-postgres)
-has that data copied, with its service stopped for the copy, when the file
+data (`data.<service>.volume`, or `.database` for the databases of a swarm
+service) has that data copied, with its service stopped for the copy, when the file
 changes the service's image; a refusal fails the converge before the deploy.
 Gatus, Healthchecks and Beszel's hub declare their volumes in their templates.
 A release update names the run the copies are filed under (`CATENA_INFRA_RUN`)

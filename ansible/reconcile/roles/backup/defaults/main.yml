@@ -328,6 +328,13 @@ backup_exclude_patterns:
   # agent, so only the charts reset.
   - "*/docker/volumes/beszel-hub-data"
   - "*/docker/volumes/beszel-hub-data/*"
+  # The copies catena-stack-update-managed takes of the data of Catena's own
+  # services before an image moves (/var/lib/catena/prebump/infra-<run>, with
+  # its record). They hold the volumes listed above, Beszel's history among
+  # them, and are removed after 14 days without waiting on a backup that
+  # carries them.
+  - "*/prebump/infra-*"
+  - "*/prebump/infra-*/*"
   # An application's own regenerable volume is not listed here: its compose
   # file labels the top-level volume vps.backup.exclude=true, and each backup
   # run adds an exclude for every volume carrying the label.

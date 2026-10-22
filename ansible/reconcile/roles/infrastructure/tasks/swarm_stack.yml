@@ -50,6 +50,27 @@
     mode: "0640"
   no_log: true
 
+# A stack file whose x-catena block declares data (data.<service>.volume or
+# .database) names a service whose image can migrate that data on its first
+# start. The verb copies the data of each such service whose image the new file
+# changes, before the deploy, and refuses when it cannot: a stack is never
+# deployed onto data with no copy. CATENA_INFRA_RUN is the run the copy is
+# filed under (the release update sets it, so a rollback finds the copy);
+# empty, the verb names the run itself. A stack with no block is a no-op.
+- name: "Swarm: copy the data a moved image migrates ({{ svc_name }})"
+  ansible.builtin.command:
+    argv:
+      - "{{ catena_admin_stack_update_bin }}"
+      - infra-data
+      - copy
+      - --stack
+      - "{{ svc_name }}"
+      - --file
+      - "{{ swarm_stack_dir }}/{{ svc_name }}.yml"
+      - --run
+      - "{{ lookup('env', 'CATENA_INFRA_RUN') }}"
+  changed_when: false
+
 - name: "Swarm: initialize deploy attempt state ({{ svc_name }})"
   ansible.builtin.set_fact:
     _swarm_deploy_done: false
