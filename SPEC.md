@@ -423,15 +423,23 @@ an administrator switches them on). None spends object storage.
 
 Every lane (backup, the bit-rot check, the restore test, the offsite copy, the
 daily update chain, dashboard updates, the scheduled converge, the off-site
-heartbeat, the vulnerability watch) ships in the payload with its timer off.
-`catena-schedule apply` turns a lane on only on a licensed host, at
-the cadence set in the dashboard. The backup, the updates, the converge, the
+heartbeat, the vulnerability watch) ships in the payload with its timer off,
+except the vulnerability watch's on a host that never saved its schedules.
+`catena-schedule apply` turns a lane on only on a host whose edition covers it,
+at the cadence set in the dashboard. Two lanes are open to every host: the
+backup, which a host without a paid edition runs at most once a week, and the
+vulnerability watch, at most once a day; a faster schedule is refused. Every
+other lane, and any faster cadence, needs a paid edition. A host that loses its
+paid edition keeps those two lanes, at their default time when the saved
+schedule is faster than a free host may set, and turns every other timer off
+with its saved choice kept. The backup, the updates, the converge, the
 container engine upgrade and the restart stay runnable by hand on every host.
 A dashboard update applies the configuration its new image carries with a
 converge, and puts the previous dashboard back when that converge fails.
 
 The local Healthchecks checks of the lanes follow the lanes' schedules, and a
-lane that is off or unlicensed has its checks paused. The external heartbeat is
+lane that is off, or that the host's edition does not cover, has its checks
+paused. The external heartbeat is
 the one call that leaves the server: while its lane is on and the licence
 active, it calls the outside monitoring address saved in the dashboard, and
 names any of the server's own monitors that stopped answering.
@@ -482,10 +490,14 @@ hour is skipped, reported, and runs again the next night; a change made in the
 dashboard meanwhile answers that the server is busy. Firewall rules are
 reapplied on every container engine start without waiting.
 
-The vulnerability watch runs on its own schedule or as a step of the daily
-chain, never both. It checks the software lists of every running image against
-a fresh vulnerability database and the list of vulnerabilities known to be
-exploited, and alerts once per vulnerability. An emergency patch moves an
+The vulnerability watch runs on every host, on its own schedule or, on a paid
+host, as a step of the daily chain, never both. It checks the software lists of
+every running image against a fresh vulnerability database and the list of
+vulnerabilities known to be exploited, and alerts once per vulnerability on
+every edition: for one known to be exploited, with or without a fixed version,
+or for a critical one published in the last 30 days that has a fixed version,
+naming the fix. The vulnerabilities page, the software inventory, the emergency
+patch and its automatic mode need a paid edition. An emergency patch moves an
 application's service to the oldest release its update policy allows that a
 scan on the host shows free of the vulnerability, behind the update's own
 copies, health check and rollback; a person confirms it, or, when the
@@ -503,7 +515,8 @@ on every page until it is taken.
 | Invariant | Enforced by |
 | --- | --- |
 | Scheduled work is default-deny: this repository ships only enumerated local-maintenance timers, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
-| An unlicensed host schedules no lane at all | `bench:unlicensed_schedules_nothing` |
+| A host with no paid edition schedules only the weekly backup and the vulnerability watch, and refuses a backup more often than weekly | `bench:community_free_schedules` |
+| A host with no paid edition is emailed about an exploited vulnerability its software carries, or a recent critical one with a fixed version, naming the fix | `bench:community_security_alerts` |
 | A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
 | A failed backup verification stops the daily chain before any update, while the restore test is in the chain | `bench:daily_chain_verify_hot_fail_aborts_updates` |
 | The weekly restore test starts the restored databases and Nextcloud and checks that each opens | `bench:verify_hot_bootprobe_weekly`, `bench:erpnext_restore_round_trip` |
