@@ -8,12 +8,15 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # Cadence is not set here. It is a customizable RPO: an OnCalendar string
 # per lane, set in the Catena admin panel, stored in /etc/catena/config.json
 # and applied by `catena-schedule apply`, which verifies this host's licence
-# before it enables anything. A client editing their own config.json does not
-# get around it: the applier reads the licence, not the file's opinion of it.
+# before it enables anything. The backup lane is open to every edition at most
+# once a week; a faster cadence needs Catena Pro. A client editing their own
+# config.json does not get around it: the applier reads the licence, not the
+# file's opinion of it.
 #
-# Every lane ships DISABLED. Scheduled work spends disk and object-store quota
-# nobody has confirmed the client has, so a fresh host schedules nothing until
-# someone turns a lane on.
+# Every lane ships DISABLED, except the vulnerability watch on a host that never
+# saved its schedules. Scheduled work spends disk and object-store quota nobody
+# has confirmed the client has, so a fresh host schedules no backup until
+# someone turns the lane on.
 
 # Offsite copy (ransomware mitigation).
 #

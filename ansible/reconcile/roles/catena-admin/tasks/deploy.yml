@@ -439,11 +439,10 @@
 # deployed the shell; it depends on catena-schedule being installed, which is
 # what the stat asks.
 #
-# The binary itself decides what an unlicensed host may schedule: it verifies
-# the licence offline and refuses a Business lane or a tighter-than-weekly
-# backup cadence. Community's cap is also asserted below against the stored
-# value, because a client can edit their own config.json and CV8 has to hold in
-# this repo, not only in the panel.
+# The binary itself decides what a host may schedule: it verifies the licence
+# offline and runs only the lanes the edition covers. A host without a paid
+# edition gets the backup at most once a week and the vulnerability watch at
+# most once a day; a faster stored schedule runs at the lane's default time.
 #
 # Idempotent: it skips identical writes, so a converge with nothing to change
 # touches no file and reports unchanged.

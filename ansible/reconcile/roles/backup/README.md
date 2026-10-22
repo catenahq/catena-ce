@@ -11,8 +11,9 @@ restore's converge skips the first snapshot (tag `first_backup`;
 - `main.yml` -- write the backup configuration, register the
   Healthchecks ping, and purge any apt restic or rclone. Whether the
   payload's `catena-backup.timer` runs, and when, is `catena-schedule apply`
-  reading /etc/catena/config.json, and it enables no lane without an active
-  licence.
+  reading /etc/catena/config.json, and it enables a lane only on a host whose
+  edition covers it: the backup runs at most once a week on every edition, and
+  more often on Catena Pro.
 - `validate.yml` -- the role's checks, which `playbooks/validate.yml` runs:
   the configuration files, the payload's scripts and units, and the
   repository answering, or, while the backups wait after a restore,

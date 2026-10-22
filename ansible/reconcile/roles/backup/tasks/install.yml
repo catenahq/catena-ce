@@ -298,11 +298,12 @@
 # unit, and they would disagree the moment somebody turned the lane off in the
 # panel: the next converge would turn it back on.
 #
-# The consequence is deliberate and it is the point: a fresh host schedules
-# NOTHING. Scheduled work spends disk and object-store quota nobody has
-# confirmed the client has. catena-schedule keeps the Healthchecks checks of a
-# lane that is off paused, so none can go late: the panel shows an unscheduled
-# host rather than an alert about a host nobody asked to back anything up yet.
+# The consequence is deliberate and it is the point: a fresh host schedules no
+# backup, whatever its edition. Scheduled work spends disk and object-store
+# quota nobody has confirmed the client has. catena-schedule keeps the
+# Healthchecks checks of a lane that is off paused, so none can go late: the
+# panel shows an unscheduled host rather than an alert about a host nobody asked
+# to back anything up yet.
 
 # ─── initial snapshot ────────────────────────────────────────────────────
 # Take one snapshot inline so the repo has data before the first scheduled

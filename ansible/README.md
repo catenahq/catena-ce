@@ -64,24 +64,32 @@ another catena-ce tree (`helpers/tree_hash.py`).
 
 ## Scheduled work is default-deny
 
-Every scheduled lane ships DISABLED, and enabling one needs an active
-Catena Pro licence: `catena-schedule` verifies the licence on the host and
-leaves an unlicensed box with every timer off. The mechanisms themselves are
-Community and stay runnable from the panel's buttons -- what is licensed is
-having them happen while nobody is watching.
+Every scheduled lane ships DISABLED, and `catena-schedule` enables one only
+when the host's edition covers the lane. Two lanes are open to every host: the
+backup, at most once a week, and the vulnerability watch, at most once a day.
+The watch is on from the start on a host that never saved its schedules; the
+backup stays off until the admin turns it on. Every other lane, and a backup
+more often than weekly, needs Catena Pro; the offsite copy needs Business.
+`catena-schedule` verifies the edition on the host and refuses a faster
+schedule. A host that loses its paid edition keeps the backup and the watch,
+running at their default time when the saved schedule is faster than a free
+host may set, and has every other timer turned off. The mechanisms themselves
+are Community and stay runnable from the panel's buttons -- what is licensed is
+having them happen on a wider or faster schedule while nobody is watching.
 
 Local maintenance timers are not lanes and are always on: monitor sync,
 antivirus watch, mail canary, public-port reconciliation and the
 reboot-required probe. Each is an enumerated allowlist entry, machine-enforced
 rather than conventional, and none of them spends object storage.
 
-The managed lifecycle -- scheduled backup and verification, container
-updates with rollback, CVE remediation, the catena-daily orchestrator
-chain -- is the Pro edition; offsite copies and attestation are Business.
-Its engines ship in the public catena-admin payload and install on every
-host, but the license check gates their features at runtime, so they stay
-dormant on a Community host. On a Pro or Business host `catena-schedule`
-turns on the lanes set on the panel's Schedules page.
+The managed lifecycle -- backup verification, container updates with
+rollback, CVE remediation, the catena-daily orchestrator chain, and a backup
+more often than weekly -- is the Pro edition; offsite copies and attestation
+are Business. Its engines ship in the public catena-admin payload and install
+on every host, but the license check gates their features at runtime, so on a
+Community host only the weekly backup and the vulnerability watch run. On a
+host whose edition covers a lane, `catena-schedule` turns on the lanes set on
+the panel's Schedules page.
 
 ## The inventory
 
