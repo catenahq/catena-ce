@@ -1,7 +1,7 @@
 """A whole-server restore converges without touching the public edge.
 
 catena-admin payload/cmd/catena-recovery runs reconcile.yml with
---skip-tags edge. The public edge (the tunnel and the mail and TURN A records)
+--skip-tags edge. The public edge (the tunnel)
 moves at a migration's CUTOVER or a later converge, and until then it may point
 at another host: a migration target's auth.<zone> answers Cloudflare 530/1033
 while the source is stopped, so a check through it fails a restore that is
@@ -112,7 +112,6 @@ def test_the_scan_sees_the_edge_tagged_files():
     assert "reconcile/roles/infrastructure/tasks/main.yml" in outside
     assert "reconcile/roles/oauth2_proxy/tasks/deploy.yml" in outside
     for edge_file in ("reconcile/roles/infrastructure/tasks/verify_gated_services.yml",
-                      "reconcile/roles/coturn/tasks/dns.yml",
                       "reconcile/roles/oauth2_proxy/tasks/validate.yml"):
         assert (ANSIBLE / edge_file).is_file(), edge_file
         assert edge_file not in outside, f"{edge_file} is reachable outside `edge`"

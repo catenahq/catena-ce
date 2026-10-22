@@ -11,8 +11,9 @@
 # --- Global ---
 ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / converge.yml."
 
-# This machine's public address: coturn advertises it in its ICE candidates and
-# the TURN A record points at it. A
+# This machine's public address. Its reader here is
+# bootstrap/roles/docker/defaults/main.yml (the swarm advertise address); the
+# panel's apps read the recorded fact (/etc/ansible/facts.d/catena.fact). A
 # controller's inventory states it (hosts.yml, from HOST_PUBLIC_IP), and a host
 # var outranks this file. bootstrap/roles/common records that value on the host
 # as a local fact, which every converge gathers, so a host converging itself
@@ -141,7 +142,7 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # api.cloudflare.com's public-CA certificate in the same process. So it goes
 # where update-ca-certificates picks it up (.crt required), and certbot is
 # pointed at the combined bundle. tasks/acme_local_ca.yml installs it; the
-# infrastructure role and the coturn cert flow include that file.
+# infrastructure role includes that file.
 acme_local_directory_url: "{{ cfg_acme_directory_url | default('') }}"
 acme_local_host_ip: "{{ cfg_acme_host_ip | default('') }}"
 acme_local_ca_bundle_b64: "{{ cfg_acme_ca_bundle_b64 | default('') }}"
@@ -211,10 +212,11 @@ admin_last_name: "{{ cfg_admin_last_name | default('') }}"
 
 # --- Declarative public-port registry ---
 # The directory the registry is built from. Here rather than in
-# reconcile/roles/public_ports because five roles write the fragment dir --
-# coturn, infrastructure's three lanes and catena-admin's host setup
+# reconcile/roles/public_ports because several roles write the fragment dir --
+# bootstrap/roles/common (SSH), reconcile/roles/infrastructure (gatus, beszel,
+# healthchecks) and reconcile/roles/catena-admin
 # all drop a <owner>.json into it -- and a role default is only reliably in
-# scope once that role has run. A constant five roles share is the product's,
+# scope once that role has run. A constant those roles share is the product's,
 # not one role's. The reconciler that reads it ships in the catena-admin
 # payload.
 public_ports_fragment_dir: /etc/catena/public-ports.d
@@ -471,7 +473,7 @@ catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"
 
 # The addresses Catena itself answers on: the sign-in host of every served
-# domain (reconcile/roles/keycloak routes each one), the TURN relay, and the
+# domain (reconcile/roles/keycloak routes each one), and the
 # host of every tool behind a gate of reconcile/roles/oauth2_proxy
 # (oauth2_proxy_apps), the panel's among them. dashboard-sync routes no client
 # app on one (catena-admin payload/lib/app_intent.py) and the app checker holds
@@ -480,7 +482,7 @@ catena_admin_ui_port: "9010"
 # (reconcile/roles/catena-admin) as CATENA_HOSTNAMES, after each reads
 # playbooks/tasks/served_zones.yml for catena_secondary_zones.
 catena_hostnames: >-
-  {{ ([keycloak_hostname, coturn_hostname]
+  {{ ([keycloak_hostname]
       + (catena_secondary_zones | map('regex_replace', '^', keycloak_subdomain ~ '.') | list)
       + query('vars', *(oauth2_proxy_apps | map(attribute='host_var'))))
      | unique | list }}

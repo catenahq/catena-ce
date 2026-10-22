@@ -31,7 +31,7 @@ its own SSH session:
     reconciles itself with;
   - **show-keyset** -- the passwords the server minted, printed between the
     KEYSET markers, and again when the install ends;
-  - **converge** -- networking (Cloudflare Tunnel / coturn), Docker,
+  - **converge** -- networking (Cloudflare Tunnel), Docker,
     sign-on (Keycloak + oauth2-proxy), the restic backup, the
     catena-admin shell. Whatever the store does not configure yet (a domain,
     backups) is skipped and says so. `--tags` scopes it;

@@ -186,7 +186,7 @@ env_sections:
     doc: |-
       Leave every key in this section at its default on a client install.
       They point certificate issuance at a local Pebble or at Let's Encrypt
-      staging, whose certificates browsers, TURN clients and sending MTAs all
+      staging, whose certificates browsers, relay clients and sending MTAs all
       reject. The test bench sets them to its own host-side ACME server.
 
 # --- vendor credentials the client HOLDS ------------------------------------
@@ -277,8 +277,7 @@ config:
     env: {section: host, default: "", example: "203.0.113.10"}
 
   # The address every leg of the install dials. Empty means HOST_PUBLIC_IP,
-  # which stays the host's public address either way (coturn, the external
-  # checks). The installer page asks for it behind its public/private choice,
+  # which stays the host's public address either way (the external checks). The installer page asks for it behind its public/private choice,
   # labelled by gui_choice; `catena-installer install --address` overrides it
   # for one run.
   - key: HOST_SSH_ADDRESS
@@ -738,14 +737,13 @@ config:
   # from the inventory reseeds them: a bench host follows its Pebble when the
   # address moves.
 
-  # Staging has no rate limit, and the TURN server only validates presence and
-  # expiry.
+  # Staging has no rate limit.
   - key: CATENA_ACME_STAGING
     residence: store
     var: cfg_acme_staging
     help:
       en: >-
-        Issue the certificates of the applications and of the TURN server from
+        Issue the certificates of the applications from
         Let's Encrypt's staging CA. A local ACME server's directory URL takes
         precedence.
     env: {section: development, default: "false", reseed: true}

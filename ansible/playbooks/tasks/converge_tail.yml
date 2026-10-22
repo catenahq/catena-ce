@@ -3,8 +3,7 @@
 # both include it, naming themselves in `catena_converge_path`. Each task keeps
 # its own tag, so a --tags run still selects one of them.
 
-# Render the control plane and the app companions as compose files and prove
-# they load. Applies nothing: the services were already created and reconciled
+# Render the control plane as a compose file and prove it loads. Applies nothing: the services were already created and reconciled
 # by the catena-tier1 engine, role by role, as each contributed its spec. This
 # is the oracle -- `docker stack config` type-checking the same dicts against
 # the docker actually installed. Here, after the roles, so it renders the specs
@@ -12,7 +11,7 @@
 #
 # `apply:` carries the tag inward: without it, `--tags tier1_stack` fires the
 # include and then filters out every task inside it.
-- name: "Tier 1: render + validate the swarm-service oracle files"
+- name: "Tier 1: render + validate the swarm-service oracle file"
   ansible.builtin.include_role:
     name: tier1_stack
     apply:

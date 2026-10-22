@@ -220,8 +220,8 @@ def test_the_gate_reads_real_files():
     files = _task_files()
     assert len(files) > 50, f"only {len(files)} task-bearing YAML files found"
     tasks = sum(len(_tasks_in(_load(p))) for p in files)
-    assert tasks > 1000, f"only {tasks} tasks found across {len(files)} files"
-    assert len(_templates()) > 50, f"only {len(_templates())} templates found"
+    assert tasks > 900, f"only {tasks} tasks found across {len(files)} files"
+    assert len(_templates()) > 40,f"only {len(_templates())} templates found"
 
 
 def test_the_gate_reads_both_sides_and_every_playbook():

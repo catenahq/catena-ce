@@ -184,5 +184,5 @@ def test_the_pebble_host_mapping_regexp_matches_the_line_it_writes():
     assert not re.search(pattern, "10.0.0.1 pebble.example.test"), (
         f"{rel}: {pattern!r} is too loose"
     )
-    for cert in ("reconcile/roles/coturn/tasks/cert.yml", "reconcile/roles/infrastructure/tasks/main.yml"):
-        assert "tasks/acme_local_ca.yml" in (ANSIBLE / cert).read_text(encoding="utf-8"), cert
+    includer = "reconcile/roles/infrastructure/tasks/main.yml"
+    assert "tasks/acme_local_ca.yml" in (ANSIBLE / includer).read_text(encoding="utf-8"), includer

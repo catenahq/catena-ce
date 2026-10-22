@@ -84,8 +84,8 @@ def test_an_open_80_or_443_is_caught(row):
     "80/tcp                     DENY        Anywhere",
     "443/tcp                    DENY        Anywhere",
     # Other protocols and unrelated services.
-    "5349/tcp                   ALLOW       Anywhere                   # catena-ports:coturn",
-    "22/tcp                     ALLOW       Anywhere",
+    "5349/tcp                   ALLOW       Anywhere                   # catena-ports:gatus",
+    "22/tcp                    ALLOW       Anywhere",
 ])
 def test_unrelated_or_denied_rows_are_ignored(row):
     assert _hits(_HEADER + row + "\n") == []
@@ -103,6 +103,6 @@ def test_catches_the_open_port_among_the_noise():
         "18080/tcp                  DENY        Anywhere                   # catena-ports:gatus",
         "18099/tcp                  DENY        Anywhere                   # catena-ports:healthchecks",
         "80/tcp                     ALLOW       Anywhere",
-        "5349/tcp                   ALLOW       Anywhere                   # catena-ports:coturn",
+        "5349/tcp                   ALLOW       Anywhere                   # catena-ports:gatus",
     ]) + "\n"
     assert _hits(body) == ["80/tcp                     ALLOW       Anywhere"]

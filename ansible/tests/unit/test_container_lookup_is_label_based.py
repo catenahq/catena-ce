@@ -10,7 +10,6 @@ exit 0, which every one of these call sites reads as "that application is not
 deployed":
 
   the antivirus scanner never deploys, so the mail path is unscanned
-  coturn never deploys, so calls have no relay
   a wiring task no-ops, so the TLS cert and the OIDC config are never written
 
 None of that fails a converge. It reports success for a host with half its

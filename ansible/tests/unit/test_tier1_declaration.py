@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import jinja2
 import pytest
 import yaml
 
@@ -116,31 +115,7 @@ def test_nothing_writes_a_declaration_file():
     assert "tier1_declaration_path" not in body
 
 
-# --- two rosters, two lifecycles ----------------------------------------
-
-
-def test_the_control_plane_and_the_companions_render_to_different_files():
-    d = _defaults()
-    assert d["tier1_stack_path"] != d["tier1_companions_path"]
-    # Both are unrendered Jinja here; what matters is that they are anchored to
-    # the same directory, which is the one reconcile/roles/infrastructure also owns.
-    assert "tier1_stack_dir" in d["tier1_companions_path"]
-    assert "tier1_stack_dir" in d["tier1_stack_path"]
-
-
-def test_the_companion_roster_is_not_under_the_completeness_guard():
-    """A companion is present exactly when its consumer is, so an accumulator
-    holding fewer than last converge is the answer rather than a partial one.
-    Requiring a roster would fail every host with no real-time app."""
-    guarded = None
-    for task in yaml.safe_load(TASKS.read_text()):
-        if "block" not in task:
-            continue
-        names = [t.get("name") or "" for t in task["block"]]
-        if any("companion file" in n for n in names):
-            guarded = task
-    assert guarded is not None, "the companion write is not inside a block"
-    assert "tier1_stack_required" not in str(guarded["when"])
+# --- the control-plane render -------------------------------------------
 
 
 def test_the_control_plane_write_keeps_its_completeness_guard():
@@ -159,67 +134,12 @@ def test_the_control_plane_write_keeps_its_completeness_guard():
     assert "difference(_tier1_present) | length == 0" in cond
 
 
-def _runs(fragment: str, contributed: list[str], running: list[str] | None) -> bool:
-    """Whether the companion task named like `fragment` runs, its `when` list
-    evaluated in order as Ansible does. `running` is None when the service
-    probe was skipped, which leaves its registered result without stdout_lines."""
-    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
-    env.filters["intersect"] = lambda a, b: [x for x in a if x in b]
-    facts = {
-        "_tier1_companions": contributed,
-        "_tier1_services": ({"skipped": True} if running is None
-                            else {"stdout_lines": running}),
-        "tier1_companion_services": _defaults()["tier1_companion_services"],
-    }
-    when = _task(TASKS, fragment)["when"]
-    return all(env.compile_expression(cond)(**facts)
-               for cond in (when if isinstance(when, list) else [when]))
-
-
-def test_the_service_probe_runs_only_when_nothing_contributed():
-    probe = _task(TASKS, "which swarm services run on this host")
-    assert probe["ansible.builtin.command"]["argv"][:3] == ["docker", "service", "ls"]
-    assert _runs("which swarm services run on this host", [], None)
-    assert not _runs("which swarm services run on this host", ["coturn"], None)
-
-
-def test_a_contributed_companion_is_written():
-    assert _runs("write and validate the companion file", ["coturn"], None)
-    assert not _runs("kept the last companion render", ["coturn"], None)
-    assert not _runs("no companions on this host", ["coturn"], None)
-
-
-def test_the_companion_file_is_removed_when_nothing_contributed_or_runs():
-    """Left behind, it describes services this host does not run -- and the whole
-    point of rendering is that the file matches reality."""
-    task = _task(TASKS, "no companions on this host")
-    assert task["ansible.builtin.file"]["state"] == "absent"
-    assert _runs("no companions on this host", [], ["catena-traefik"])
-    assert not _runs("kept the last companion render", [], ["catena-traefik"])
-
-
-def test_a_running_companion_that_did_not_contribute_keeps_its_render():
-    """coturn keeps running when its role is skipped by --tags or held back on a
-    host with no domain. Deleting the file then would leave a running service
-    with no render; the last render still describes it."""
-    running = ["catena-traefik", "coturn"]
-    assert not _runs("no companions on this host", [], running)
-    assert _runs("kept the last companion render", [], running)
-    assert not _runs("write and validate the companion file", [], running)
-
-
-def test_the_companion_roster_is_the_service_coturn_creates():
-    coturn = yaml.safe_load(
-        (ANSIBLE / "reconcile" / "roles" / "coturn" / "defaults" / "main.yml").read_text())
-    assert _defaults()["tier1_companion_services"] == [coturn["coturn_compose_name"]]
-
-
 @pytest.mark.parametrize("playbook", ["converge.yml", "reconcile.yml"])
 def test_both_converge_paths_render_the_oracle(playbook: str):
     """The install runs converge.yml once; every later converge, an update's
     included, is the host's own reconcile.yml. A render on only the first
-    leaves both files as the install wrote them: no coturn after a Talk
-    deploy, and control-plane images an update has since moved."""
+    leaves the file as the install wrote it, with control-plane images an
+    update has since moved."""
     tasks = post_tasks(PLAYBOOKS / playbook)
     names = [t.get("name", "") for t in tasks]
     render = [i for i, t in enumerate(tasks)
@@ -237,12 +157,6 @@ def test_a_tier1_stack_tag_reaches_the_render(playbook: str):
     tail = next(t for t in play["post_tasks"]
                 if (t.get("ansible.builtin.include_tasks") or {}).get("file") == CONVERGE_TAIL)
     assert "tier1_stack" in tail["tags"]
-
-
-def test_coturn_contributes_to_the_companion_roster_not_the_control_plane():
-    coturn = (ANSIBLE / "reconcile" / "roles" / "coturn" / "tasks" / "deploy.yml").read_text()
-    assert "catena_companion_specs" in coturn
-    assert "catena_tier1_specs" not in coturn
 
 
 # --- two roles, one directory ------------------------------------------------

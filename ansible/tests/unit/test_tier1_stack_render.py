@@ -229,15 +229,15 @@ def test_a_secret_without_a_target_is_refused() -> None:
 
 
 def test_mount_accepts_both_destination_and_target_spellings() -> None:
-    """The roles use both: traefik/postgres say destination=,
-    coturn says target=. Docker accepts either, so this must too."""
+    """The roles use destination=; docker accepts target= too, so this must
+    too."""
     assert mount(
         "type=bind,source=/etc/catena/traefik,destination=/etc/traefik"
     ) == "/etc/catena/traefik:/etc/traefik"
     assert mount(
-        "type=bind,source=/etc/coturn/turnserver.conf,"
-        "target=/etc/coturn/turnserver.conf,readonly"
-    ) == "/etc/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro"
+        "type=bind,source=/etc/catena/example.conf,"
+        "target=/etc/example.conf,readonly"
+    ) == "/etc/catena/example.conf:/etc/example.conf:ro"
 
 
 def test_mount_carries_a_named_volume_through() -> None:
@@ -266,11 +266,11 @@ def test_detach_does_not_leak_into_the_compose_service() -> None:
 
 def test_upsert_replaces_a_same_named_spec_rather_than_appending() -> None:
     """A spec contributed twice under one name replaces the first."""
-    first = {"name": "coturn", "image": "coturn/coturn:4.10.0-alpine"}
-    second = {"name": "coturn", "image": "coturn/coturn:4.11.0-alpine"}
+    first = {"name": "catena-traefik", "image": "traefik:v3.7.6"}
+    second = {"name": "catena-traefik", "image": "traefik:v3.7.7"}
     out = upsert(upsert([_pg()], first), second)
-    assert [s["name"] for s in out] == ["catena-postgres", "coturn"]
-    assert out[-1]["image"] == "coturn/coturn:4.11.0-alpine"
+    assert [s["name"] for s in out] == ["catena-postgres", "catena-traefik"]
+    assert out[-1]["image"] == "traefik:v3.7.7"
 
 
 def test_upsert_seeds_an_undefined_accumulator() -> None:
@@ -333,23 +333,18 @@ def test_whole_control_plane_renders_together() -> None:
         assert svc["deploy"]["restart_policy"]["condition"] == "any"
 
 
-def test_a_companion_renders_through_the_same_renderer() -> None:
-    """coturn renders into companions.yml rather than tier1.yml -- it is
-    presence-gated on a Talk or video consumer, and mixing it in made the
-    control-plane file change on a converge where the control plane had not.
-    Same renderer either way, so the traps above still hold for it: host
-    networking, global mode, and a placement constraint pinning it to the node
-    that holds the bind sources (a bind whose source is missing is CREATED
-    empty)."""
+def test_a_global_host_network_service_renders() -> None:
+    """Host networking, global mode, and a placement constraint pinning the
+    service to the node that holds the bind sources (a bind whose source is
+    missing is CREATED empty)."""
     out = render([
-        {"name": "coturn", "image": "coturn/coturn:4.10.0-alpine",
+        {"name": "catena-example", "image": "example/example:1.0.0",
          "mode": "global", "networks": ["host"], "user": "0:0",
          "constraints": ["node.labels.catena.role==data"],
-         "volumes": ["/etc/coturn/turnserver.conf:"
-                     "/etc/coturn/turnserver.conf:ro"],
-         "command": ["-c", "/etc/coturn/turnserver.conf"]},
+         "volumes": ["/etc/catena/example.conf:/etc/example.conf:ro"],
+         "command": ["-c", "/etc/example.conf"]},
     ])
-    svc = out["services"]["coturn"]
+    svc = out["services"]["catena-example"]
     assert svc["deploy"]["mode"] == "global"
     assert "replicas" not in svc["deploy"]
     assert out["networks"] == {"host": {"external": True}}

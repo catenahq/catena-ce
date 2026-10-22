@@ -9,8 +9,8 @@ Swarm gotcha with local named volumes, and the constraint is what
 makes `docker swarm join` a safe operation instead of a data-loss event.
 
 WHAT THIS FILE COVERS. The tier-1 constraints live in the host engine
-(catena-admin payload/engines/tier1/catalog.go), which reconcile/roles/postgres,
-reconcile/roles/traefik and reconcile/roles/coturn ask
+(catena-admin payload/engines/tier1/catalog.go), which reconcile/roles/postgres
+and reconcile/roles/traefik ask
 with `catena-tier1 spec`. They are asserted there, in catalog_test.go: every
 mounting service pinned to the data node, every socket-mounting service also
 requiring a manager, and postgres deliberately not requiring one.

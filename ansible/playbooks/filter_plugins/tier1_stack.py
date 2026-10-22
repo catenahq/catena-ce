@@ -137,8 +137,7 @@ def swarm_mount_to_compose(mount):
     file this renders carry the same value, so they cannot drift.
 
     Both spellings of the destination are accepted -- `destination=` (traefik,
-    postgres) and `target=` (coturn) -- because docker accepts both
-    and the roles use both.
+    postgres) and `target=` -- because docker accepts both.
     """
     fields = {}
     for part in str(mount).split(","):
@@ -325,8 +324,7 @@ def _service(spec):
 
 def tier1_spec_upsert(existing, spec):
     """Add `spec` to an accumulating roster, replacing any same-named entry
-    already in it. Used for both rosters -- the control plane and the app
-    companions -- because the operation is the same either way.
+    already in it.
 
     Each role appends its own spec as it deploys, which is what keeps the
     rendered file and the spec the engine applies reading the SAME variable.

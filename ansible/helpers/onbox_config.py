@@ -190,7 +190,6 @@ def configured_zone_names(zones: object) -> list[str]:
 # once for the user's password manager (see USER_HELD_SECRETS).
 INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "catena_postgres_password": mint_strong_password,
-    "turn_static_auth_secret": mint_strong_password,
     # Signs the catena-admin native-login session cookie (the host-published
     # tailnet listener). Minted once, stable across converges, rides the backup.
     "catena_admin_session_key": mint_strong_password,

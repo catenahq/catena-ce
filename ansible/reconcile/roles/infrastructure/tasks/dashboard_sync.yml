@@ -125,9 +125,7 @@
 # systemd hands back an exit code and a pointer to `journalctl`, and on a DR
 # host the machine holding that journal is torn down with the scenario -- so a
 # failure here reports nothing that can still be read afterwards. Capture the
-# reconciler's own output before re-raising, the way
-# reconcile/roles/coturn/tasks/validate.yml dumps the container log before asserting on a
-# missing listener.
+# reconciler's own output before re-raising.
 - name: "dashboard-sync: run the reconciler, reporting its own log on failure"
   when: _dashboard_sync_present | default(false)
   block:

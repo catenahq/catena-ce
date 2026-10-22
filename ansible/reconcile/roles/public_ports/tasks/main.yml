@@ -2,7 +2,7 @@
 # Wire the declarative public-port reconciler into this host. Single applier
 # for every direct public port the VPS exposes outside the Cloudflare Tunnel.
 #
-# Infra roles (coturn, infrastructure, catena-admin) drop a JSON
+# Infra roles (infrastructure, catena-admin) drop a JSON
 # fragment into /etc/catena/public-ports.d/<owner>.json declaring their ports;
 # app templates declare ports via vps.expose.* compose labels harvested live.
 # The reconciler, its modules and its units ship in the catena-admin payload,

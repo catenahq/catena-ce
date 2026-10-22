@@ -98,7 +98,6 @@ converge loader (`playbooks/tasks/load_onbox_config.yml` ->
 then set_facts them for the roles. `seed.py` mints none of these.
 
 - `catena_postgres_password`
-- `turn_static_auth_secret`
 - `catena_admin_session_key`
 - `catena_admin_gate_secret`
 - `catena_marketplace_token`

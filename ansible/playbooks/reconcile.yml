@@ -98,8 +98,8 @@
     - { role: swarm, tags: [swarm] }
     - { role: traefik, tags: [traefik] }
     - { role: postgres, tags: [postgres] }
-    # `edge` marks what moves or checks the public edge (this role, the mail
-    # and TURN A records, the public-URL probes). A restore converges with
+    # `edge` marks what moves or checks the public edge (this role, the
+    # public-URL probes). A restore converges with
     # --skip-tags edge; tests/unit/test_restore_converge_leaves_the_edge_alone.py.
     - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare, edge] }
     - { role: keycloak, tags: [keycloak, auth] }
@@ -109,7 +109,6 @@
     # crosses is dispatch_path, first above; the runner account and the
     # panel's key are the bootstrap-side bootstrap/roles/catena_admin_host.
     - { role: catena-admin, tags: [catena_admin] }
-    - { role: coturn, tags: [coturn] }
     - { role: backup, tags: [backup] }
 
   post_tasks:

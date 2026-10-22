@@ -117,7 +117,6 @@ def _hostnames(zone: str) -> dict:
     """Each of Catena's own hostname variables, a name of its own on `zone`."""
     return {
         "keycloak_hostname": f"auth.{zone}",
-        "coturn_hostname": f"turn.{zone}",
         "catena_admin_hostname": f"dash.{zone}",
         "infrastructure_gatus_hostname": f"gatus.{zone}",
         "healthchecks_hostname": f"healthchecks.{zone}",
@@ -290,7 +289,7 @@ def test_the_env_names_no_managed_env_url():
 
 
 def test_catena_hostnames_is_every_address_catena_answers_on():
-    """Each served domain's sign-in host, the TURN relay and the host of every
+    """Each served domain's sign-in host and the host of every
     gated tool, the panel's among them. dashboard-sync routes no client app on
     one (catena-admin payload/lib/app_intent.py), and the app checker holds them
     as Catena's on each app's tile and in the panel's Check tab, so

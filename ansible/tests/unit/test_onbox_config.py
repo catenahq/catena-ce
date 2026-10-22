@@ -511,7 +511,7 @@ def test_the_panels_read_holds_the_secrets_it_uses_and_no_others(oc, tmp_path, m
     # reveals, beside every Settings field.
     for key in ("admin_password", "backup_restic_password", "cloudflare_api_token"):
         assert got["secrets"][key] == f"value-of-{key}"
-    for key in ("console_recovery_password", "turn_static_auth_secret",
+    for key in ("console_recovery_password",
                 "catena_admin_session_key", "catena_marketplace_token"):
         assert key not in got["secrets"]
 

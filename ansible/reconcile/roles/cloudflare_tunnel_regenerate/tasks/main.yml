@@ -120,9 +120,8 @@
   become: false
 
 # Resolved fresh every run rather than stored, on the Zone:DNS:Edit scope the
-# token already needs (mirrors reconcile/roles/coturn/tasks/dns.yml's zone_id
-# lookup). Which account a zone belongs to is the API's answer to give, and a
-# copy of it in the store would be one more thing to keep true.
+# token already needs. Which account a zone belongs to is the API's answer to
+# give, and a copy of it in the store would be one more thing to keep true.
 - name: "CF regen: resolve Cloudflare account id from the zone"
   ansible.builtin.uri:
     url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"

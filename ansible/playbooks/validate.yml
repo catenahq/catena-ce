@@ -44,7 +44,6 @@
       - infrastructure
       - keycloak
       - oauth2_proxy
-      - coturn
     # reconcile/roles/infrastructure/tasks/validate.yml carries the cloudflared
     # swarm check for the tunnel reconcile/roles/cloudflare_tunnel brings up.
 
@@ -538,16 +537,15 @@
         # deployed applications declare) from
         # /etc/catena/public-ports.summary.json (all_tcp_bound). No catena
         # service binds 80 or 443 on the host: web traffic enters through the
-        # Cloudflare tunnel, and catena-traefik publishes no port. A static
-        # fallback applies when the summary is absent (e.g. a partial converge
-        # before the reconciler ran), so this check never silently passes on
-        # an empty allowlist.
+        # Cloudflare tunnel, and catena-traefik publishes no port. When the
+        # summary is absent (e.g. a partial converge before the reconciler
+        # ran), the allowlist is 22, 80 and 443 alone.
         _r4_allowed_ports: >-
           {{
             ([22, 80, 443] +
               ((_pp_summary_raw.content | b64decode | from_json).all_tcp_bound
                if (_pp_summary_stat.stat.exists | default(false))
-               else [5349]))
+               else []))
             | map('int') | unique | sort | list
           }}
 

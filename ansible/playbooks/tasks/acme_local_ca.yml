@@ -3,8 +3,7 @@
 # hostname resolves, and its minica joins the system trust store. Nothing to do
 # on a client install, where the acme_local_* values are blank
 # (playbooks/group_vars/all/main.yml). The infrastructure role includes it, so
-# it is in place before an application's certificate is issued, and the coturn
-# cert flow includes it before it issues.
+# it is in place before an application's certificate is issued.
 - name: "Local ACME: map Pebble ACME host"
   ansible.builtin.lineinfile:
     path: /etc/hosts

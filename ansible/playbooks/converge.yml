@@ -202,7 +202,6 @@
     # catena-admin: the host lanes' configuration, the action catalog, AND the
     # Go shell container, created directly against the local swarm.
     - { role: catena-admin, tags: [catena_admin] }
-    - { role: coturn, tags: [coturn] } # shared TURN/STUN for the Nextcloud Talk HPB + the Jitsi videobridges of Rocket.Chat and Element (UDP media plane, direct on the public IP)
     - { role: backup, tags: [backup] } # backup configuration + the first snapshot
 
   post_tasks:
