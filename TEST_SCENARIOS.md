@@ -70,7 +70,7 @@ The 206 scenarios the maintainers' test bench carries, and the behaviour each on
 | `debian_major_upgrade_restore` | A snapshot taken on one major operating-system release restores onto a host running the next one. |
 | `dev_to_prod_cutover_round_trip` | A staging deployment is promoted to its production hostname on the same machine, with every application reconciled to the new address. |
 | `docker_engine_upgrade_round_trip` | The container engine moves to the version the panel image pins, and goes back to the one it ran when the new one does not come up. |
-| `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service, the stored mail and the synced files back at the state that backup captured, including a file deleted after the backup. |
+| `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service and the synced files back at the state that backup captured, including a file deleted after the backup. |
 | `ee_attest` | A signed monthly compliance attestation is produced from a host's own evidence and verifies against the published key. |
 | `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
 | `ee_ce_regression` | Community actions keep working on a host that has been licensed for Pro. |
