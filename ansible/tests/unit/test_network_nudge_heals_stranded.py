@@ -5,10 +5,10 @@ dockerd restores restart-policy containers during "Loading containers",
 which runs BEFORE the swarm node re-materializes the overlay -- and the
 boot-time restore gets exactly ONE attempt per container, so whatever loses
 that race stays Exited with RestartCount=0 forever. Swarm services
-re-dispatch themselves; the compose containers (keycloak-server-1,
-app-signaling-1, ...) have nothing to heal them, so a plain VPS reboot
-can strand Keycloak until the next converge. Observed live: an overlay that
-appeared 2.5s after "Loading containers: done".
+re-dispatch themselves; the compose containers (keycloak-server-1, ...)
+have nothing to heal them, so a plain VPS reboot can strand Keycloak until
+the next converge. Observed live: an overlay that appeared 2.5s after
+"Loading containers: done".
 
 Those compose containers are what the nudge protects. It lives in
 reconcile/roles/swarm, with the rest of the swarm's settings, so a host that

@@ -12,6 +12,18 @@
     "TEST_SCENARIOS.md": {
       "names": ["*"],
       "reason": "generated"
+    },
+    "ansible/tests/unit/test_catena_container_lookup.py": {
+      "names": ["nextcloud"],
+      "reason": "sample"
+    },
+    "ansible/tests/unit/test_swarm_naming.py": {
+      "names": ["nextcloud"],
+      "reason": "sample"
+    },
+    "ansible/tests/unit/test_the_tree_needs_no_collections.py": {
+      "names": ["jitsi", "jvb"],
+      "reason": "sample"
     }
   }
 }

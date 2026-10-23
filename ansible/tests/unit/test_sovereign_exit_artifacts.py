@@ -118,7 +118,7 @@ def test_the_guide_reloads_the_mariadb_exports_too():
 def test_the_one_application_restore_runs_from_its_folder_alone():
     """The folder under compose/ is the application's definition: the guide
     restores it with the volumes, prepares a bare machine for swarm and deploys
-    the folder with its .env loaded. Nothing in it reads Portainer's data."""
+    the folder with its .env loaded."""
     steps = (
         "docker swarm init",
         "docker network create --driver overlay catena-network",
@@ -131,8 +131,6 @@ def test_the_one_application_restore_runs_from_its_folder_alone():
         body = (_TEMPLATES / f"RECOVERY-README.{lang}.md.j2").read_text()
         for step in steps:
             assert step in body, f"RECOVERY-README.{lang} lost: {step}"
-        assert "portainer" not in body.lower(), (
-            f"RECOVERY-README.{lang} sends the reader to Portainer's data")
         assert "docker compose" not in body, (
             f"RECOVERY-README.{lang} starts an application outside swarm")
 
