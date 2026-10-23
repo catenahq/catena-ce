@@ -50,6 +50,22 @@ MAX_WAIT="${CATENA_NETWORK_NUDGE_TIMEOUT:-60}"
 
 log() { printf '[%s] catena-network-nudge: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
+# `sweep`, run by docker.service before dockerd starts. The overlay driver
+# creates a network's vxlan interface (vx-<vni>-<network>) in the host's
+# namespace and then moves it into the network's sandbox; a daemon that stops
+# in between leaves it behind under that fixed name, and every later task on
+# the network fails to join with "error creating vxlan interface: file exists".
+# With dockerd not running, any such interface in the host namespace is one of
+# those.
+if [ "${1:-}" = sweep ]; then
+    for link in $(ip -o link show | sed -n 's/^[0-9]*: \(vx-[0-9a-f]\{6\}-[0-9a-z]*\)[:@].*/\1/p'); do
+        if ip link delete "$link"; then
+            log "removed $link, left in the host namespace by a daemon that stopped mid-setup"
+        fi
+    done
+    exit 0
+fi
+
 # Wait for the overlay network first, BEFORE inspecting any container state.
 # Rationale: docker's own restart policy is racing with us; if we
 # short-circuit on a transient "Running=true" we miss the case where a

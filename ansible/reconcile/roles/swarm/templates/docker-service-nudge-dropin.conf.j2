@@ -12,5 +12,11 @@
 # This dispatches the SCRIPT, not catena-network-nudge.service, so the env
 # has to be passed here too (--setenv); the unit file carries the same values
 # for the manual `systemctl start catena-network-nudge.service` path.
+#
+# Before dockerd starts, `catena-network-nudge sweep` removes the vxlan
+# interfaces a daemon that stopped mid-setup left in the host namespace, which
+# would keep every task of their overlay from joining it (the script says how).
+# The leading `-` keeps a failed sweep from stopping docker.
 [Service]
+ExecStartPre=-/usr/local/bin/catena-network-nudge sweep
 ExecStartPost=-/usr/bin/systemd-run --no-block --unit=catena-network-nudge-triggered --setenv=CATENA_NETWORK={{ catena_network_name }} --setenv=CATENA_NETWORK_NUDGE_TIMEOUT={{ swarm_network_nudge_timeout }} /usr/local/bin/catena-network-nudge

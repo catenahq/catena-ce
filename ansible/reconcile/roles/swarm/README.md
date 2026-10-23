@@ -31,6 +31,9 @@ and Beszel, and the `catena-network-nudge` self-heal.
 - Installs `/usr/local/bin/catena-network-nudge`, its unit, and the
   `docker.service` drop-in that fires it on every daemon start, so a container
   stranded by the overlay race is started once `catena-network` is back.
+  Before each daemon start the drop-in also deletes the overlay links
+  (`vx-<id>`) a daemon that stopped mid-setup left in the host namespace,
+  which would otherwise keep their networks' tasks from starting.
 
 ## Related
 
