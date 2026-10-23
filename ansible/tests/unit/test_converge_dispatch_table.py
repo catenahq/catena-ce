@@ -1,7 +1,7 @@
 """What the converge's dispatch table is allowed to carry.
 
 The default home for a dispatch action is the panel image's own drop-in:
-catena-admin payload/actions.d/20-catena.sh (Community) or 10-business.sh
+catena-admin payload/actions.d/20-catena.sh (Community) or 10-paid.sh
 (licensed). Every command behind those runs a binary the PAYLOAD installs at a
 path the payload chose, so an entry in this repo is an authorization record for
 a name it neither owns nor can verify, and a one-line change to any of them

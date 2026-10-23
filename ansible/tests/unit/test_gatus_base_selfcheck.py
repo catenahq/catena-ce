@@ -10,7 +10,7 @@ crash-loops -- and the crash-loop churns catena-network hard enough to
 starve the converge's own SSH channel, surfacing as a spurious
 become-timeout UNREACHABLE on an unrelated task.
 
-This test fails if the self-check endpoint is ever dropped again.
+This test fails if the self-check endpoint is dropped.
 
 Run: uv run pytest tests/unit/test_gatus_base_selfcheck.py
 """
@@ -64,10 +64,8 @@ def test_selfcheck_probes_own_health_on_the_web_port():
 
 
 def test_the_selfcheck_joins_the_same_group_as_the_infra_endpoints():
-    """Gatus groups endpoints by the literal string. The self-check said
-    `infrastructure` and every entry in gatus-infra-spec.json.j2 says
-    `Infrastructure`, so the status page rendered two sections with the same
-    name and one endpoint stranded in the wrong one."""
+    """Gatus groups endpoints by the literal string, so a second spelling of
+    the group renders a second section with the same name."""
     groups = {
         line.split(":", 1)[1].strip().strip('",')
         for line in _TEMPLATE.read_text().splitlines() + _INFRA_SPEC.read_text().splitlines()
@@ -86,17 +84,17 @@ def _sanitize(s: str) -> str:
     return s.replace(" ", "-")
 
 
-def test_the_selfcheck_name_migrated_the_stored_group():
-    """A group whose spelling changed by CASE ALONE never reaches a running
+def test_the_selfcheck_keys_apart_from_the_lowercase_group():
+    """A group whose spelling changes by CASE ALONE never reaches a running
     host: Gatus keys a stored endpoint by sanitize(group)+"_"+sanitize(name),
     sanitize lowercases, `endpoint_group` is written only on INSERT, and the
-    startup purge keeps any key still present. So the old spelling survives
-    every converge, and the dashboard -- which reads the group from storage,
-    not from this file -- keeps rendering it.
+    startup purge keeps any key still present. The dashboard reads the group
+    from storage, so a row stored under the group `infrastructure` keeps
+    rendering it.
 
-    The name is what broke that tie. If it ever goes back to the parenthesised
-    form, the key returns to the one the stale rows are stored under and the
-    migration silently un-does itself on any host that has not been rebuilt."""
+    The self-check's name gives it a key apart from the one such a row is
+    stored under ("Gatus (self-check)"), so Gatus purges that row and stores
+    the endpoint under the group the template spells."""
     stale_key = _sanitize("infrastructure") + "_" + _sanitize("Gatus (self-check)")
     names = [
         line.split(":", 1)[1].strip().strip('"')

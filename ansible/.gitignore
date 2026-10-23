@@ -4,18 +4,16 @@
 inventory/*
 !inventory/README.md
 
-# Galaxy collections vendored by `ansible-galaxy collection install -r
-# requirements.yml`, at ansible.cfg's collections_path, which the installer
-# reads rather than carrying its own copy.
+# Galaxy collections: the tree runs on ansible-core alone, and an install of
+# them left in a checkout is not part of it.
 .collections/
 
-# Controller-side ansible state + python bytecode from the filter/lookup plugins.
+# Local ansible state + python bytecode from the filter/lookup plugins.
 .ansible/
 **/__pycache__/
 *.pyc
 
-# Installer Python tooling (uv-managed venv + pytest cache + editable-build
-# metadata from the `catena-cli` console-script package).
+# The test tooling: uv-managed venv and pytest cache.
 .venv/
 .pytest_cache/
 *.egg-info/

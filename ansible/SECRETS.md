@@ -8,15 +8,14 @@ Derived from:
   its residence, its `.env` default and its panel shape. `EXTERNAL_SECRETS`
   and the non-secret config maps are read from it, and an inventory `.env`
   is rendered from it.
-- `helpers/onbox_config.py` for the three categories no client supplies:
-  `INTERNAL_SECRETS` + `USER_HELD_SECRETS` minted on-box, and
-  `ROLE_MINTED_SECRETS` minted by the service and captured by its role.
-- `seed.py`, which collects no secret: an install.yaml may pin the admin
-  password, written to the transient `--secrets-out` adopt file and nowhere
-  else, and names no other.
+- `helpers/onbox_config.py` for the two categories no client supplies:
+  `INTERNAL_SECRETS` + `USER_HELD_SECRETS` minted on-box.
+- `seed.py`, which collects no secret: an install's input file may pin the
+  admin password, written to the transient `--secrets-out` adopt file and
+  nowhere else, and names no other.
 - `reconcile/roles/backup/defaults/main.yml` (`backup_paths`).
 
-**Nothing secret is persisted on the controller** -- `catena-cli install`
+**Nothing secret is persisted on the client's machine** -- the installer
 writes no secret file into the inventory.
 
 ## North star
@@ -32,7 +31,7 @@ Everything else -- every catena-internal secret, all non-secret config --
 lives **on-box** under a path that rides the restic backup, so a restore
 brings it back with the data. The operator holds nothing.
 
-## Four categories
+## Three categories
 
 Every secret name referenced anywhere under `ansible/` belongs to exactly one
 of them, declared in its registry.
@@ -53,24 +52,24 @@ ride the backup, because it is what unlocks the backup.
 | `headscale_api_key` | ^, on the self-hosted backend | settings page | no |
 | `headscale_preauth_key` | ^, static fallback | settings page | no |
 | `cloudflare_api_token` | Tunnel + DNS | settings page | no |
+| `cloudflare_api_tokens` | ^, one token per additional domain (zone -> token map) | domains page | no |
 | `BACKUP_RESTIC_REPO` (config) | restic repo URL | settings page | **yes** |
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
 | `backup_restic_password` | decrypt the restic repo | generated in the settings page, **shown once** | **yes** |
-| `admin_password` | first login (Portainer + Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
+| `admin_password` | first login (Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
-| `mailserver_relay_password` | smarthost (opt) | settings page | no |
-| `mailserver_spamhaus_dqs_key` | RBL (opt) | settings page | no |
 | `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
 | `storage_bulk_password` | ^ | settings page | no |
+| `catena_license` | Polar subscription key (opt; empty is Community) | settings page | no |
 
 `backup_restic_password`, `admin_password` and
 `console_recovery_password` are special: `USER_HELD_SECRETS` in
 `onbox_config.py`. They are generated **on-box** and **shown once** so the
 client keeps a copy in their password manager, and they are NOT settable
 through the settings config-write API (a restic re-key is a deliberate action).
-`catena-cli install` mints the admin and console passwords right after
+The install mints the admin and console passwords on the server right after
 bootstrap and shows them then (`playbooks/show-keyset.yml`), and again when the
 install ends; a converge mints either one it finds absent.
 The restic password is `MINTED_ON_REQUEST`: the client generates it in the
@@ -99,52 +98,31 @@ converge loader (`playbooks/tasks/load_onbox_config.yml` ->
 then set_facts them for the roles. `seed.py` mints none of these.
 
 - `catena_postgres_password`
+- `catena_admin_session_key`
+- `catena_admin_gate_secret`
+- `catena_marketplace_token`
 - `keycloak_db_password`
-- `oauth2_proxy_cookie_secret`
+- `keycloak_automation_client_secret`, the master realm client the converge signs in with
+- `oauth2_proxy_cookie_secret`, the client apps' gates
+- `oauth2_proxy_cookie_secret_<zone>`, one per domain in `CLOUDFLARE_ZONES`
+- `catena_admin_gate_cookie_secret`, the panel's gate
+- `healthchecks_gate_cookie_secret`, Healthchecks' gate
+- `gatus_gate_cookie_secret`, Gatus' gate
+- `beszel_gate_cookie_secret`, the Beszel hub's gate
 - `oauth2_proxy_client_secret`
 - `dashboard_sync_client_secret`
-- `nextcloud_oidc_client_secret`
-- `element_oidc_client_secret`
-- `mailserver_oidc_client_secret`
-- `mailserver_introspect_client_secret`
+- `catena_admin_panel_client_secret`
+- `catena_identity_probe_client_secret`
 - `healthchecks_secret_key`
 - `healthchecks_superuser_password`
 - `healthchecks_ping_key`
 - `healthchecks_api_key_readonly`
 - `healthchecks_api_key_readwrite`
-- `turn_static_auth_secret`
-- `nextcloud_talk_signaling_secret`
-- `nextcloud_talk_internal_secret`
-- `jitsi_prosody_password`
-- `jitsi_jicofo_auth_password`
-- `jitsi_jicofo_component_secret`
-- `jitsi_jvb_auth_password`
-- `element_jitsi_jicofo_auth_password`
-- `element_jitsi_jicofo_component_secret`
-- `element_jitsi_jvb_auth_password`
-- `element_jigasi_xmpp_password`
 - `beszel_universal_token`
+- `beszel_oidc_client_secret`
+- `zap_api_key`
 
-### 3. Service-minted, role-captured (`ROLE_MINTED_SECRETS`)
-
-Minted by the service ITSELF, not by this repo and not by a human. The role
-that provisioned the service captures the value and writes it into the same
-on-box store, so it rides the backup like every category-2 secret -- but it is
-neither generated by `onbox_config.py` nor accepted through the settings API,
-because it has exactly one writer and that writer is the role.
-
-| Key | Minted by | Captured by |
-| --- | --- | --- |
-| `portainer_api_key` | Portainer's own token API, via `helpers/bootstrap_portainer_admin.py` | `reconcile/roles/portainer` |
-
-The mint runs mid-converge rather than in the loader: the initial admin has to
-exist first. The helper prints the key on stdout and the role writes it
-straight into the store, so it never touches a file off-box. The role re-mints
-with `--overwrite` when the live Portainer rejects the stored key (a `/data`
-restore replaces the BoltDB the token lived in), which is why fill-only adopt
-is not sufficient here.
-
-### 4. Non-secret config
+### 3. Non-secret config
 
 One place to edit each value. A value catena-admin can change without
 consequence lives in the on-box store only; the inventory `.env` keeps what
@@ -153,27 +131,29 @@ change afterwards.
 
 **Inventory `.env` (the installer's):** `HOST_PUBLIC_IP`, `HOST_INITIAL_USER`,
 `HOST_SSH_PORT`, `SSH_PRIVATE_KEY` (its `.pub` beside it), `OPS_USER`,
-`STORAGE_BULK_*` (the bulk mount is applied by an operator-run role, so the
+`STORAGE_BULK_*` (the bulk mount is applied by an install-only role, so the
 panel could not change it).
 
-**Store, seeded from the `.env`:** `ADMIN_EMAIL`, `APT_PROXY_URL`,
+**Store, seeded from the `.env`:** `ADMIN_EMAIL`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `APT_PROXY_URL`,
 `DOCKER_REGISTRY_MIRROR_URL` and the reseeded keys below. The first converge
 needs them before the panel exists, so the `.env` seeds them fill-only on that
 converge.
 
 **Store, reseeded from the `.env`:** the development-only ACME and staging
-keys (`COTURN_CERTBOT_STAGING`, `MAILSERVER_CERTBOT_STAGING`,
-`CATENA_ACME_*`). No panel field shows them, so the `.env` stays their editor:
+keys (`CATENA_ACME_*`). No panel field shows them, so the `.env` stays their editor:
 every converge run from the inventory writes their non-blank `.env` values
 over the store's (`env.reseed` in the registry). A blank value keeps the
-stored one, and a host converging itself has no `.env` to read.
+stored one, and a host converging itself has no `.env` to read: the
+installer sends the `.env` with an install, for that run only.
 
 **Store, catena-admin Settings only:** the domain (`CLOUDFLARE_ZONE`), the
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
 `HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
-notifications (`NTFY_*`), `IDENTITY_ENFORCE_MFA`, and the server's time zone
-and locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They have no `.env`
-line; `catena-cli` names a filled one it finds, because nothing reads it.
+the off-site heartbeat (`OFFSITE_HEARTBEAT_URL`), `IDENTITY_ENFORCE_MFA`, the
+automatic emergency patch (`CVE_AUTO_PATCH`), and the server's time zone and
+locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They
+have no `.env` line; the installer names a filled one it finds, because
+nothing reads it.
 
 The owners are DECLARED, in `helpers/knobs.yml` (a knob has an `env` entry, a
 `panel` entry, or neither, never both), and projected by
@@ -187,17 +167,38 @@ variable. `reconcile/roles/keycloak` derives `smtp_host` from the Resend/Brevo a
 so a fact named `smtp_host` would have replaced the derivation with the raw
 value -- silently, since a fact outranks a role default.
 
+## Credentials in their own store blocks
+
+More blocks of the store hold credentials, each with one writer, and ride
+the backup with the rest of the file:
+
+- `offsite_copies`: the source and target keys of each offsite copy, written
+  by catena-admin (`payload/engines/offsite`).
+- `app_repositories` and `app_repository_tokens`: the git repositories a
+  client application may be added from (`url`, `trusted`; Catena's catalog
+  when absent) and the tokens of the private ones, by address, written by
+  catena-admin (`payload/engines/apps`). The panel's read carries neither.
+
+## What the panel reads
+
+catena-admin reads the store through the settings API's `read`, which
+returns `onbox_config.py` `panel_view`: the whole `config` and the secrets
+in `PANEL_SECRETS`, the ones the panel uses. Every other secret stays on the
+host, the master realm's automation client among them. A settings write
+merges into the whole file, so the panel's writes keep what its read leaves
+out.
+
 ## On-box persistence target
 
 `/etc/catena/` already rides the backup (`backup_paths` includes `/etc`) and
 already holds `backup.env` (S3 creds) + `restic.pass` (restic password),
 both written reconcile-not-overwrite by `reconcile/roles/backup`. That is the model
-for every category-2 secret and category-4 value: a single on-box config
+for every category-2 secret and category-3 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
-carried in every snapshot. The controller-side inventory is non-secret only
-(`.env`, `hosts.yml`); nothing writes a secrets file there.
+carried in every snapshot. The inventory on the client's machine is
+non-secret only (`.env`, `hosts.yml`); nothing writes a secrets file there.
 
-The swarm-secret path (catena-postgres, portainer admin) is NOT backed up
+The swarm-secret path (catena-postgres) is NOT backed up
 (`/var/lib/docker/swarm` is excluded); those replay correctly because the
 data volume restores raw and the on-box-persisted password re-supplies the
 matching credential at converge.
@@ -211,6 +212,7 @@ matching credential at converge.
   moving that boundary, so no encryption tool and no client-held key are in
   play at all.
 - **Single config file format.** RESOLVED: JSON at `/etc/catena/config.json`
-  (0600 root), with two sections (`secrets` + `config`). Both the
-  settings-write API and the converge read/write it atomically
-  (temp-file + `os.replace`) via `helpers/onbox_config.py`.
+  (0600 root). `helpers/onbox_config.py` owns two sections (`secrets`,
+  `config`) and keeps the blocks other writers own.
+  Both the settings-write API and the converge read/write it atomically
+  (temp-file + `os.replace`) through it.

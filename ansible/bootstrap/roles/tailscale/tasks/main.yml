@@ -139,6 +139,7 @@
       register: ts_oauth_token
       delegate_to: localhost
       become: false
+      no_log: true
       when: tailnet_provider == 'tailscale'
 
     - name: "Mint a single-use, tagged auth key (TTL: {{ tailscale_auth_key_ttl_seconds }})"
@@ -162,21 +163,7 @@
       register: ts_minted_key
       delegate_to: localhost
       become: false
-      when: tailnet_provider == 'tailscale'
-
-    - name: tailscale up with minted key (SaaS)
-      ansible.builtin.command:
-        argv:
-          - tailscale
-          - up
-          - "--authkey={{ ts_minted_key.json.key }}"
-          - "--advertise-tags={{ tailscale_tags | join(',') }}"
-          - "--hostname={{ tailscale_hostname }}"
-          - "--accept-dns={{ 'true' if tailscale_accept_dns | bool else 'false' }}"
-          - "--force-reauth={{ 'true' if ts_control_moved | bool else 'false' }}"
-          - "--reset"
-      no_log: true # minted key is in argv; keep it out of logs
-      changed_when: true
+      no_log: true
       when: tailnet_provider == 'tailscale'
 
     # ── Fork B: self-hosted Headscale ──
@@ -255,6 +242,41 @@
           Minting also needs the Headscale user.
       when: tailnet_provider == 'headscale'
 
+    # ── Both forks: `tailscale up` ──
+    # `tailscale up` reads the key from a file (--auth-key=file:<path>), since
+    # its argv is what `ps` shows every local user. The file sits in a
+    # root-only directory that the always below removes, joined or not.
+    - name: Create a root-only directory for the auth key
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: -tailscale
+      register: _ts_key_dir
+      when: tailnet_provider in ['tailscale', 'headscale']
+
+    - name: Write the auth key into it
+      ansible.builtin.copy:
+        content: "{{ ts_minted_key.json.key if tailnet_provider == 'tailscale' else _hs_authkey }}"
+        dest: "{{ _ts_key_dir.path }}/authkey"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      when: tailnet_provider in ['tailscale', 'headscale']
+
+    - name: tailscale up with minted key (SaaS)
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - up
+          - "--auth-key=file:{{ _ts_key_dir.path }}/authkey"
+          - "--advertise-tags={{ tailscale_tags | join(',') }}"
+          - "--hostname={{ tailscale_hostname }}"
+          - "--accept-dns={{ 'true' if tailscale_accept_dns | bool else 'false' }}"
+          - "--force-reauth={{ 'true' if ts_control_moved | bool else 'false' }}"
+          - "--reset"
+      changed_when: true
+      when: tailnet_provider == 'tailscale'
+
     # No --advertise-tags: the node takes its tags from the pre-auth key, and
     # Headscale refuses a node that joins with a pre-auth key and advertises
     # tags of its own.
@@ -264,14 +286,19 @@
           - tailscale
           - up
           - "--login-server={{ tailnet_control_url }}"
-          - "--authkey={{ _hs_authkey }}"
+          - "--auth-key=file:{{ _ts_key_dir.path }}/authkey"
           - "--hostname={{ tailscale_hostname }}"
           - "--accept-dns={{ 'true' if tailscale_accept_dns | bool else 'false' }}"
           - "--force-reauth={{ 'true' if ts_control_moved | bool else 'false' }}"
           - "--reset"
-      no_log: true # pre-auth key is in argv; keep it out of logs
       changed_when: true
       when: tailnet_provider == 'headscale'
+  always:
+    - name: Remove the auth key
+      ansible.builtin.file:
+        path: "{{ _ts_key_dir.path }}"
+        state: absent
+      when: _ts_key_dir.path is defined
 
 # ─── verify + expose facts ───────────────────────────────────────────────
 - name: Re-query tailscale status after join

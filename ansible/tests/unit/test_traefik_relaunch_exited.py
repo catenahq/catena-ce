@@ -79,11 +79,11 @@ def test_it_is_a_swarm_service_whose_spec_comes_from_the_engine():
     """The role writes neither a create argv nor a spec of its own: it ASKS the
     catena-tier1 host engine for one and hands that to reconcile_one.yml.
 
-    What the constraint IS -- node.role==manager, because it bind-mounts the
-    docker socket and drives the swarm provider -- is asserted in the engine,
-    catena-admin payload/engines/tier1/catalog_test.go, against the declaration
-    the engine hands back. Restating it here would mean reading a dict this role
-    does not feed to anything."""
+    What the spec IS -- its mounts and its pin to the data node, which holds
+    the config tree it bind-mounts -- is asserted in the engine, catena-admin
+    payload/engines/tier1/catalog_test.go, against the declaration the engine
+    hands back. Restating it here would mean reading a dict this role does not
+    feed to anything."""
     _find("read the built-in tier-1 spec from the host engine")
     adopt = str(_find("adopt the built-in spec")["ansible.builtin.set_fact"])
     assert "tier1_builtin_spec" in adopt, (

@@ -89,14 +89,14 @@ def test_the_server_s_settings_are_not_install_inputs(seed):
     refused = seed.not_install_inputs(_inp(
         env={"CLOUDFLARE_ZONE": "client.test", "TAILNET_PROVIDER": "tailscale",
              "TAILSCALE_TAGS": "tag:vps", "BACKUP_RESTIC_REPO": "s3:x/y",
-             "PORTAINER_SUBDOMAIN": "admin"},
+             "KEYCLOAK_SUBDOMAIN": "admin"},
         secrets={"cloudflare_api_token": "t", "tailscale_oauth_client_id": "i",
                "tailscale_oauth_client_secret": "s", "headscale_api_key": "h",
                "backup_s3_access_key": "a", "backup_s3_secret_key": "b",
                "backup_restic_password": "r"}))
     assert refused == sorted([
         "CLOUDFLARE_ZONE", "TAILNET_PROVIDER", "TAILSCALE_TAGS",
-        "BACKUP_RESTIC_REPO", "PORTAINER_SUBDOMAIN", "cloudflare_api_token",
+        "BACKUP_RESTIC_REPO", "KEYCLOAK_SUBDOMAIN", "cloudflare_api_token",
         "tailscale_oauth_client_id", "tailscale_oauth_client_secret",
         "headscale_api_key", "backup_s3_access_key", "backup_s3_secret_key",
         "backup_restic_password"])
@@ -129,7 +129,7 @@ def test_a_filled_env_line_the_server_holds_is_named(seed, tmp_path, capsys):
     """Nothing reads it: the store seeds only the keys the `.env` declares."""
     env = tmp_path / ".env"
     env.write_text("ADMIN_EMAIL=a@client.test\nCLOUDFLARE_ZONE=client.test\n"
-                   "PORTAINER_SUBDOMAIN=\n")
+                   "KEYCLOAK_SUBDOMAIN=\n")
     seed.warn_server_held_lines(env)
     err = capsys.readouterr().err
     assert "sets CLOUDFLARE_ZONE," in err
@@ -141,6 +141,27 @@ def test_an_env_with_only_installer_lines_says_nothing(seed, tmp_path, capsys):
     env.write_text("ADMIN_EMAIL=a@client.test\nCLIENT_OWN_KEY=kept\n")
     seed.warn_server_held_lines(env)
     assert capsys.readouterr().err == ""
+
+
+def _structural_problems(seed, env):
+    inp = {"inventory": "prod", "host": {}, "env": env, "secrets": {}}
+    return seed.validate_install_structural(inp, seed.ENV_KEYS)
+
+
+def test_an_install_without_the_administrators_name_is_refused(seed):
+    base = {key: (default or "x") for key, default in seed.ENV_KEYS}
+    base["ADMIN_FIRST_NAME"] = base["ADMIN_LAST_NAME"] = ""
+    assert _structural_problems(seed, base) == 2
+    for blank in ("ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"):
+        env = {**base, "ADMIN_FIRST_NAME": "Alex", "ADMIN_LAST_NAME": "Tremblay", blank: ""}
+        assert _structural_problems(seed, env) == 1, blank
+
+
+def test_an_install_with_the_administrators_name_writes_it_to_the_env(seed, tmp_path):
+    target = seed.write_env(tmp_path / "clientco", {"ADMIN_FIRST_NAME": "Alex",
+                                                    "ADMIN_LAST_NAME": "Tremblay"})
+    env = seed.read_existing_env(target)
+    assert env["ADMIN_FIRST_NAME"] == "Alex" and env["ADMIN_LAST_NAME"] == "Tremblay"
 
 
 # --- the question list comes from the registry ------------------------------
@@ -221,8 +242,8 @@ def test_emit_env_preserves_existing_values(seed, tmp_path):
 
 def test_emit_env_quotes_values_with_whitespace(seed, tmp_path):
     target = tmp_path / ".env"
-    seed.emit_env("NTFY_TOPIC=\n", {"NTFY_TOPIC": "topic with spaces"}, target)
-    assert '"topic with spaces"' in target.read_text()
+    seed.emit_env("SSH_PRIVATE_KEY=\n", {"SSH_PRIVATE_KEY": "~/my keys/catena"}, target)
+    assert '"~/my keys/catena"' in target.read_text()
 
 
 @pytest.mark.parametrize("keep_existing", [True, False])
@@ -248,104 +269,51 @@ def test_read_existing_env_parses_a_hand_filled_file(seed, tmp_path):
     target.write_text(
         "# comment\n"
         "ADMIN_EMAIL=admin@client.test\n"
-        "NTFY_TOPIC=\"topic with spaces\"\n"
+        "SSH_PRIVATE_KEY=\"~/my keys/catena\"\n"
         "\n"
     )
     assert seed.read_existing_env(target) == {
         "ADMIN_EMAIL": "admin@client.test",
-        "NTFY_TOPIC": "topic with spaces",
+        "SSH_PRIVATE_KEY": "~/my keys/catena",
     }
 
 
 # --- emit_hosts_yml ---------------------------------------------------------
 def test_emit_hosts_yml_copies_the_skeleton(seed, tmp_path):
-    """hosts.yml is static -- every field reads from .env at ansible runtime
-    via the dotenv lookup, so seed just copies the skeleton once."""
+    """The skeleton names the server; the installer reads the rest from the
+    `.env`, so seed just copies it once."""
     target = tmp_path / "hosts.yml"
     seed.emit_hosts_yml(target)
     assert target.read_text() == seed.HOSTS_YML_SKEL.read_text()
+    hosts = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
+    assert list(hosts) == ["host1"]
 
 
 def test_emit_hosts_yml_does_not_overwrite_existing(seed, tmp_path):
     target = tmp_path / "hosts.yml"
-    target.write_text("# hand-edited, e.g. a second host\n")
+    target.write_text("# hand-edited\n")
     seed.emit_hosts_yml(target)
-    assert target.read_text() == "# hand-edited, e.g. a second host\n"
+    assert target.read_text() == "# hand-edited\n"
 
 
-def test_the_skeleton_bootstraps_over_the_ssh_address(seed):
-    """HOST_SSH_ADDRESS when set, else the public IP; public_ip stays the
-    public IP for what needs the routable address."""
-    skel = seed.HOSTS_YML_SKEL.read_text()
-    assert seed._BOOTSTRAP_HOST_NEW in skel
-    assert "public_ip: \"{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}\"" in skel
-
-
-def test_an_older_hosts_yml_learns_the_ssh_address_and_keeps_the_rest(seed, tmp_path):
+# --- emit_hosts_yml_entry (the -i path) -------------------------------------
+def test_emit_hosts_yml_entry_names_the_server(seed, tmp_path):
     target = tmp_path / "hosts.yml"
-    older = (seed.HOSTS_YML_SKEL.read_text()
-             .replace(seed._BOOTSTRAP_HOST_NEW, seed._BOOTSTRAP_HOST_OLD)
-             + "# a hand edit\n")
-    target.write_text(older)
-    seed.emit_hosts_yml(target)
-    text = target.read_text()
-    assert seed._BOOTSTRAP_HOST_NEW in text
-    assert seed._BOOTSTRAP_HOST_OLD not in text
-    assert text.endswith("# a hand edit\n")
-
-
-# --- emit_hosts_yml_entry (the -i install.yaml generate path) ---------------
-def test_emit_hosts_yml_entry_creates_both_groups(seed, tmp_path):
-    target = tmp_path / "hosts.yml"
-    seed.emit_hosts_yml_entry(target, "prod1", {
-        "HOST_PUBLIC_IP": "203.0.113.10",
-        "HOST_INITIAL_USER": "debian",
-        "HOST_SSH_PORT": "22",
-        "OPS_USER": "ops",
-    })
+    seed.emit_hosts_yml_entry(target, "prod1")
     data = yaml.safe_load(target.read_text())
-    vps = data["all"]["children"]["vps"]["hosts"]
-    boot = data["all"]["children"]["bootstrap"]["hosts"]
-    assert boot["prod1-bootstrap"]["ansible_host"] == "203.0.113.10"
-    assert boot["prod1-bootstrap"]["bootstrap_initial_user"] == "debian"
-    assert vps["prod1"]["ansible_host"] == "0.0.0.0"  # bootstrap.yml rewrites this
-    assert vps["prod1"]["ansible_user"] == "ops"
-    assert vps["prod1"]["public_ip"] == "203.0.113.10"
+    assert data["all"]["children"]["vps"]["hosts"] == {"prod1": {}}
 
 
-def test_emit_hosts_yml_entry_bootstraps_over_the_ssh_address(seed, tmp_path):
+def test_emit_hosts_yml_entry_keeps_what_the_server_carries(seed, tmp_path):
+    """An address written under the server (the bench repoints a copy that
+    way) stays; a server named differently goes, since an inventory installs
+    one server."""
     target = tmp_path / "hosts.yml"
-    seed.emit_hosts_yml_entry(target, "prod1", {
-        "HOST_PUBLIC_IP": "203.0.113.10", "HOST_SSH_ADDRESS": "100.64.0.5"})
-    data = yaml.safe_load(target.read_text())["all"]["children"]
-    assert data["bootstrap"]["hosts"]["prod1-bootstrap"]["ansible_host"] == "100.64.0.5"
-    assert data["vps"]["hosts"]["prod1"]["public_ip"] == "203.0.113.10"
-
-
-def test_emit_hosts_yml_entry_merges_into_existing(seed, tmp_path):
-    """The bench adds a distinctly-named host per run/slot to the same
-    inventory -- an existing entry must survive, not just the new one."""
-    target = tmp_path / "hosts.yml"
-    target.write_text(yaml.safe_dump({
-        "all": {"children": {
-            "vps": {"hosts": {"old1": {"ansible_host": "100.9.9.9",
-                                       "ansible_user": "ops",
-                                       "ansible_port": 22}}},
-            "bootstrap": {"hosts": {}},
-        }}
-    }))
-    seed.emit_hosts_yml_entry(target, "prod1", {"HOST_PUBLIC_IP": "203.0.113.10"})
-    vps = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
-    assert "old1" in vps and "prod1" in vps
-
-
-def test_emit_hosts_yml_entry_defaults_when_env_values_sparse(seed, tmp_path):
-    target = tmp_path / "hosts.yml"
-    seed.emit_hosts_yml_entry(target, "prod1", {})
-    data = yaml.safe_load(target.read_text())
-    boot = data["all"]["children"]["bootstrap"]["hosts"]["prod1-bootstrap"]
-    assert boot["bootstrap_initial_user"] == "root"
-    assert boot["ansible_port"] == "22"
+    target.write_text(yaml.safe_dump({"all": {"children": {"vps": {"hosts": {
+        "prod1": {"ansible_host": "10.0.0.7"}, "old1": {}}}}}}))
+    seed.emit_hosts_yml_entry(target, "prod1")
+    hosts = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
+    assert hosts == {"prod1": {"ansible_host": "10.0.0.7"}}
 
 
 # --- write_secrets_out (transient adopt map) --------------------------------

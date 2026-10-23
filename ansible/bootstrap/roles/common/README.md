@@ -17,8 +17,8 @@ in `converge.yml`'s converge order.
   `reconcile/roles/host_maintenance`, which keeps them installed on every
   converge).
 - Create the `ops` sudo account and the `panel` account, which has no shell
-  and whose keys may only forward to the panel (9010) and Portainer (9000) on
-  the host's loopback; set the console break-glass password.
+  and whose keys may only forward to the panel (9010) on the host's
+  loopback; set the console break-glass password.
 - Prove the operator key works as `ops`, then apply the sshd hardening.
 - Mint the journal's sealing key once and stage its verification half for
   `show-keyset.yml`.

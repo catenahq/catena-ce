@@ -5,7 +5,7 @@ The product's data prefix, and an optional remote bulk tier.
 ## What it creates
 
 - `built_in.yml` -- `/srv/catena` on the disk the host already has, with
-  `apps`, `backup-staging` and `docker` under it. A real directory, not a
+  `apps`, `compose`, `backup-staging` and `docker` under it. A real directory, not a
   symlink. No filesystem is made and nothing is mounted.
 - `bulk.yml` -- an optional second tier over CIFS or NFS (a Storage Box, a
   client NAS), mounted at `/mnt/bulk`. Runs when `storage_bulk_enabled` is

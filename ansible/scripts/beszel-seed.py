@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Seed Beszel's hub configuration: universal token + OIDC login (idempotent).
+"""Seed Beszel's hub configuration (idempotent): universal token, OIDC login,
+alert delivery and rules, outgoing mail.
 
 Run on the host against the hub's loopback publish. Authenticates to
-PocketBase as the superuser bootstrapped from USER_EMAIL/USER_PASSWORD, then
-reconciles two things:
+PocketBase as the superuser holding the admin email and password, then
+reconciles five things, the first two being:
 
 1. The single `universal_tokens` row (unique index on `user`). With a
    permanent universal token present, a Beszel agent that connects with
@@ -24,27 +25,44 @@ reconciles two things:
    depends on it, since it authenticates against `_superusers`, a different
    collection from the `users` one OIDC governs.
 
-Config via env (mirrors the healthchecks-seed.py contract; KeyErrors loudly on
-any wiring break):
+Then the alert delivery (the Healthchecks shim's webhook, and no Beszel mail
+to the admin), the default alert rules and the hub's outgoing mail, each
+explained at its function below.
 
-    BESZEL_HUB_URL             e.g. http://127.0.0.1:18190
-    BESZEL_ADMIN_EMAIL         superuser identity (== inventory admin_email)
-    BESZEL_ADMIN_PASSWORD      superuser password (admin_password)
-    BESZEL_UNIVERSAL_TOKEN     the token to seed (beszel_universal_token)
-    BESZEL_OIDC_CLIENT_ID      Keycloak clientId (realm-beszel.yaml.j2)
-    BESZEL_OIDC_CLIENT_SECRET  beszel_oidc_client_secret
-    BESZEL_OIDC_AUTH_URL       .../protocol/openid-connect/auth
-    BESZEL_OIDC_TOKEN_URL      .../protocol/openid-connect/token
-    BESZEL_OIDC_USERINFO_URL   .../protocol/openid-connect/userinfo
-    BESZEL_OIDC_DISPLAY_NAME   label on the hub's sign-in button
+A hub started on an empty volume has no user and a placeholder superuser, and
+serves its first-user endpoint until someone calls it. The seed calls it first,
+as the admin (claim_first_run), so the hub's spec never carries the password.
+The seed keeps the admin email it last signed in with in its state file, and
+after an admin email change signs in with that one and moves both records to
+the new address (move_superuser, follow_admin_user).
 
-Exit 0 on success, printing one line carrying both outcomes so the caller's
+Config is one JSON object on stdin, so no credential is in the process's argv
+or environment, which `ps` shows every local user (KeyErrors loudly on any
+wiring break):
+
+    hub_url             e.g. http://127.0.0.1:18190
+    state_file          the seed's state file (beszel_seed_state_file)
+    admin_email         superuser identity (== inventory admin_email)
+    admin_password      superuser password (admin_password)
+    universal_token     the token to seed (beszel_universal_token)
+    oidc_client_id      Keycloak clientId (realm-beszel.yaml.j2)
+    oidc_client_secret  beszel_oidc_client_secret
+    oidc_auth_url       .../protocol/openid-connect/auth
+    oidc_token_url      .../protocol/openid-connect/token
+    oidc_userinfo_url   .../protocol/openid-connect/userinfo
+    oidc_display_name   label on the hub's sign-in button
+    alert_webhook       the shim's Shoutrrr URL
+    smtp_*              outgoing mail (optional; blank host = none);
+                        smtp_implicit_tls is true for port 465
+
+Exit 0 on success, printing one line carrying every outcome so the caller's
 changed_when can read it. Any failure exits non-zero with a stderr message so
 the calling Ansible task's retry loop can wait out hub start-up.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -72,60 +90,158 @@ def die(msg: str) -> None:
     sys.exit(1)
 
 
-def main() -> int:
+def read_state(path: str) -> dict:
+    """What the last run recorded: the admin email it signed in with and the
+    fingerprint of the mail password it wrote. {} when there is no record."""
     try:
-        base = os.environ["BESZEL_HUB_URL"].rstrip("/")
-        email = os.environ["BESZEL_ADMIN_EMAIL"]
-        password = os.environ["BESZEL_ADMIN_PASSWORD"]
-        token = os.environ["BESZEL_UNIVERSAL_TOKEN"]
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def write_state(path: str, state: dict) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(state, fh)
+
+
+def sign_in(base: str, identities: list[str], password: str) -> tuple[dict, str]:
+    """Authenticate as the superuser under the first identity the hub
+    accepts. Returns (auth response, identity)."""
+    for identity in identities:
+        try:
+            return _req(
+                "POST",
+                f"{base}/api/collections/_superusers/auth-with-password",
+                body={"identity": identity, "password": password},
+            ), identity
+        except urllib.error.HTTPError as exc:
+            if exc.code != 400:
+                raise
+        except urllib.error.URLError as exc:
+            die(f"superuser auth failed (hub not ready yet?): {exc}")
+    die(f"no superuser for {identities!r} (hub bootstrap incomplete?)")
+
+
+def claim_first_run(base: str, email: str, password: str) -> None:
+    """Make the admin the hub's first user and superuser while it has no user
+    (beszel v0.20.0 internal/hub/api.go first-run and create-user,
+    internal/users/users.go CreateFirstUser, which also removes the
+    placeholder superuser). A hub that has a user is left alone; one claimed by
+    somebody else answers 403, which fails the seed."""
+    try:
+        first = _req("GET", f"{base}/api/beszel/first-run").get("firstRun")
+    except urllib.error.URLError as exc:
+        die(f"first-run check failed (hub not ready yet?): {exc}")
+    if first is True:
+        _req("POST", f"{base}/api/beszel/create-user",
+             body={"email": email, "password": password})
+
+
+def move_superuser(base: str, auth: dict, new: str) -> None:
+    """Move the superuser to the email `new`."""
+    _req(
+        "PATCH",
+        f"{base}/api/collections/_superusers/records/{auth['record']['id']}",
+        token=auth["token"],
+        body={"email": new},
+    )
+
+
+def find_user(base: str, su_token: str, email: str) -> dict | None:
+    """The users record holding `email`, whatever its letter case: an address
+    is one mailbox however it is capitalised, and the hub compares it exactly."""
+    flt = urllib.parse.quote(f"email~'{email}'")
+    items = _req(
+        "GET",
+        f"{base}/api/collections/users/records?perPage=50&filter=({flt})",
+        token=su_token,
+    ).get("items") or []
+    return next((u for u in items
+                 if str(u.get("email", "")).lower() == email.lower()), None)
+
+
+def follow_admin_user(base: str, su_token: str, new: str, olds: list[str]) -> dict | None:
+    """The admin's users record, moved onto `new` unless it already holds it
+    letter for letter. It is found under `new` or else under one of `olds`, and
+    keeps its id, so the universal token, the alert settings and the rules that
+    point at it stay attached."""
+    for email in [new] + [o for o in olds if o]:
+        user = find_user(base, su_token, email)
+        if user:
+            if user.get("email") != new:
+                _req(
+                    "PATCH",
+                    f"{base}/api/collections/users/records/{user['id']}",
+                    token=su_token,
+                    body={"email": new},
+                )
+            return user
+    return None
+
+
+def main() -> int:
+    cfg = json.load(sys.stdin)
+    try:
+        base = cfg["hub_url"].rstrip("/")
+        state_file = cfg["state_file"]
+        email = cfg["admin_email"]
+        password = cfg["admin_password"]
+        token = cfg["universal_token"]
         oidc = {
-            "client_id": os.environ["BESZEL_OIDC_CLIENT_ID"],
-            "client_secret": os.environ["BESZEL_OIDC_CLIENT_SECRET"],
-            "auth_url": os.environ["BESZEL_OIDC_AUTH_URL"],
-            "token_url": os.environ["BESZEL_OIDC_TOKEN_URL"],
-            "userinfo_url": os.environ["BESZEL_OIDC_USERINFO_URL"],
-            "display_name": os.environ["BESZEL_OIDC_DISPLAY_NAME"],
+            "client_id": cfg["oidc_client_id"],
+            "client_secret": cfg["oidc_client_secret"],
+            "auth_url": cfg["oidc_auth_url"],
+            "token_url": cfg["oidc_token_url"],
+            "userinfo_url": cfg["oidc_userinfo_url"],
+            "display_name": cfg["oidc_display_name"],
         }
-        webhook = os.environ["BESZEL_ALERT_WEBHOOK"]
+        webhook = cfg["alert_webhook"]
         # Outgoing mail, resolved by the converge from the ONE stored choice
         # (catena_smtp_resolve). Blank host means the host has no mail
         # configured, which is a supported state and disables Beszel's mail
         # rather than failing.
         smtp = {
-            "host": os.environ.get("BESZEL_SMTP_HOST", ""),
-            "port": os.environ.get("BESZEL_SMTP_PORT", "587"),
-            "user": os.environ.get("BESZEL_SMTP_USER", ""),
-            "password": os.environ.get("BESZEL_SMTP_PASSWORD", ""),
-            "sender": os.environ.get("BESZEL_SMTP_SENDER", ""),
-            "app_name": os.environ.get("BESZEL_SMTP_APP_NAME", "Catena"),
+            "host": cfg.get("smtp_host", ""),
+            "port": cfg.get("smtp_port", "587"),
+            "implicit_tls": str(cfg.get("smtp_implicit_tls", "false")).strip().lower()
+            in ("true", "1"),
+            "user": cfg.get("smtp_user", ""),
+            "password": cfg.get("smtp_password", ""),
+            "sender": cfg.get("smtp_sender", ""),
+            "app_name": cfg.get("smtp_app_name", "Catena"),
         }
     except KeyError as exc:
-        die(f"missing required env var: {exc}")
+        die(f"missing required config key: {exc}")
 
-    # 1. Authenticate as the bootstrapped superuser.
-    try:
-        auth = _req(
-            "POST",
-            f"{base}/api/collections/_superusers/auth-with-password",
-            body={"identity": email, "password": password},
-        )
-    except urllib.error.URLError as exc:
-        die(f"superuser auth failed (hub not ready yet?): {exc}")
+    # 1. Authenticate as the superuser, claiming a hub that has no user yet,
+    # under the admin email the last run recorded when the hub does not know
+    # the current one yet.
+    claim_first_run(base, email, password)
+    state = read_state(state_file)
+    recorded = str(state.get("admin_email") or "")
+    auth, signed_in_as = sign_in(
+        base, [email] + ([recorded] if recorded and recorded != email else []),
+        password)
+    if signed_in_as != email:
+        move_superuser(base, auth, email)
+        auth, _ = sign_in(base, [email], password)
     su_token = auth.get("token")
     if not su_token:
         die("superuser auth returned no token")
 
-    # 2. Resolve the users record id for the relation.
-    flt = urllib.parse.quote(f"email='{email}'")
-    users = _req(
-        "GET",
-        f"{base}/api/collections/users/records?perPage=1&filter=({flt})",
-        token=su_token,
-    )
-    items = users.get("items") or []
-    if not items:
+    # 2. Resolve the users record id for the relation, moving the record onto
+    # the current email whenever it is not on it. The record is checked on every
+    # run, not only the one that moved the superuser, so a run that stopped
+    # between the two is finished by the next.
+    user = follow_admin_user(base, su_token, email, [recorded, signed_in_as])
+    if not user:
         die(f"no users record for {email!r} (hub bootstrap incomplete?)")
-    user_id = items[0]["id"]
+    user_id = user["id"]
+    state["admin_email"] = email
+    write_state(state_file, state)
 
     # 3. Find-or-update the universal_tokens row (unique on user).
     user_flt = urllib.parse.quote(f"user='{user_id}'")
@@ -169,12 +285,15 @@ def main() -> int:
     # deployed, thresholds unset, nothing saying so -- and a monitor that is
     # watching and cannot tell anybody is the failure mode monitoring exists to
     # avoid.
-    delivery_state = configure_alert_delivery(base, su_token, user_id, webhook)
+    delivery_state = configure_alert_delivery(base, su_token, user_id, webhook, email)
     rules_state = configure_alert_rules(base, su_token, user_id)
 
-    # 6. Outgoing mail, so an alert can reach a person who is not watching a
-    # dashboard. Beszel is PocketBase, so this is the app's own mail settings.
-    smtp_state = configure_smtp(base, su_token, smtp)
+    # 6. Outgoing mail. Beszel is PocketBase, so this is the app's own mail
+    # settings: alert mail to an address a client adds in the hub, and the
+    # hub's own account mail.
+    smtp_state, state["smtp_password_sha256"] = configure_smtp(
+        base, su_token, smtp, str(state.get("smtp_password_sha256") or ""))
+    write_state(state_file, state)
 
     # One line carrying all four, because the caller's changed_when reads
     # stdout. "ok-exists" from every one is the steady-state converge; anything
@@ -227,8 +346,14 @@ _DEFAULT_RULES = (
 
 
 def configure_alert_delivery(base: str, su_token: str, user_id: str,
-                             webhook: str) -> str:
-    """Point the user's notifications at the Healthchecks shim.
+                             webhook: str, admin_email: str) -> str:
+    """Point the user's notifications at the Healthchecks shim, and keep the
+    admin's address off Beszel's own alert mail.
+
+    A Beszel alert reaches Healthchecks through the shim, and Healthchecks
+    mails the admin (healthchecks-seed.py's email channel). Mailed by Beszel
+    as well, the admin would get two emails for one alert. Every other
+    address a client adds in the hub keeps Beszel's mail.
 
     Returns one of: ok-exists / configured / updated.
     """
@@ -243,15 +368,17 @@ def configure_alert_delivery(base: str, su_token: str, user_id: str,
     if rows:
         current = dict(rows[0].get("settings") or {})
     hooks = list(current.get("webhooks") or [])
-    if webhook in hooks:
+    emails = list(current.get("emails") or [])
+    kept = [e for e in emails if e.strip().lower() != admin_email.strip().lower()]
+    if webhook in hooks and kept == emails:
         return "ok-exists"
 
     # APPEND, never replace. A client who added their own ntfy or Slack URL in
     # the hub UI keeps it -- the same rule the OIDC provider merge follows, and
     # for the same reason: this converge owns one entry, not the list.
     merged = dict(current)
-    merged["webhooks"] = hooks + [webhook]
-    merged.setdefault("emails", list(current.get("emails") or []))
+    merged["webhooks"] = hooks if webhook in hooks else hooks + [webhook]
+    merged["emails"] = kept
 
     if rows:
         _req(
@@ -261,11 +388,20 @@ def configure_alert_delivery(base: str, su_token: str, user_id: str,
             body={"settings": merged},
         )
         return "updated"
-    _req(
+    created = _req(
         "POST",
         f"{base}/api/collections/user_settings/records",
         token=su_token,
         body={"user": user_id, "settings": merged},
+    )
+    # Beszel's create hook replaces `emails` with the account's own address
+    # (internal/users/users.go InitializeUserSettings, beszel v0.20.0), so the
+    # new record is written again, which no hook rewrites.
+    _req(
+        "PATCH",
+        f"{base}/api/collections/user_settings/records/{created['id']}",
+        token=su_token,
+        body={"settings": merged},
     )
     return "configured"
 
@@ -322,27 +458,30 @@ def configure_alert_rules(base: str, su_token: str, user_id: str) -> str:
 
 
 # ─── outgoing mail ─────────────────────────────────────────────────────────
-# Beszel's own alert channel is the Shoutrrr webhook and nothing else, so
-# unconfigured it reaches a person only while somebody is watching Healthchecks
-# or ntfy. Giving it the host's own mail settings means a threshold breach can
-# send an email like every other service on the box.
+# The host's own mail settings, so the hub can send its account mail and the
+# alert mail to any address a client adds in the hub. The admin's alerts go
+# through Healthchecks instead (configure_alert_delivery).
 #
 # Verified against pocketbase v0.36.8 (which beszel 0.18.7 vendors) rather than
 # assumed -- core.SMTPConfig tags enabled / port / host / username / password /
 # authMethod / tls / localName, and core.MetaConfig tags senderName /
 # senderAddress. The endpoint is PATCH /api/settings, which merges.
 #
-# `tls: false` is CORRECT and not a downgrade. PocketBase's own comment: "When
-# set to false StartTLS command is send, leaving the server to decide whether
-# to upgrade the connection or not." True means implicit TLS from the first
-# byte, which is port 465; every path this product resolves is STARTTLS on the
-# port given, and both known providers expect that on 587.
+# `tls` follows the port (smtp_implicit_tls, from catena_smtp_resolve). PocketBase's
+# own comment: "When set to false StartTLS command is send, leaving the server
+# to decide whether to upgrade the connection or not." True means implicit TLS
+# from the first byte, which is port 465; every other port is STARTTLS.
 
-# Compared to decide whether a write is needed. `password` is excluded for the
-# same reason the OIDC clientSecret is: PocketBase tags it `omitempty`, so a
-# value it will not read back cannot be compared without reporting changed on
-# every converge and failing the strict changed=0 rerun.
+# Compared to decide whether a write is needed. `password` is not among them:
+# PocketBase blanks it in every settings read (core/settings_model.go
+# Settings.MarshalJSON, pocketbase v0.40.4, which beszel 0.20.0 vendors). The
+# seed compares the fingerprint of the password it last wrote instead, so a
+# new password alone is written, and an unchanged one reports no change.
 _SMTP_COMPARED = ("enabled", "host", "port", "username", "tls")
+
+
+def _fingerprint(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 def _desired_smtp(cfg: dict) -> dict:
@@ -358,28 +497,37 @@ def _desired_smtp(cfg: dict) -> dict:
         "password": str(cfg.get("password") or ""),
         # PLAIN is PocketBase's default and what both known relays accept.
         "authMethod": "PLAIN",
-        # STARTTLS, not implicit TLS. See the note above.
-        "tls": False,
+        # Implicit TLS on port 465, STARTTLS otherwise. See the note above.
+        "tls": bool(cfg.get("implicit_tls")),
     }
 
 
-def configure_smtp(base: str, su_token: str, cfg: dict) -> str:
-    """Point Beszel's mail at the host's configured relay.
+def configure_smtp(base: str, su_token: str, cfg: dict,
+                   written: str) -> tuple[str, str]:
+    """Point Beszel's mail at the host's configured relay. `written` is the
+    fingerprint of the password the last write sent.
 
-    Returns one of: ok-exists / no-mail / configured / updated.
+    Returns (one of ok-exists / no-mail / disabled / configured / updated, the
+    fingerprint of the password the hub now holds).
     """
     desired = _desired_smtp(cfg)
-    if not desired["enabled"]:
-        # A host with no mail configured is a supported state -- SMTP_PROVIDER
-        # can be `none`. Reported rather than skipped silently, so the caller's
-        # changed_when can tell it apart from a write.
-        return "no-mail"
-
     current_all = _req("GET", f"{base}/api/settings", token=su_token)
     current = dict(current_all.get("smtp") or {})
+    if not desired["enabled"]:
+        # A host with no mail configured is a supported state -- SMTP_PROVIDER
+        # can be `none`. Mail turned off turns the hub's off too, so the
+        # credential it held stops being used. Reported rather than skipped
+        # silently, so the caller's changed_when can tell it apart from a write.
+        if current.get("enabled"):
+            _req("PATCH", f"{base}/api/settings", token=su_token,
+                 body={"smtp": {"enabled": False}})
+            return "disabled", ""
+        return "no-mail", ""
+
     meta = dict(current_all.get("meta") or {})
     sender = str(cfg.get("sender") or "").strip()
     app_name = str(cfg.get("app_name") or "Catena").strip()
+    fingerprint = _fingerprint(desired["password"])
 
     smtp_same = all(
         str(current.get(k, "")) == str(desired[k]) for k in _SMTP_COMPARED
@@ -388,8 +536,8 @@ def configure_smtp(base: str, su_token: str, cfg: dict) -> str:
         str(meta.get("senderAddress", "")) == sender
         and str(meta.get("senderName", "")) == app_name
     )
-    if smtp_same and meta_same:
-        return "ok-exists"
+    if smtp_same and meta_same and written == fingerprint:
+        return "ok-exists", fingerprint
 
     had_host = bool(str(current.get("host") or "").strip())
     _req(
@@ -420,7 +568,7 @@ def configure_smtp(base: str, su_token: str, cfg: dict) -> str:
             "ignored unrecognised keys, so these names have drifted from "
             "core.SMTPConfig"
         )
-    return "updated" if had_host else "configured"
+    return ("updated" if had_host else "configured"), fingerprint
 
 
 # ─── OIDC provider on the users collection ─────────────────────────────────

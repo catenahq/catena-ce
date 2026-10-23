@@ -77,7 +77,7 @@ def test_readme_rendered_into_etc_catena():
 
 def test_readme_does_not_depend_on_our_own_tooling():
     """A rebuild guide that needs our CLI is not an exit."""
-    forbidden = ("catena-cli", "catena recover", "catena rollback",
+    forbidden = ("catena-installer", "catena recover", "catena rollback",
                  "catena restore", "ansible")
     for lang in _LANGS:
         body = (_TEMPLATES / f"RECOVERY-README.{lang}.md.j2").read_text().lower()
@@ -88,6 +88,35 @@ def test_readme_does_not_depend_on_our_own_tooling():
             )
         for tool in ("restic", "docker", "psql"):
             assert tool in body, f"RECOVERY-README.{lang} never mentions {tool}"
+
+
+def test_the_one_application_restore_runs_from_its_folder_alone():
+    """The folder under compose/ is the application's definition: the guide
+    restores it with the volumes, prepares a bare machine for swarm and deploys
+    the folder with its .env loaded. Nothing in it reads Portainer's data."""
+    steps = (
+        "docker swarm init",
+        "docker network create --driver overlay catena-network",
+        "docker node update --label-add catena.role=data self",
+        "set -a; . ./.env; set +a",
+        "docker stack deploy -c docker-compose.yml",
+        "/compose/",
+    )
+    for lang in _LANGS:
+        body = (_TEMPLATES / f"RECOVERY-README.{lang}.md.j2").read_text()
+        for step in steps:
+            assert step in body, f"RECOVERY-README.{lang} lost: {step}"
+        assert "portainer" not in body.lower(), (
+            f"RECOVERY-README.{lang} sends the reader to Portainer's data")
+        assert "docker compose" not in body, (
+            f"RECOVERY-README.{lang} starts an application outside swarm")
+
+
+def test_the_application_folders_ride_every_snapshot():
+    """The guide points at {{ storage_mount_point }}/compose, so it has to be
+    in the backup's own paths."""
+    defaults = yaml.safe_load(_DEFAULTS.read_text())
+    assert "{{ storage_mount_point }}/compose" in defaults["backup_product_paths"]
 
 
 def test_the_export_directory_is_created_for_the_payload_scripts():

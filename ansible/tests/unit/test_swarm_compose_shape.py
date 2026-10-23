@@ -21,6 +21,9 @@ The loopback publishes are 0.0.0.0 binds, held loopback-only by a
 `scope: loopback` declaration in the public-port registry -- see
 test_public_ports_loopback_scope.py.
 
+The app-level vps.* labels (route, access, health, names) are read off client
+apps alone, so on these stacks they deploy and nothing reads them.
+
 Run: uv run pytest tests/unit/test_swarm_compose_shape.py
 """
 from __future__ import annotations
@@ -36,7 +39,6 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 SWARM_COMPOSE = (
     ANSIBLE / "reconcile/roles/infrastructure/templates/gatus.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/healthchecks.compose.yml.j2",
-    ANSIBLE / "reconcile/roles/infrastructure/templates/clamav.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hub.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-agent.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
@@ -79,8 +81,7 @@ def test_no_ignored_compose_only_keys(path: Path):
 @pytest.mark.parametrize("path", SWARM_COMPOSE, ids=lambda p: p.name)
 def test_every_service_declares_a_restart_policy(path: Path):
     """Swarm's default restart condition is already `any`, so this is about
-    the DELAY: with none, a service whose dependency is not up yet hot-loops.
-    clamd re-pulls a ~250 MB signature DB on each of those."""
+    the DELAY: with none, a service whose dependency is not up yet hot-loops."""
     body = _body(path)
     assert body.count("restart_policy:") >= 1, (
         f"{path.name}: no deploy.restart_policy"
@@ -88,49 +89,19 @@ def test_every_service_declares_a_restart_policy(path: Path):
     assert "delay:" in body, f"{path.name}: restart_policy with no delay"
 
 
-def test_clamav_is_a_swarm_stack_on_an_overlay():
-    """The two halves have to stay consistent.
+_APP_LABEL = re.compile(r"vps\.(?:auth|route|health|homepage)\.[\w.-]*|vps\.display-name")
 
-    A swarm service cannot attach to a bridge, and `docker stack deploy`
-    refuses a stack whose external network is local-scope at all -- so a
-    bridge here would stop the mailserver and Nextcloud templates from
-    deploying, not merely keep clamd off swarm.
 
-    The overlay's deadlock risk: an attachable overlay is materialized on a
-    node only once a swarm task there uses it, and a STANDALONE container asking
-    for an unmaterialized one stays Created ("network catena-clamav not
-    found"). With standalone consumers the only swarm task that could
-    materialize the network would be clamd, which does not deploy until a
-    consumer runs. Both consumers are swarm services, so the first of them
-    materializes it and the deadlock has no hold.
-    """
-    tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
-        encoding="utf-8")
-    assert "include_tasks: swarm_stack.yml" in tasks
-    assert "include_tasks: portainer_stack.yml" not in tasks
-    assert "overlay" in tasks and "--attachable" in tasks
-
-    compose = (
-        ANSIBLE / "reconcile/roles/infrastructure/templates/clamav.compose.yml.j2"
-    ).read_text(encoding="utf-8")
-    assert "restart: unless-stopped" not in compose, (
-        "`restart:` is dropped by docker stack deploy with a warning nobody "
-        "reads"
+@pytest.mark.parametrize("path", SWARM_COMPOSE, ids=lambda p: p.name)
+def test_no_app_level_vps_label(path: Path):
+    """The app intent reads these labels off client-app stacks alone (catena-admin
+    payload/lib/docker_api.py INFRA_STACKS lists these), and a gated tool's
+    gate is its reconcile/roles/oauth2_proxy oauth2_proxy_apps entry."""
+    found = _APP_LABEL.findall(_body(path))
+    assert not found, (
+        f"{path.name}: {found} -- nothing reads an app-level vps.* label on a "
+        f"Catena stack. A gate belongs in oauth2_proxy_apps."
     )
-
-
-def test_the_clamav_consumers_are_matched_by_label():
-    """clamd deploys only when a consumer is running, and the probe that
-    decides reads vps.app / vps.component. A container NAME depends on
-    docker's scheme and on whatever a client typed into Portainer, so a probe
-    that matched one would quietly stop finding either consumer and clamd
-    would never deploy again -- with the mail path silently unscanned."""
-    tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
-        encoding="utf-8")
-    assert "label=vps.app=" in tasks
-    assert "label=vps.component=dms" in tasks
-    assert "com.docker.compose" not in tasks
-    assert "--filter 'name=" not in tasks
 
 
 def test_published_ports_use_long_syntax_host_mode():

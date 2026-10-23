@@ -16,7 +16,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
+
+from ansible_tree import CONVERGE_TAIL, PLAYBOOKS, post_tasks
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLE = ANSIBLE / "reconcile" / "roles" / "tier1_stack"
@@ -92,7 +95,7 @@ def test_changed_comes_from_the_engines_own_count():
 
 def test_a_missing_engine_stops_the_converge():
     """Unlike the Cloudflare tunnel, there is no deferral: without the engine
-    there is no traefik, no postgres and no portainer, so a converge that
+    there is no traefik and no postgres, so a converge that
     carried on would report success over a host with no control plane."""
     task = _task(RECONCILE, "the reconcile engine is missing")
     assert "ansible.builtin.fail" in task
@@ -112,31 +115,7 @@ def test_nothing_writes_a_declaration_file():
     assert "tier1_declaration_path" not in body
 
 
-# --- two rosters, two lifecycles ----------------------------------------
-
-
-def test_the_control_plane_and_the_companions_render_to_different_files():
-    d = _defaults()
-    assert d["tier1_stack_path"] != d["tier1_companions_path"]
-    # Both are unrendered Jinja here; what matters is that they are anchored to
-    # the same directory, which is the one reconcile/roles/infrastructure also owns.
-    assert "tier1_stack_dir" in d["tier1_companions_path"]
-    assert "tier1_stack_dir" in d["tier1_stack_path"]
-
-
-def test_the_companion_roster_is_not_under_the_completeness_guard():
-    """A companion is present exactly when its consumer is, so an accumulator
-    holding fewer than last converge is the answer rather than a partial one.
-    Requiring a roster would fail every host with no real-time app."""
-    guarded = None
-    for task in yaml.safe_load(TASKS.read_text()):
-        if "block" not in task:
-            continue
-        names = [t.get("name") or "" for t in task["block"]]
-        if any("companion file" in n for n in names):
-            guarded = task
-    assert guarded is not None, "the companion write is not inside a block"
-    assert "tier1_stack_required" not in str(guarded["when"])
+# --- the control-plane render -------------------------------------------
 
 
 def test_the_control_plane_write_keeps_its_completeness_guard():
@@ -155,18 +134,29 @@ def test_the_control_plane_write_keeps_its_completeness_guard():
     assert "difference(_tier1_present) | length == 0" in cond
 
 
-def test_the_companion_file_is_removed_when_nothing_contributed():
-    """Left behind, it describes services this host does not run -- and the whole
-    point of rendering is that the file matches reality."""
-    task = _task(TASKS, "no companions on this host")
-    assert task["ansible.builtin.file"]["state"] == "absent"
-    assert "_tier1_companions | length == 0" in str(task["when"])
+@pytest.mark.parametrize("playbook", ["converge.yml", "reconcile.yml"])
+def test_both_converge_paths_render_the_oracle(playbook: str):
+    """The install runs converge.yml once; every later converge, an update's
+    included, is the host's own reconcile.yml. A render on only the first
+    leaves the file as the install wrote it, with control-plane images an
+    update has since moved."""
+    tasks = post_tasks(PLAYBOOKS / playbook)
+    names = [t.get("name", "") for t in tasks]
+    render = [i for i, t in enumerate(tasks)
+              if (t.get("ansible.builtin.include_role") or {}).get("name") == "tier1_stack"]
+    assert len(render) == 1, f"{playbook} renders the tier-1 oracle {len(render)} times"
+    manifest = next(i for i, n in enumerate(names) if n.startswith("Release: record"))
+    assert render[0] < manifest, f"{playbook} renders after recording the release"
 
 
-def test_coturn_contributes_to_the_companion_roster_not_the_control_plane():
-    coturn = (ANSIBLE / "reconcile" / "roles" / "coturn" / "tasks" / "deploy.yml").read_text()
-    assert "catena_companion_specs" in coturn
-    assert "catena_tier1_specs" not in coturn
+@pytest.mark.parametrize("playbook", ["converge.yml", "reconcile.yml"])
+def test_a_tier1_stack_tag_reaches_the_render(playbook: str):
+    """The tail is a dynamic include: its own tags decide whether it fires at
+    all, before the render's tag is looked at."""
+    play = yaml.safe_load((PLAYBOOKS / playbook).read_text())[0]
+    tail = next(t for t in play["post_tasks"]
+                if (t.get("ansible.builtin.include_tasks") or {}).get("file") == CONVERGE_TAIL)
+    assert "tier1_stack" in tail["tags"]
 
 
 # --- two roles, one directory ------------------------------------------------

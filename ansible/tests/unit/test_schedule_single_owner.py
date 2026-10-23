@@ -125,7 +125,6 @@ def test_the_converge_applies_the_stored_schedule():
     # backup-retention.env for run-backup.sh to source.
     gate = str(applies[0].get("when", ""))
     assert "catena_admin_deploy_from_converge" not in gate
-    assert "portainer_api_key" not in gate
     assert "stat.exists" in gate
 
 
@@ -164,6 +163,21 @@ def test_the_daily_env_does_not_carry_a_schedule():
     assert "DAILY_TIMER_ONCALENDAR" not in body
 
 
+def test_the_daily_env_does_not_choose_the_chains_steps():
+    # Which steps the chain runs is the Schedules page's, in the config store's
+    # nightly_steps, written by catena-schedule. A switch here would be a second
+    # writer, and the converge would put back a step the client left out.
+    body = _code(DAILY_ENV)
+    assert "nightly_steps" not in body.lower()
+    for line in body.splitlines():
+        key = line.split("=", 1)[0].strip()
+        for word in ("STEP", "SKIP", "ENABLE", "DISABLE"):
+            assert word not in key, (
+                f"{key} in daily.env reads as a step switch; the chain's steps "
+                "are catena-schedule's, from the config store"
+            )
+
+
 # --- the other lanes can start at all ----------------------------------------
 #
 # daily.env is not the only one. catena-stack-update-managed.service declares
@@ -193,7 +207,7 @@ def test_every_lane_config_file_is_rendered_exactly_once():
 
 
 def test_the_secret_bearing_lane_config_is_not_world_readable():
-    # stack-update.env carries the Portainer API key.
+    # stack-update.env is the lane's host configuration, root-only.
     tasks = yaml.safe_load(ADMIN_LANES.read_text())
     for src in ("stack-update.env.j2",):
         tpl = next(
@@ -231,8 +245,7 @@ def test_which_buckets_get_copied_is_not_a_converge_input():
     body = _code(offsite_env)
     for key in ("OFFSITE_HEALTHCHECK_URL", "OFFSITE_HEALTHCHECK_ATTEMPTED_URL"):
         assert key in body
-    for gone in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID",
-                 "NEXTCLOUD_WORM_REPO", "NEXTCLOUD_LIVE_REPO"):
+    for gone in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID"):
         assert gone not in body, (
             f"{gone} is back in a converge-rendered file; the copy list has "
             "one owner and it is the config store"

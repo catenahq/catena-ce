@@ -54,4 +54,4 @@ configures it.
 ## Related
 
 - Downstream: `reconcile/roles/swarm` (configures the swarm), then `traefik` /
-  `postgres` / `portainer` (swarm services need Docker + swarm up first).
+  `postgres` (swarm services need Docker + swarm up first).

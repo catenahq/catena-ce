@@ -1,15 +1,16 @@
 # Which side of the converge boundary each role sits on.
 #
-# THE RULE, in two questions asked in order.
+# THE RULE (SPEC.md, "The boundary"), two questions asked in order.
 #
-#   1. If this is wrong, is anything left that can fix it? If no, it is
-#      BOOTSTRAP: `catena-cli install` applies it, over SSH, from outside.
-#      That set is small and it is meant to stay small.
+#   1. Can anything repair this role's result once it is wrong?
+#      If nothing can, the role is BOOTSTRAP: only the install applies it, run
+#      by a person through the installer (ansible/install-host.sh), never by the
+#      host on a timer. That set is small and it is meant to stay small.
 #
-#   2. Otherwise, is the correct value a function of the product VERSION or of
-#      THIS HOST? Version-shaped things travel in the image; host-shaped things
-#      live in /etc/catena/config.json. Either way the role is RECONCILE: it can
-#      run on the host, unattended, from the image, on a timer.
+#   2. Does the correct value follow the product VERSION or THIS
+#      HOST? Version-shaped things travel in the image; host-shaped things live
+#      in /etc/catena/config.json. Both kinds are RECONCILE roles, which the host
+#      runs against itself, unattended, from the image, on a timer.
 #
 # Ownership draws the line, whatever the storage location: the Gatus endpoint
 # list sits in a file on the host, yet it lists what the product decided to
@@ -19,8 +20,8 @@
 # enforcement, and playbooks/reconcile.yml is the half the host runs against
 # itself, with no controller inventory.
 
-# Roles only `catena-cli install` applies. Each carries the reason it is here,
-# because "bootstrap" with no reason is how a set like this grows.
+# Roles only the install applies. Each carries the reason it is here, because
+# "bootstrap" with no reason is how a set like this grows.
 bootstrap_roles:
   - name: common
     why: >-
@@ -48,10 +49,14 @@ bootstrap_roles:
       that includes whatever would have repaired it.
   - name: catena_admin_host
     why: >-
-      The trust path the panel's dispatch arrives over: the runner account, the
-      sudoers drop-in, the forced command and its authorized_keys. A reconcile
-      that could rewrite the way in could rewrite what a reconcile is, which is
-      question one in its purest form.
+      Who the panel's dispatch signs in as and with what: the runner account,
+      the panel's SSH key pair and the host key it trusts. And the way a server
+      taking this one over arrives: the migration account and its sshd rules,
+      which nothing on the host can prove without an open migration window. A
+      reconcile that could mint, move or trust another key could rewrite what a
+      reconcile is, which is question one in its purest form. The path a
+      dispatch crosses once signed in is dispatch_path's, under
+      proven_switches below.
   - name: ansible_runtime
     why: >-
       The ansible-core the host reconciles itself with. A fresh host has no
@@ -65,20 +70,21 @@ bootstrap_roles:
 
 # Roles the host can run against itself, once their inputs come from the store.
 # Order is converge.yml's order, which is a dependency order, not a preference.
+# dispatch_path is first so a proof that fails stops the converge before any
+# other role changes the host.
 reconcile_roles:
+  - dispatch_path
   - payload
   - public_ports
   - host_maintenance
   - swarm
   - traefik
   - postgres
-  - portainer
   - cloudflare_tunnel
   - keycloak
   - oauth2_proxy
   - infrastructure
   - catena-admin
-  - coturn
   - backup
 
 # Reconcile-side roles the converge does not list under `roles:`. Declared for
@@ -90,8 +96,8 @@ reconcile_roles:
 post_task_roles:
   - name: tier1_stack
     why: >-
-      A fold over the converge rather than a step in it. traefik, postgres,
-      portainer and coturn each append their service spec to an accumulator;
+      A fold over the converge rather than a step in it. traefik and postgres
+      each append their service spec to an accumulator;
       this renders the accumulated set and type-checks it against the docker
       actually installed. It can only run once every contributor has.
 
@@ -107,9 +113,10 @@ own_playbook_roles:
 
 # NOTHING STRADDLES: straddling_roles is empty.
 #
-# The public-port registry's host wiring lives in reconcile/roles/public_ports
-# and the SSH trust path lives in bootstrap/roles/catena_admin_host. Both are
-# real roles on one side of the line, which is what a straddle is supposed to
+# The public-port registry's host wiring lives in reconcile/roles/public_ports,
+# the accounts and keys of the SSH trust path in bootstrap/roles/catena_admin_host,
+# and the path a dispatch crosses in reconcile/roles/dispatch_path. Each is a
+# real role on one side of the line, which is what a straddle is supposed to
 # become.
 #
 # The mechanism exists for a role that has to straddle. A role listed here
@@ -133,11 +140,47 @@ straddling_roles: {}
 # converge. Classifying one as reconcile would be saying a timer may run it.
 operator_only_files: []
 
+# Reconcile roles that write bootstrap-owned paths, each through one helper
+# that changes the live path only after a dispatch through the new one is
+# proven, the way the Lockdown closes public SSH only behind a proven tailnet.
+#
+# Question one still holds for them: a broken result never becomes the one in
+# use, because the helper installs it beside the running path, proves it, and
+# keeps the running path when the proof fails; and what a person or the install
+# holds -- the accounts, the panel's key, the host key and the panel's
+# known_hosts -- stays bootstrap-owned and is never written here. So a
+# reconcile still cannot remove the ability to run a reconcile, and an update
+# can change the way a dispatch arrives without an install re-run.
+#
+# `paths` is everything the helper may write, each inside bootstrap_owned_paths
+# so the literal rule keeps holding every other reconcile task to it.
+# test_converge_boundary.py holds the declaration to the tree and the helper to
+# its paths; tests/unit/test_dispatch_path.py holds the helper to its proof.
+proven_switches:
+  - role: dispatch_path
+    helper: helpers/dispatch_path.py
+    paths:
+      - /etc/ssh/sshd_config.d/30-catena-admin-runner-acceptenv.conf
+      - /etc/ssh/sshd_config.d/30-catena-admin-runner-next.conf
+      - /etc/sudoers.d/catena-admin-runner
+      - /etc/sudoers.d/catena-admin-runner-next
+      - authorized_keys
+      - /usr/local/sbin/catena-admin-runner
+      - /usr/local/lib/catena-dispatch/
+    why: >-
+      The path the panel's dispatch crosses once signed in: sshd's AcceptEnv
+      for the runner, the forced command on the panel key's line, the runner's
+      sudo rule and env_keep, and the dispatcher. A panel update that needs a
+      new variable, a new forced command or a new dispatcher brings it in its
+      image's tree, and the switch moves the panel to it only once a dispatch
+      through it has worked.
+
 # Paths a reconcile-side TASK may never write.
 #
 # This is question one turned into a list of literals, so it can be checked
-# rather than remembered. A reconcile that can rewrite the forced command is a
-# reconcile that can rewrite what a reconcile is.
+# rather than remembered. A reconcile that can rewrite the forced command
+# unproven is a reconcile that can rewrite what a reconcile is; the one that
+# rewrites it proven is declared under proven_switches above.
 #
 # Tasks only, deliberately. reconcile/roles/backup names /etc/ssh in its defaults because
 # restic READS it -- it is in the backup set, with the host keys excluded -- and
@@ -148,6 +191,7 @@ bootstrap_owned_paths:
   - /etc/sudoers.d/
   - authorized_keys
   - /usr/local/sbin/catena-admin-runner
+  - /usr/local/lib/catena-dispatch/
   - /etc/sysctl.d/
   - /etc/modprobe.d/
   - /etc/ansible/facts.d/
@@ -162,6 +206,7 @@ reconcile_owned_paths:
   - /etc/apt/apt.conf.d/51catena-origins
   - /etc/needrestart/conf.d/
   - /etc/systemd/journald.conf.d/
+  - /etc/systemd/timesyncd.conf.d/
   - daily.env
   - stack-update.env
   - managed-services.json

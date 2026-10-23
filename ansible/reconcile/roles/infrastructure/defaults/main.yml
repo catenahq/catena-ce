@@ -1,20 +1,20 @@
 ---
 # reconcile/roles/infrastructure manages the shared infra stacks (Gatus,
-# Healthchecks, Beszel, clamav) on the host's swarm, and the per-host wiring
+# Healthchecks, Beszel) on the host's swarm, and the per-host wiring
 # of the gatus-sync and dashboard-sync lanes.
 #
 # This role's public hostnames, each served through the tunnel and Traefik
 # behind its own Keycloak-backed oauth2-proxy:
-#   monitor.<zone>   -> Gatus
-#   heartbeat.<zone> -> Healthchecks
-#   hub.<zone>       -> Beszel
+#   gatus.<zone>        -> Gatus
+#   healthchecks.<zone> -> Healthchecks
+#   beszel.<zone>       -> Beszel
 
 
 # Executing-prefix paths this role writes, for
 # playbooks/tasks/prune_withdrawn_files.yml.
 #
-# The wire scripts are here in full rather than globbed. A glob over
-# /usr/local/bin/catena-wire-* would hand the delete leg whatever happens to be
+# The paths are listed in full rather than globbed. A glob over
+# /usr/local/bin/catena-* would hand the delete leg whatever happens to be
 # on the host, which is the input a delete leg must never be given -- and these
 # directories are shared with the panel payload.
 #
@@ -22,34 +22,7 @@
 # panel image, whose payload owns their paths
 # (tests/unit/test_no_lane_is_half_owned.py).
 infrastructure_managed_paths:
-  - "{{ clamav_watch_script_path }}"
-  - "{{ mail_canary_script_path }}"
-  - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.service"
-  - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.timer"
-  - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.service"
-  - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.timer"
-  - /usr/local/bin/catena-dms-exec
-  - /usr/local/bin/catena-nextcloud-container
-  - /usr/local/bin/catena-wire-nextcloud-antivirus
-  - /usr/local/bin/catena-wire-nextcloud-mail
-  - /usr/local/bin/catena-wire-nextcloud-webmail-link
-  - /usr/local/bin/catena-wire-nextcloud-office
-  - /usr/local/bin/catena-wire-nextcloud-oidc
-  - /usr/local/bin/catena-wire-nextcloud-talk-hpb
-  - /usr/local/bin/catena-wire-rocketchat-jitsi
-
-# --- Nextcloud Talk + HPB ------------------------------------------------
-# aio-talk's Janus uses TURN-only for ALL its media (its janus.jcfg's
-# nat block is generated with turn_server pointing at the standalone
-# coturn at turn.<base>:5349). No direct UDP exposure needed for Janus
-# itself. The HPB stack reuses the shared coturn UDP profile already
-# opened by reconcile/roles/coturn (3478, 5349, 50000-50100).
-
-# --- Cloudflare tunnel ---------------------------------------------------
-# Tunnel-specific vars (cloudflared_tunnel_name, cloudflared_image,
-# cloudflared_ingress_service) live in reconcile/roles/cloudflare_tunnel/defaults
-# and are visible here at converge time: both roles run in the same play, and
-# defaults from each are merged into the play's var scope.
+  - /usr/local/bin/catena-container
 
 # --- Swarm stack-deploy helper --------------------------------------------
 # Poll window for stack-deploy completion. Keycloak with the phasetwo
@@ -84,10 +57,8 @@ gatus_network_alias: "gatus"
 gatus_internal_port: 8080
 gatus_host_config_dir: "/etc/catena/gatus"
 # JSON spec consumed by gatus-sync to render 40-infra.yaml (one Gatus
-# endpoint per infra service, NAME augmented with current/latest version
-# from version-check.json). Rendered at converge time with hostnames /
-# aliases substituted; gatus-sync re-evaluates the version annotation
-# every 5 min so version bumps surface on the dashboard cards.
+# endpoint per infra service, NAME the title version-check.json gives its
+# image). Rendered at converge time with hostnames / aliases substituted.
 gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
 # Host-side loopback port gatus-sync reads to reach /api/v1/endpoints/statuses.
 # gatus-sync runs as a systemd service on the host, outside catena-network,
@@ -95,14 +66,16 @@ gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
 # (loopback is never publicly reachable).
 gatus_host_localhost_port: 18080
 
-# gatus-sync (systemd timer + Actions tab button) regenerates
-# 50-catena-apps.yaml from `docker ps` labels. The script and its units ship in
-# the catena-admin payload; this role renders the env file and wires the timer.
+# gatus-sync (its timer, dashboard-sync and the converge start it) regenerates
+# 50-catena-apps.yaml from the app intent dashboard-sync writes, and
+# 40-infra.yaml from the spec above. The script and its units ship in the
+# catena-admin payload; this role renders the env file and wires the timer.
 gatus_sync_script_path: "/usr/local/bin/catena-gatus-sync"
 gatus_sync_env_path: "/etc/catena/gatus-sync.env"
 
-# gatus-sync also writes a small summary here on every run.
-# catena-admin reads it via the backup_stats_dir read-only bind-mount.
+# gatus-sync also writes its count of Gatus's endpoints up and down here on
+# every run. The panel's System tab reads it through the read-only bind-mount
+# of this directory (catena_admin_stats_dir).
 gatus_summary_dir: "{{ backup_stats_dir | default('/var/lib/catena') }}"
 gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 
@@ -117,9 +90,17 @@ healthchecks_image: >-
 healthchecks_compose_name: "healthchecks"
 healthchecks_network_alias: "healthchecks"
 healthchecks_internal_port: 8000
-# Where gatus-sync writes the Healthchecks summary JSON. catena-admin
-# reads it via the backup_stats_dir read-only bind-mount.
-healthchecks_summary_file: "{{ backup_stats_dir | default('/var/lib/catena') }}/healthchecks-summary.json"
+# Healthchecks' credentials, as swarm secrets rather than service environment,
+# which `docker service inspect` prints. Healthchecks reads <target>_FILE for
+# each (hc/settings.py envsecret, v4.4). The mail password is blank while mail
+# is off, and a blank value mounts nothing.
+healthchecks_swarm_secrets:
+  - base: healthchecks_secret_key
+    target: SECRET_KEY
+    value: "{{ healthchecks_secret_key }}"
+  - base: healthchecks_email_password
+    target: EMAIL_HOST_PASSWORD
+    value: "{{ (smtp_password | default('')) if (infrastructure_smtp.enabled | bool) else '' }}"
 # Host-side loopback port gatus-sync reads to reach /api/v3/checks/.
 # Gatus-sync runs as a systemd service on the host, outside catena-
 # network, so it can't resolve the container alias. 127.0.0.1:18000 is
@@ -132,32 +113,37 @@ healthchecks_host_localhost_port: 18000
 # the same box, so a tunnel or DNS failure silences the backup dead-man instead
 # of tripping it.
 #
-# Container-to-container pings do NOT use this -- Gatus and the Beszel shim
-# post to the network alias, which is already local. The .env overrides
-# (BACKUP_HEALTHCHECK_URL_CLIENT / _OPERATOR) stay deliberately external:
-# they are the box-death half of the two-monitor model, and a loopback ping
-# cannot detect a host that is gone.
+# Gatus and the Beszel shim ping from their containers through the network
+# alias, which is already local. The one ping that leaves the host is the
+# heartbeat lane's, to the OFFSITE_HEARTBEAT_URL the client saves in Settings:
+# a loopback ping cannot detect a host that is gone.
 healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
-
-# Alert delivery. Store-owned (the client changes these in catena-admin), so
-# they read the projected fact rather than .env; the inventory only seeds them
-# on the first converge. Both blank means no channel is seeded and the
-# converge says so -- see reconcile/roles/infrastructure/tasks/healthchecks.yml.
-ntfy_server: "{{ cfg_ntfy_server | default('') }}"
-ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
+# Outgoing mail, from the one choice in Settings > Mail, resolved by the
+# filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
+# smtp_resolve.py): {enabled, host, port, implicit_tls, user, sender}. Healthchecks sends
+# its alerts through it, to the admin email channel healthchecks-seed.py
+# keeps, and Beszel its own mail. The credential is smtp_password. With mail
+# off the converge seeds no alert channel and says so
+# (tasks/healthchecks.yml).
+infrastructure_smtp: >-
+  {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
+       host=cfg_smtp_host | default(''),
+       port=cfg_smtp_port | default(''),
+       user=cfg_smtp_user | default(''),
+       sender=cfg_smtp_sender | default(''),
+       fallback_sender=admin_email) }}
 
 # --- Beszel (hub + agent resource monitor) ------------------------------
-# Two managed compose stacks:
+# The hub and the agent, each a swarm stack:
 #
 #   beszel-hub   -- web UI + SQLite history store. Public surface at
-#                   hub.<zone>, admin-gated by oauth2-proxy (vps.auth.mode=
-#                   admin-only). dashboard-sync synthesises the Traefik
-#                   route + Keycloak redirect URI from the compose labels,
-#                   so beszel.yml MUST run before dashboard_sync.yml.
+#                   beszel.<zone> (beszel_hostname, playbooks/group_vars/all),
+#                   behind its own admin-only oauth2-proxy: the `beszel`
+#                   entry of reconcile/roles/oauth2_proxy oauth2_proxy_apps.
 #   beszel-agent -- collects per-container + per-host CPU/memory/network/
 #                   disk/temperature/load over docker.sock. No public
-#                   surface; reaches the hub on the catena-network alias.
+#                   surface; reaches the hub on its host loopback publish.
 #
 # Threshold alerts leave the hub via Shoutrrr (generic webhook) to the
 # beszel-hc-shim sidecar, which maps triggered/resolved to Healthchecks
@@ -167,11 +153,11 @@ ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
 # Always deployed: Beszel is part of the base plane. Pinned tags
 # (Renovate-managed); the agent reads docker.sock, so it has the docker
 # daemon's blast radius on a single-tenant VPS.
-beszel_image_tag: "0.20.0"
+beszel_image_tag: "0.21.0"
 beszel_image: >-
   {{ ('henrygd/beszel:' ~ beszel_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
-beszel_agent_image_tag: "0.20.0"
+beszel_agent_image_tag: "0.21.0"
 beszel_agent_image: >-
   {{ ('henrygd/beszel-agent:' ~ beszel_agent_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
@@ -182,60 +168,87 @@ beszel_hub_internal_port: 8090
 # (UFW-safe, loopback never publicly reachable; mirrors gatus_host_
 # localhost_port / healthchecks_host_localhost_port):
 #   - beszel-seed.py (universal-token seed against the PocketBase API)
-#   - the beszel-agent (network_mode: host) dialling HUB_URL
+#   - the beszel-agent (on the host network) dialling HUB_URL
 beszel_hub_host_localhost_port: 18190
 beszel_hub_data_volume: "beszel-hub-data"
 beszel_agent_compose_name: "beszel-agent"
-# Agent listens on this port for the hub handshake. The agent runs with
-# network_mode: host (canonical upstream shape for host + docker metrics)
-# so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
+# Agent listens on this port for the hub handshake. The agent runs on the host
+# network (canonical upstream shape for host + docker metrics) so it reaches
+# the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
 beszel_agent_port: 45876
-beszel_subdomain: "{{ cfg_beszel_subdomain | default('hub', true) }}"
+# The agent's universal token, as a swarm secret, of which
+# `docker service inspect` shows the path. The agent reads the file TOKEN_FILE
+# names (agent/client.go getToken, henrygd/beszel v0.20.0).
+beszel_agent_swarm_secrets:
+  - base: beszel_agent_token
+    target: TOKEN
+    value: "{{ beszel_universal_token }}"
+# beszel-seed.py's record, beside the script: the admin email it last signed
+# in to the hub with, and the fingerprint of the mail password it last wrote,
+# neither of which the hub answers back. 0600, root.
+beszel_seed_state_file: /root/catena-beszel-seed.json
 
 # Label on the hub's OIDC sign-in button. Client-facing copy, so it names the
 # product rather than the software behind it -- "Keycloak" is a word the client
 # has no reason to know.
 beszel_oidc_display_name: "Catena"
-beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Beszel -> Healthchecks alert shim ----------------------------------
-# Tiny stdlib-Python sidecar on catena-network. Receives Beszel's
+# Tiny stdlib-Python sidecar on the hub's network. Receives Beszel's
 # Shoutrrr generic-webhook POST, derives a beszel-<slug> check name, and
-# forwards triggered -> /fail, resolved -> success against the
-# Healthchecks loopback alias. All project channels auto-attach via the
-# existing assign_all_channels() seed (zero per-check wiring).
+# forwards triggered -> /fail, resolved -> success to Healthchecks' network
+# alias. Healthchecks attaches every project channel to
+# a check its `?create=1` ping creates (zero per-check wiring).
 beszel_hc_shim_compose_name: "beszel-hc-shim"
 beszel_hc_shim_network_alias: "beszel-hc-shim"
 beszel_hc_shim_internal_port: 8099
-beszel_hc_shim_image_tag: "3.14.7-alpine"
+beszel_hc_shim_image_tag: "3.15.1-alpine"
 beszel_hc_shim_image: >-
   {{ ('python:' ~ beszel_hc_shim_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
 # Host dir the shim script is dropped into + bind-mounted read-only.
 beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
+# The ping key, as a swarm secret for the same reason as the agent's token. The
+# shim reads the file HC_PING_KEY_FILE names.
+beszel_hc_shim_swarm_secrets:
+  - base: beszel_hc_shim_ping_key
+    target: HC_PING_KEY
+    value: "{{ healthchecks_ping_key }}"
+
+# --- Off-site heartbeat ---------------------------------------------------
+# catena-admin's catena-heartbeat lane (payload/lanes) probes Gatus,
+# Healthchecks and the Beszel hub on their loopback publishes above, then
+# calls the off-site address saved in Settings, which it reads off the store.
+# This file carries the rest. The Schedules page's `heartbeat` lane turns it
+# on.
+heartbeat_env_file: /etc/catena/heartbeat.env
+# The lane's own check on this host's Healthchecks, which catena-schedule keeps
+# on the lane's schedule.
+heartbeat_check_slug: catena-heartbeat
 
 # version-check (the current-vs-latest Versions report, a catena-admin
-# payload script) runs on every edition: a self-hosted Community deployment
-# sees its own version + CVE-visibility without a license. It auto-detects every running container + swarm
-# service and derives each upstream from the image ref (no registry to
-# maintain), running as the ExecStartPre producer of gatus-sync so the
-# report is fresh before gatus-sync reads it. When the Business managed-
-# update engine is ALSO licensed it writes its updater-state files, which
-# version-check merges into the report's summary card (absent on CE).
+# payload script) runs on every edition, Community included. It auto-detects
+# every running container + swarm service and derives each upstream from the
+# image ref (no registry to maintain), on its own timer
+# (catena-version-check.timer) and once at the end of every converge;
+# gatus-sync reads the latest report. It also
+# merges in the managed-update engine's state files, which the nightly chain's
+# managed run (Catena Pro) and the panel update write.
 version_check_script_path: /usr/local/bin/catena-version-check
 version_check_overrides_file: /etc/catena/version-check-overrides.json
 version_check_output_file: /var/lib/catena/version-check.json
 
 # --- dashboard-sync ------------------------------------------------------
-# The reconciler that reads every Portainer stack's vps.* labels and decides
-# what that app's Traefik route and oauth2-proxy should be.
+# The reconciler that reads every client app's deployed vps.* labels, writes
+# the app intent, and decides what that app's Traefik route and oauth2-proxy
+# should be.
 #
 # The script and its modules ship in the catena-admin PAYLOAD -- what a label
 # MEANS is a product decision, so it travels with the image rather than waiting
 # for a converge on every host. reconcile/roles/payload installs them earlier in
 # the converge, so the paths below exist by the time anything here schedules
 # them. What this role owns is per-host: the env file's secrets, and enabling
-# the timer.
+# the timer and the app events watcher.
 #
 # In the catena-* namespace like every other payload command
 # (catena-admin payload/lanes/lanes_manifest_test.go enforces it), which also
@@ -248,107 +261,25 @@ dashboard_sync_script_path: "/usr/local/bin/catena-dashboard-sync"
 # The verifier below is one of them, invoked directly by validate.
 dashboard_sync_lib_dir: "/usr/local/lib/catena"
 # What "the reconciler is here" has to mean. catena-dashboard-sync imports these
-# four by bare name at module scope, so the script on its own is a file, not a
-# runnable reconciler -- and the two halves reach a host by different routes:
+# modules by bare name at module scope, so the script on its own is a file, not
+# a runnable reconciler -- and the two halves reach a host by different routes:
 # /usr/local/bin rides the restic snapshot, the modules arrive with the payload.
 #
-# The DIRECTORY is deliberately not the check. bootstrap/roles/common creates it at role
-# position 1 for its own public-ports modules, so it exists on hosts the payload
+# The DIRECTORY is deliberately not the check. bootstrap/roles/common creates it, in the install's
+# first role, for its own public-ports modules, so it exists on hosts the payload
 # has never touched and stat-ing it answers yes for the wrong owner's files.
 dashboard_sync_required_paths:
   - "{{ dashboard_sync_script_path }}"
+  - "{{ dashboard_sync_lib_dir }}/app_intent.py"
   - "{{ dashboard_sync_lib_dir }}/clients_provisioner.py"
   - "{{ dashboard_sync_lib_dir }}/gate_routes.py"
   - "{{ dashboard_sync_lib_dir }}/keycloak_client.py"
-  - "{{ dashboard_sync_lib_dir }}/portainer_api.py"
+  - "{{ dashboard_sync_lib_dir }}/docker_api.py"
+  - "{{ dashboard_sync_lib_dir }}/http_util.py"
 dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
 # The cadence is in the payload's timer file (catena-admin
-# payload/lanes/systemd/), beside the service it starts.
-
-# --- Shared ClamAV (clamd) --------------------------------------------
-# Topology and image: templates/clamav.compose.yml.j2. Renovate manages the
-# pin (custom manager for stack images).
-clamav_image: >-
-  {{ 'clamav/clamav:1.5.3_base'
-     | catena_image_pin(catena_image_pins | default({})) }}
-clamav_compose_name: "clamav"
-clamav_network: "catena-clamav"
-# The two catalog applications that scan through the shared clamd, named by
-# their vps.app label rather than by container name: clamd is deployed only
-# when one of them is running, and a container name depends on both docker's
-# scheme and whatever a client typed into Portainer's deploy form.
-clamav_consumer_mail_app: "catena-mailserver"
-clamav_consumer_files_app: "catena-nextcloud"
-# clamd StreamMaxLength -- the largest object clamd will scan in one
-# INSTREAM. Must be >= the Nextcloud max upload AND the rspamd scan size,
-# else large files/messages are skipped rather than scanned. 100 MB
-# default; raise per-host if uploads are larger.
-clamav_stream_max_length: "104857600"
-
-# Shared-clamd watchdog. Pings the self-hosted Healthchecks plane so a
-# down clamd pages -- but only when a consumer (dms or Nextcloud) is up
-# (see run-clamav-watch.sh). Off implicitly when Healthchecks is not
-# wired (empty ping key).
-clamav_watch_slug: "clamav-shared"
-clamav_watch_script_path: /usr/local/bin/run-clamav-watch
-clamav_watch_env_file: /etc/catena/clamav-watch.env
-clamav_watch_systemd_unit_name: catena-clamav-watch
-# Every 5 minutes.
-clamav_watch_schedule: "*:0/5"
-
-# --- Mailserver TLS cert (mail.<zone>) --------------------------------
-# Self-hosted mailserver runs SSL_TYPE=manual; we issue the cert here via
-# Let's Encrypt DNS-01 (no web port is open on the host, so HTTP-01 is out --
-# same rationale as reconcile/roles/coturn) and inject it into the dms container's
-# mounted custom-certs dir through a certbot deploy hook. certbot.timer
-# renews; the hook re-injects + reloads Postfix/Dovecot.
-mailserver_hostname: "mail.{{ cloudflare_zone }}"
-mailserver_cert_live_dir: "/etc/letsencrypt/live/{{ mailserver_hostname }}"
-# Distinct from coturn's cloudflare.ini so the two roles never contend
-# for one file (identical content -- the same Cloudflare API token).
-mailserver_cloudflare_creds_path: "/etc/letsencrypt/cloudflare-mail.ini"
-mailserver_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
-# Staging CA, development only (the MAILSERVER_CERTBOT_STAGING store key,
-# false on every client install): production LE rate-limits re-issuance of
-# the same identifier. Same knob shape as coturn.
-mailserver_certbot_use_staging: "{{ cfg_mailserver_certbot_staging | default('false') | bool }}"
-mailserver_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
-
-# Effective --server, resolved as coturn_acme_server is.
-mailserver_acme_server: >-
-  {{ acme_local_directory_url
-     if (acme_local_directory_url | length) > 0
-     else (mailserver_certbot_staging_server
-           if mailserver_certbot_use_staging | bool else '') }}
-
-# --- Mailserver DNS (MTA-STS / TLS-RPT + the mail A record) -----------
-# The converge writes ONLY the safe, mail-specific records via the Cloudflare
-# API: the gray-cloud A record for mail.<zone> (the mail plane cannot
-# ride the CF tunnel) and the MTA-STS + TLS-RPT TXT records. MX, SPF,
-# DKIM, DMARC, and rDNS stay manual:
-#   - MX is a deliberate cutover (auto-creating it would hijack a
-#     domain's existing inbound mail) -- never automated.
-#   - SPF include + DKIM selector are relay-specific (the relay signs;
-#     the mailserver does NOT sign locally -- no `setup config dkim`).
-#   - DMARC + rDNS are the domain owner's policy / provider-side.
-#
-# MTA-STS policy id (RFC 8461): must change when the policy changes so
-# caching MTAs re-fetch. Derived from the policy-defining value
-# (hostname); changes automatically if the mail host changes.
-mailserver_mta_sts_policy_id: "{{ ('STSv1-enforce-' ~ mailserver_hostname) | hash('md5') }}"
-mailserver_tlsrpt_rua: "mailto:{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
-
-# Mail canary. Host timer that docker-execs into dms to check ports
-# 25/993 are listening + that the rspamd->clamav AV path detects EICAR.
-# Self-gates (no-op without a dms container). Pings the Healthchecks
-# plane. (External reachability stays with validate.yml's registry nmap;
-# disk pressure with the daily disk-preflight.)
-mail_canary_slug: "mailserver-canary"
-mail_canary_script_path: /usr/local/bin/run-mail-canary
-mail_canary_env_file: /etc/catena/mail-canary.env
-mail_canary_systemd_unit_name: catena-mail-canary
-# Every 15 minutes (the rspamc scan is heavier than the clamd ping).
-mail_canary_schedule: "*:0/15"
+# payload/lanes/systemd/), beside the service it starts, and beside
+# catena-app-events.service, which starts a pass when a stack changes.
 
 # --- Swarm stack deploy bound ------------------------------------------
 # `docker stack deploy --detach=false` blocks until every task converges,

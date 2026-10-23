@@ -2,8 +2,10 @@
 
 Reads the projection the Cloudflare tunnel engine writes after a successful
 converge (/var/lib/catena/cloudflare-zones.json): the ordered list of domains
-that converge actually brought up, element 0 being the primary. This role needs
-the ones after it, to route an auth.<zone> host rule per attached domain.
+that converge actually brought up, element 0 being the primary.
+playbooks/tasks/served_zones.yml reads the ones after it for the two renders
+that island each attached domain: reconcile/roles/keycloak's auth.<zone> routes
+and reconcile/roles/infrastructure's dashboard-sync env.
 
     catena_served_zones(raw, schema=1, now=<iso8601>, max_age_hours=48)
         -> ["second.com", "third.com"]   (primary dropped, order preserved)

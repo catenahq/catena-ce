@@ -1,0 +1,63 @@
+---
+# The path the panel's dispatch arrives over, moved to the generation this tree
+# ships the way the Lockdown closes SSH: beside the running one, proven, then
+# switched.
+#
+# helpers/dispatch_path.py runs ON the host and says what each step does; it
+# is the one reconcile-side writer of the paths boundary.yml lists for it
+# under proven_switches. A failed proof keeps the running path and fails the
+# converge here, before any other role changes the host.
+#
+# The input rides stdin as the Lockdown's reachability check takes it: the
+# runner account, the panel's key directory, the dispatcher's stable path, the
+# passthrough names and the two scripts' text. None of it is secret.
+
+- name: "Dispatch path: drop the switch to /root"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../helpers/dispatch_path.py"
+    dest: /root/catena-dispatch-path.py
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: "Dispatch path: install this tree's generation beside the running one, prove it, switch"
+  ansible.builtin.command:
+    argv: [python3, /root/catena-dispatch-path.py]
+    stdin: "{{ _dispatch_path_input | to_json }}"
+  vars:
+    _dispatch_path_input:
+      runner_user: "{{ catena_admin_runner_user }}"
+      runner_home: "{{ catena_admin_runner_home }}"
+      panel_key_dir: "{{ catena_admin_host_ssh_dir }}"
+      link: "{{ catena_admin_dispatcher_path }}"
+      passthrough: "{{ catena_admin_dispatch_env_passthrough }}"
+      entry: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../scripts/catena-dispatch-entry.sh') }}"
+      dispatcher: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../scripts/catena-admin-runner.sh') }}"
+  register: _dispatch_path_run
+  changed_when: false
+  failed_when: false
+
+# Two tasks rather than a ternary, for the reason the Lockdown's check gives:
+# from_json on the empty stdout of a crashed helper would fail the play with a
+# parse error instead of the helper's own stderr.
+- name: "Dispatch path: read the verdict"
+  ansible.builtin.set_fact:
+    catena_dispatch_path: "{{ _dispatch_path_run.stdout | from_json }}"
+  when: (_dispatch_path_run.stdout | default('') | trim | length) > 0
+
+- name: "Dispatch path: the panel dispatches through this tree's generation"
+  ansible.builtin.assert:
+    that:
+      - catena_dispatch_path is defined
+      - catena_dispatch_path.ok | bool
+    fail_msg: >-
+      {{ catena_dispatch_path.summary
+         if catena_dispatch_path is defined
+         else (_dispatch_path_run.stderr | default('the switch printed nothing') | trim) }}
+    quiet: true
+
+# A move is a change of the host; a generation already running is none.
+- name: "Dispatch path: what the switch did"
+  ansible.builtin.debug:
+    msg: "{{ catena_dispatch_path.summary }}"
+  changed_when: catena_dispatch_path.changed | bool

@@ -11,8 +11,9 @@
 # --- Global ---
 ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / converge.yml."
 
-# This machine's public address: coturn advertises it in its ICE candidates, the
-# mail and TURN A records point at it, and the panel's catalog renders it. A
+# This machine's public address. Its reader here is
+# bootstrap/roles/docker/defaults/main.yml (the swarm advertise address); the
+# panel's apps read the recorded fact (/etc/ansible/facts.d/catena.fact). A
 # controller's inventory states it (hosts.yml, from HOST_PUBLIC_IP), and a host
 # var outranks this file. bootstrap/roles/common records that value on the host
 # as a local fact, which every converge gathers, so a host converging itself
@@ -29,23 +30,23 @@ catena_host_facts_path: /etc/ansible/facts.d/catena.fact
 
 # --- Identity ---
 ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
-# The controller's key for reaching the host over SSH. A host converging itself
-# (catena-converge, local connection) has no .env and no use for one.
-# The HOST's own connection, read through hostvars: a task delegated to
-# localhost (bootstrap.yml's key install and key checks) templates
-# ansible_connection as localhost's `local`, which would blank the key the
-# task hands to ssh.
-ansible_ssh_private_key_file: >-
-  {{ lookup('dotenv', 'SSH_PRIVATE_KEY')
-     if (hostvars[inventory_hostname].ansible_connection | default('ssh')) != 'local'
-     else '' }}
-# The public half sits beside the private key, as ssh-keygen writes it.
-ops_ssh_public_keys:
-  - "{{ lookup('file', lookup('dotenv', 'SSH_PRIVATE_KEY') ~ '.pub') }}"
-# The forward-only account an administrator opens the panel and Portainer
-# through (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). A product constant:
+# The installer's public key, which ops and the panel account accept. The
+# installer sends it with each leg and ansible/install-host.sh passes it as an
+# extra var; bootstrap/roles/common refuses to run with none.
+ops_ssh_public_keys: []
+# The forward-only account an administrator opens the panel through
+# (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). A product constant:
 # the installer's access page and the keyset banner print it.
 catena_panel_user: panel
+# The account a server taking this one over signs in as, the one file sshd
+# reads its key from, and the one command it runs: a pipe to the migration
+# lane's socket. The lane (catena-admin payload/engines/migratelane) writes
+# that file only while a migration window is open. Product constants that
+# bootstrap/roles/common (AllowUsers) and bootstrap/roles/catena_admin_host
+# (the account and its sshd rules) both read.
+catena_migrate_user: catena-migrate
+catena_migrate_grant_file: /run/catena-migrate-lane/authorized_keys
+catena_migrate_connect: /usr/local/bin/catena-migrate-lane connect
 
 # --- The access plane ---
 # How this host is reached for administration, and therefore whether public
@@ -98,7 +99,7 @@ cloudflare_api_base: "https://api.cloudflare.com/client/v4"
 # Store-owned, entered in the panel's Settings with the Cloudflare token. Empty
 # until then: every server is installed without a domain.
 cloudflare_zone: "{{ cfg_cloudflare_zone | default('', true) }}"
-# An empty zone builds every hostname as `dash.`, `auth.`, `monitor.` -- names
+# An empty zone builds every hostname as `dash.`, `auth.`, `gatus.` -- names
 # that resolve nowhere and certificates no authority will issue. So nothing
 # public is published until there is a domain to publish it under, and this is
 # what every role that would publish a name gates on.
@@ -112,8 +113,18 @@ catena_public_surface_deferred: >-
 # cloudflare_zone above is the primary domain every <sub>.<zone> hostname
 # interpolates, and the only one a Community host serves. Additional domains
 # are attached in the catena-admin Domains panel and live in the on-box store;
-# the host engine assembles the full list from there and caps it on the
-# subscription, so there is no zone list to set here.
+# the host engine assembles the full list from there, caps it on the
+# subscription, and after a successful converge publishes the domains it
+# brought up to the projection below. playbooks/tasks/served_zones.yml reads it
+# for reconcile/roles/keycloak and reconcile/roles/infrastructure.
+catena_zone_projection_path: /var/lib/catena/cloudflare-zones.json
+# The shape version the engine stamps (catena-admin
+# payload/engines/cloudflared ProjectionSchema). A mismatch is refused rather
+# than mis-parsed.
+catena_zone_projection_schema: 1
+# How old a projection may be and still be acted on
+# (playbooks/filter_plugins/catena_served_zones.py says why).
+catena_zone_projection_max_age_hours: 48
 # Each host owns its own tunnel, and NAMES IT ITSELF: the engine composes
 # <prefix> + the box's hostname, which bootstrap/roles/common set to inventory_hostname.
 # The prefix is a store key (CLOUDFLARED_TUNNEL_NAME_PREFIX) the engine reads
@@ -131,7 +142,7 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # api.cloudflare.com's public-CA certificate in the same process. So it goes
 # where update-ca-certificates picks it up (.crt required), and certbot is
 # pointed at the combined bundle. tasks/acme_local_ca.yml installs it; the
-# coturn and mailserver cert flows include that file.
+# infrastructure role includes that file.
 acme_local_directory_url: "{{ cfg_acme_directory_url | default('') }}"
 acme_local_host_ip: "{{ cfg_acme_host_ip | default('') }}"
 acme_local_ca_bundle_b64: "{{ cfg_acme_ca_bundle_b64 | default('') }}"
@@ -140,11 +151,12 @@ acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
 
 # --- Infrastructure subdomains ---
 # Public-facing hostnames. Each is routed to its own oauth2-proxy instance,
-# which authenticates against Keycloak and proxies to the app behind it. SSO
-# works across them via a session cookie scoped to .<zone>.
+# which authenticates against Keycloak and proxies to the app behind it, and
+# keeps a session cookie of its own on its host. The Keycloak session signs the
+# browser in to the next one without a prompt.
 # Store keys, set in catena-admin > Settings; the literal is the name a host
 # with nothing stored uses.
-infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('monitor', true) }}"
+infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('gatus', true) }}"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
 # is the one place that is said. A second name rendering dash.<zone> from its
@@ -152,8 +164,26 @@ infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudfla
 # panel for oauth2-proxy and the trust path while the DR keyset banner and the
 # gated-host probe set kept printing the old name.
 
-healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('heartbeat', true) }}"
+healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('healthchecks', true) }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
+# The overlay Healthchecks is on, instead of catena-network. Healthchecks takes
+# X-Forwarded-Email as the signed-in user from whoever sends it, so only the
+# services that call it join: its sign-in gate (reconcile/roles/oauth2_proxy),
+# the panel (reconcile/roles/catena-admin), Gatus and the Beszel alert shim
+# (reconcile/roles/infrastructure). reconcile/roles/swarm creates it before the
+# first of them deploys.
+healthchecks_network: "catena-healthchecks"
+
+beszel_subdomain: "{{ cfg_beszel_subdomain | default('beszel', true) }}"
+beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
+# The overlay Beszel's hub and its alert shim are on, instead of catena-network.
+# The hub's own sign-in creates an account for any realm user, and its
+# superuser's password is the shared admin password; the shim turns any request
+# into a Healthchecks ping. So only their callers join: the hub's sign-in gate
+# (reconcile/roles/oauth2_proxy), the panel (reconcile/roles/catena-admin) and
+# Gatus (reconcile/roles/infrastructure). reconcile/roles/swarm creates it
+# beside healthchecks_network.
+beszel_network: "catena-beszel"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
 # front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are
@@ -163,6 +193,8 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 # host has before anyone has said who to contact -- and the roles that use it
 # (ACME registration, the Keycloak admin account) already handle blank.
 admin_email: "{{ cfg_admin_email | default('') }}"
+admin_first_name: "{{ cfg_admin_first_name | default('') }}"
+admin_last_name: "{{ cfg_admin_last_name | default('') }}"
 
 # SMTP -- resolved by reconcile/roles/keycloak from the store. SMTP_PROVIDER
 # (resend | brevo | server) decides where mail goes, SMTP_SENDER is the address
@@ -171,62 +203,20 @@ admin_email: "{{ cfg_admin_email | default('') }}"
 # smtp_host/smtp_port/etc. here -- doing so shadows the role default and
 # defeats the resolution.
 
-# ntfy + backup repo are NOT set here. They are store-owned (catena-admin >
+# The backup repo is NOT set here. It is store-owned (catena-admin >
 # Settings), and the roles and lanes read the store.
 
 # Auth is handled entirely by self-hosted SSO at auth.<zone> plus a per-app
 # oauth2-proxy in front of each gated host. User membership in the access
 # groups controls access to the gated subdomains.
 
-# --- Portainer API (container control plane) ---
-# Global so any role (infrastructure stack seam, dashboard-sync env) can
-# reference it. reconcile/roles/portainer consumes the same names.
-# The port, like the hostname scheme, is the product's. It is published
-# host-mode and confined to this host by the public-ports registry, so no client
-# picks it to avoid a collision -- nothing else on the box may bind it either
-# way. An administrator opens the UI through an SSH local forward.
-portainer_ui_port: "9000"
-
-# The API, addressed from ON the host, which is the only place it answers. The
-# converge's own API calls run on the host against it, and so does everything
-# that runs on the box -- catena-dashboard-sync, the container-update lane.
-#
-# Never ansible_host. It is where the CONTROLLER reaches the box, the UI port
-# refuses it, and it is not stable: it flips between the public and tailnet
-# address across converges and differs again after a restore onto other
-# infrastructure. Baking it into a file a host-local service reads gives that
-# service an address for a machine it is already running on, which stops
-# working the moment the address changes:
-#
-#   catena-dashboard-sync.service: FAILED
-#   request failed on GET /stacks: <urlopen error [Errno 113] No route to
-#   host>            (env says 10.139.244.121, the host is at 10.139.244.110)
-#
-# dashboard-sync is what renders the Traefik route files for client apps, so
-# a stale base means every app deployed after the address moves gets NO route
-# and answers 404, while the app reads healthy at 1/1 with a correct
-# vps.route.host label.
-#
-# It would also make these env files non-idempotent: a rendered address that
-# changes between converges rewrites the file every time.
-portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
-
-# Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
-# tunnel (admin-only; wired by reconcile/roles/oauth2_proxy oauth2_proxy_apps). This is
-# the client admin's self-serve deploy surface. Distinct from
-# portainer_api_base_onbox above, which only this host reaches -- both reach
-# the same catena-portainer service.
-# A store key (PORTAINER_SUBDOMAIN), set in catena-admin > Settings like the
-# subdomains above; the literal is the name a host with nothing stored uses.
-portainer_admin_subdomain: "{{ cfg_portainer_admin_subdomain | default('portainer', true) }}"
-portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
-
 # --- Declarative public-port registry ---
 # The directory the registry is built from. Here rather than in
-# reconcile/roles/public_ports because SIX roles write the fragment dir --
-# coturn, portainer, infrastructure's three lanes and catena-admin's host setup
+# reconcile/roles/public_ports because several roles write the fragment dir --
+# bootstrap/roles/common (SSH), reconcile/roles/infrastructure (gatus, beszel,
+# healthchecks) and reconcile/roles/catena-admin
 # all drop a <owner>.json into it -- and a role default is only reliably in
-# scope once that role has run. A constant six roles share is the product's,
+# scope once that role has run. A constant those roles share is the product's,
 # not one role's. The reconciler that reads it ships in the catena-admin
 # payload.
 public_ports_fragment_dir: /etc/catena/public-ports.d
@@ -234,9 +224,9 @@ public_ports_fragment_dir: /etc/catena/public-ports.d
 # --- Provenance of the tree this converge is running ---
 # Written by catena-admin scripts/vendor-catena-ce.sh and shipped beside the
 # ansible/ directory inside the panel image, so it sits one level above
-# playbook_dir's parent on the on-host path and does not exist at all on a
-# controller. tasks/stamp_version.yml reads its describe to answer "which
-# catena-ce does this host apply" on a converge the host runs itself.
+# playbook_dir's parent in the tree an install or a host's own converge runs.
+# catena-ce/ansible/playbooks/tasks/stamp_version.yml reads its describe to
+# answer "which catena-ce does this host apply".
 #
 # A variable rather than the literal expression at the point of use, because
 # playbook_dir is a magic variable nothing can override -- so a path written
@@ -307,6 +297,13 @@ catena_baseline_packages:
   # scripts gate their report write on `command -v jq`, so a host without it
   # silently produces NO report.
   - jq
+  # git fetches the applications catena-apps adds from a repository, as the
+  # unprivileged catena-git user (reconcile/roles/host_maintenance).
+  - git
+  # certbot with its Cloudflare DNS plugin issues the DNS-01 certificates the
+  # applications declare (catena-admin payload/engines/appneeds).
+  - certbot
+  - python3-certbot-dns-cloudflare
 
 # --- apt and the OS update configuration ---
 # Written by playbooks/tasks/apt_settings.yml and reconcile/roles/
@@ -391,37 +388,52 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # dispatcher case + allow-list entry automatically.
 
 # --- The admin panel's shared identity ---
-# Read by BOTH halves of the panel's converge -- bootstrap/roles/catena_admin_host, which
-# sets up the trust path and the host lane env files, and reconcile/roles/catena-admin,
-# which deploys the container -- and by reconcile/roles/oauth2_proxy, which resolves
-# catena_admin_hostname by NAME at a point where neither role's defaults are
-# reliably in scope.
+# Read by the halves of the panel's converge -- bootstrap/roles/catena_admin_host,
+# which sets up the accounts and the panel's SSH key,
+# reconcile/roles/dispatch_path, which keeps the path a dispatch crosses, and
+# reconcile/roles/catena-admin, which deploys the container -- and by
+# reconcile/roles/oauth2_proxy, which resolves catena_admin_hostname by NAME at
+# a point where no role's defaults are reliably in scope.
 #
 # A role default is only dependable once that role has run, so a value two roles
 # on either side of the boundary share is the product's rather than one role's.
-# Same call as the public-port paths above and the subdomains in phase 3. It is
+# Same call as the public-port paths and the subdomains above. It is
 # also what lets a host converge itself: playbooks/reconcile.yml runs no
 # bootstrap role, so a bootstrap default is undefined there.
 
 # The swarm service's name, and its DNS name on catena-network, which
 # reconcile/roles/oauth2_proxy upstreams to: renaming it 502s every
 # authenticated dash.<zone> request. reconcile/roles/catena-admin creates the
-# service; reconcile/roles/payload asks swarm which image it runs.
+# service.
 catena_admin_service_name: "catena-admin"
 
-# What the shell binds. reconcile/roles/portainer builds the App Templates URL
-# from the name and this port, long before reconcile/roles/catena-admin runs.
+# What the shell binds.
 catena_admin_internal_port: 8000
 
-# The distroless image's `USER nonroot:nonroot`. reconcile/roles/payload owns
-# /var/lib/catena/ee-payload for it and reconcile/roles/catena-admin chowns what
-# the container writes. Keep in lockstep with catena-admin's Dockerfile.
+# The distroless image's `USER nonroot:nonroot`. bootstrap/roles/catena_admin_host
+# owns the panel's SSH dir and state dir for it. Keep in lockstep with
+# catena-admin's Dockerfile.
 catena_container_uid: "65532"
 catena_container_gid: "65532"
 
-# Where bootstrap/roles/catena_admin_host installs the SSH forced command the
-# panel dispatches through; the admin-actions templates name it.
+# The dispatcher's stable path: reconcile/roles/dispatch_path links it to the
+# running generation's dispatcher, root lanes run it directly, and the
+# admin-actions templates name it.
 catena_admin_dispatcher_path: "/usr/local/sbin/catena-admin-runner"
+
+# The account the panel's dispatch signs in as, and its home, whose
+# authorized_keys holds the panel's key pinned to the forced command.
+# bootstrap/roles/catena_admin_host creates the account;
+# reconcile/roles/dispatch_path writes the key's line.
+catena_admin_runner_user: "catena-admin-runner"
+catena_admin_runner_home: "/home/catena-admin-runner"
+
+# The panel's SSH dir: its key pair, the host's known_hosts and its client
+# config, bind-mounted read-only into the container. Keep it in sync with the
+# mount (playbooks/filter_plugins/catena_admin_service.py).
+# bootstrap/roles/catena_admin_host writes it; reconcile/roles/dispatch_path
+# authorizes its key and proves dispatches with it.
+catena_admin_host_ssh_dir: "/etc/catena/admin-ssh"
 
 # The recovery export directory. reconcile/roles/backup owns what goes in it;
 # reconcile/roles/catena-admin BIND-MOUNTS it into the panel earlier, and swarm
@@ -442,51 +454,42 @@ swarm_stack_dir: /etc/catena/stacks
 # one declaration: a host whose engines and panel come from different images
 # disagrees with itself about the config schema.
 #
-# The BOOTSTRAP input: it decides the image a first converge creates the service
-# from; afterwards reconcile/roles/payload follows the service's own image, so a
-# host has one version input at a time and the update lane moves both halves.
-# PUBLIC, pulled anonymously: the Business set is gated at runtime by the
-# licence check.
-#
-# Precedence:
-#   1. CATENA_ADMIN_IMAGE, if set -- change control, ahead of any pin. The bench
-#      converges against an image it built this way, and catena-admin
-#      catena-converge sets it to the image the panel is running, so a host
-#      converging itself stays on the image its reconcile tree came from.
-#   2. The version this host recorded in /etc/catena/config.json, rollback
-#      included.
-#   3. The newest published release, asked of the registry once per converge by
-#      playbooks/tasks/load_onbox_config.yml (catena_admin_release).
-#   4. When the registry does not answer, the image this host already runs
-#      (catena_admin_fallback_image, set by the same loader), so the panel stays
-#      where it is.
-#
-# The empty minimum on the pin filter is what lets (2) beat (3); a pin must name
-# this repository and a real version, and the release carries its digest, so the
-# pull is byte-addressed (playbooks/filter_plugins/image_pin.py). An inline
-# conditional rather than ternary: ternary evaluates both branches, and the pin
-# filter refuses the empty reference an override leaves behind.
-catena_admin_image_override: >-
-  {{ lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) }}
-catena_admin_image: >-
-  {{ catena_admin_image_override
-     if (catena_admin_image_override | default('', true) | length > 0)
-     else ((catena_admin_release.ref
-            | default(catena_admin_fallback_image | default('')))
-           | catena_image_pin(catena_image_pins | default({}), '')) }}
-# The registry repository catena-admin is published to: the one the loader asks
-# for the newest release, and the one a recorded catena-admin pin must name.
-catena_admin_repository: ghcr.io/catenahq/catena-admin
+# CATENA_ADMIN_IMAGE, verbatim: the image the tree running this converge came
+# from. install-host.sh sets it to the release it installs and catena-admin's
+# catena-converge to the image the panel runs, so the tree, the engines and the
+# shell are one release, and the panel's self-update moves all three.
+# catena-ce/ansible/playbooks/tasks/load_onbox_config.yml stops a converge that
+# names none. Which release an install fetches is
+# catena-ce/ansible/helpers/fetch_release.py's choice. PUBLIC, pulled
+# anonymously: the Business set is gated at runtime by the licence check.
+catena_admin_image: "{{ lookup('env', 'CATENA_ADMIN_IMAGE') }}"
 
 # --- Hostname ---------------------------------------------------------
-# The admin panel is served at dash.<zone>. The subdomain is a product
-# constant, like the hostname scheme above: every inventory in this repo and
-# on every host uses it, and nothing looks up an override.
+# The admin panel is served at dash.<zone>. A store key
+# (CATENA_ADMIN_SUBDOMAIN), set in catena-admin > Settings like the subdomains
+# above; the literal is the name a host with nothing stored uses.
 catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"
-# Host dir where catena-backup-run + catena-gatus-sync write their summary JSON
-# files (backup-stats.json, gatus-summary.json, healthchecks-summary.json).
+
+# The addresses Catena itself answers on: the sign-in host of every served
+# domain (reconcile/roles/keycloak routes each one), and the
+# host of every tool behind a gate of reconcile/roles/oauth2_proxy
+# (oauth2_proxy_apps), the panel's among them. dashboard-sync routes no client
+# app on one (catena-admin payload/lib/app_intent.py) and the app checker holds
+# them as Catena's, on each app's tile and in the panel's Check tab. Given to
+# dashboard-sync (reconcile/roles/infrastructure) and to the panel
+# (reconcile/roles/catena-admin) as CATENA_HOSTNAMES, after each reads
+# playbooks/tasks/served_zones.yml for catena_secondary_zones.
+catena_hostnames: >-
+  {{ ([keycloak_hostname]
+      + (catena_secondary_zones | map('regex_replace', '^', keycloak_subdomain ~ '.') | list)
+      + query('vars', *(oauth2_proxy_apps | map(attribute='host_var'))))
+     | unique | list }}
+
+# Host dir where the payload lanes write the JSON reports the panel reads
+# (backup-stats.json from catena-backup-run, gatus-summary.json from
+# catena-gatus-sync, the rest named in catena-admin shell/stats).
 # Bind-mounted read-only into the admin container; the admin's stats
 # reader picks up the files unchanged. Matches reconcile/roles/backup defaults'
 # backup_stats_dir; do not move without updating that role.
@@ -501,8 +504,7 @@ catena_admin_stats_dir: "/var/lib/catena"
 #
 # A SUBDIRECTORY and not the parent itself, because the parent is bind-mounted
 # READ-ONLY into the panel: the lanes' own state is not the panel's to rewrite.
-# The panel's writable scope stays exactly its own directory, the same shape
-# /var/lib/catena/ee-payload already uses.
+# The panel's writable scope stays exactly its own directory.
 catena_admin_state_dir: "/var/lib/catena/admin"
 
 # Default theme rendered into the admin container's env. Inventory override

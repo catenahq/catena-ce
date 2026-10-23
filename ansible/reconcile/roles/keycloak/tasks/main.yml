@@ -3,7 +3,7 @@
 # 1. Preflight: secrets + admin email, and the domain once there is one.
 # 2. Provision keycloak DB + user inside catena-postgres (idempotent
 #    via `CREATE ... IF NOT EXISTS`-equivalent guards).
-# 3. Render compose + deploy via the Portainer API. Health-gated readiness
+# 3. Render compose + deploy as a swarm stack. Health-gated readiness
 #    probe.
 # 4. Realm bootstrap (Phase Two extensions, groups, IdP wizards,
 #    default clients) via realm_bootstrap.yml -- calls keycloak-config-
@@ -68,65 +68,44 @@
       tags: [keycloak_db]
   tags: [keycloak_db]
 
-
-# Gated on the Portainer API key, the gate reconcile/roles/infrastructure uses
-# for the client-app wiring. portainer_api_key is minted by
-# reconcile/roles/portainer earlier in the SAME converge (it runs before
-# keycloak and set_facts the freshly-minted key into play scope), so this
-# block converges in a single pass. The deploy itself is a swarm stack
-# (reconcile/roles/infrastructure/tasks/swarm_stack.yml).
-- name: "Keycloak: Portainer-API-gated steps (compose, validate, realm)"
-  when:
-    - portainer_api_key is defined
-    - portainer_api_key | length > 10
-  block:
-    - name: "Keycloak: deploy compose as a swarm stack"
-      ansible.builtin.include_tasks:
-        file: deploy.yml
-        apply:
-          tags: [keycloak_compose]
+- name: "Keycloak: deploy compose as a swarm stack"
+  ansible.builtin.include_tasks:
+    file: deploy.yml
+    apply:
       tags: [keycloak_compose]
+  tags: [keycloak_compose]
 
-    - name: "Keycloak: post-deploy /health/ready probe"
-      ansible.builtin.include_tasks:
-        file: validate.yml
-        apply:
-          tags: [keycloak_health]
+- name: "Keycloak: post-deploy /health/ready probe"
+  ansible.builtin.include_tasks:
+    file: validate.yml
+    apply:
       tags: [keycloak_health]
+  tags: [keycloak_health]
 
-    - name: "Keycloak: realm bootstrap (keycloak-config-cli)"
-      ansible.builtin.include_tasks:
-        file: realm_bootstrap.yml
-        apply:
-          tags: [keycloak_realm]
+- name: "Keycloak: realm bootstrap (keycloak-config-cli)"
+  ansible.builtin.include_tasks:
+    file: realm_bootstrap.yml
+    apply:
       tags: [keycloak_realm]
+  tags: [keycloak_realm]
 
-    # One-time membership migration for the four-tier group rename.
-    # Runs AFTER realm_bootstrap so the new admin/staff groups exist
-    # before the migration moves members there. Marker-gated -- no-op on
-    # greenfield installs and on every converge after the first.
-    - name: "Keycloak: migrate legacy groups to four-tier model"
-      ansible.builtin.include_tasks:
-        file: migrate_groups.yml
-        apply:
-          tags: [keycloak_realm, keycloak_group_migration]
+# One-time membership migration for the four-tier group rename.
+# Runs AFTER realm_bootstrap so the new admin/staff groups exist
+# before the migration moves members there. Marker-gated -- no-op on
+# greenfield installs and on every converge after the first.
+- name: "Keycloak: migrate legacy groups to four-tier model"
+  ansible.builtin.include_tasks:
+    file: migrate_groups.yml
+    apply:
       tags: [keycloak_realm, keycloak_group_migration]
+  tags: [keycloak_realm, keycloak_group_migration]
 
-    # Dump the live realm + clients to backup-staging so restic picks them
-    # up. Idempotent. Captures any UI edits made since the previous
-    # converge.
-    - name: "Keycloak: realm export"
-      ansible.builtin.include_tasks:
-        file: realm_export.yml
-        apply:
-          tags: [keycloak_realm_export]
+# Dump the live realm + clients to backup-staging so restic picks them
+# up. Idempotent. Captures any UI edits made since the previous
+# converge.
+- name: "Keycloak: realm export"
+  ansible.builtin.include_tasks:
+    file: realm_export.yml
+    apply:
       tags: [keycloak_realm_export]
-
-- name: "Keycloak: skipped Portainer-API steps (no API key yet)"
-  ansible.builtin.debug:
-    msg: >-
-      Skipping Keycloak compose + realm bootstrap -- portainer_api_key
-      is not yet present. It is normally minted by reconcile/roles/portainer earlier in
-      this same converge; if you see this, portainer did not run or failed to
-      mint the key. Check the portainer role, then re-run.
-  when: portainer_api_key is not defined or (portainer_api_key | length) <= 10
+  tags: [keycloak_realm_export]

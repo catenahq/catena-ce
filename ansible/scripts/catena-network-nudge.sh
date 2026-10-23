@@ -14,11 +14,11 @@
 # and docker does NOT retry it: the boot-time restore gets exactly one
 # attempt per container, so the container stays Exited with RestartCount=0
 # until something starts it. Swarm SERVICES reconcile themselves (the task
-# manager re-dispatches by name), but the compose containers the Portainer
-# stacks deploy (keycloak-server-1, nextcloud-talk-hpb-1, oauth2-proxy,
+# manager re-dispatches by name), but the compose containers the stacks
+# deploy (keycloak-server-1, oauth2-proxy,
 # gatus, ...) have nothing to heal them. Observed live: a VM boot where the
 # overlay appeared 2.5s after "Loading containers: done" left
-# keycloak-server-1 and nextcloud-talk-hpb-1 dead, while every container
+# keycloak-server-1 dead, while every container
 # started after the overlay appeared joined fine.
 #
 # This script is invoked by catena-network-nudge.service on boot and on
@@ -37,7 +37,7 @@
 # name, with no recorded error, is a start-anything-named-X path with no
 # evidence gate -- and it would have no subject: every catena swarm service
 # is re-dispatched by the task manager and skipped by the swarm-task check
-# below. The containers this script protects are all Portainer compose
+# below. The containers this script protects are all compose
 # stacks, which is why it lives in bootstrap/roles/docker (which owns docker.service
 # and the swarm init the race happens between).
 #
@@ -49,6 +49,22 @@ NET="${CATENA_NETWORK:-catena-network}"
 MAX_WAIT="${CATENA_NETWORK_NUDGE_TIMEOUT:-60}"
 
 log() { printf '[%s] catena-network-nudge: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+# `sweep`, run by docker.service before dockerd starts. The overlay driver
+# creates a network's vxlan interface (vx-<vni>-<network>) in the host's
+# namespace and then moves it into the network's sandbox; a daemon that stops
+# in between leaves it behind under that fixed name, and every later task on
+# the network fails to join with "error creating vxlan interface: file exists".
+# With dockerd not running, any such interface in the host namespace is one of
+# those.
+if [ "${1:-}" = sweep ]; then
+    for link in $(ip -o link show | sed -n 's/^[0-9]*: \(vx-[0-9a-f]\{6\}-[0-9a-z]*\)[:@].*/\1/p'); do
+        if ip link delete "$link"; then
+            log "removed $link, left in the host namespace by a daemon that stopped mid-setup"
+        fi
+    done
+    exit 0
+fi
 
 # Wait for the overlay network first, BEFORE inspecting any container state.
 # Rationale: docker's own restart policy is racing with us; if we

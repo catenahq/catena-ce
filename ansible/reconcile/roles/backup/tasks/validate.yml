@@ -2,16 +2,16 @@
 # Validation tasks for reconcile/roles/backup.
 #
 # The backup units ship in the payload with their timers off, and
-# `catena-schedule apply` enables a timer only on a licensed host with a
-# schedule set, so this validate asserts the units exist and never that a
+# `catena-schedule apply` enables a timer only on a host whose edition
+# covers the lane, with a schedule set, so this validate asserts the units exist and never that a
 # timer is enabled.
 #
 # The fixtures split in two, because they do not all arrive at the same time.
 # The configuration is written by THIS role; the scripts and the units ship in
-# the catena-admin image payload, and on a host that stages its payload out of
-# band (CATENA_PAYLOAD_INSTALL=false -- the bench builds the image on the VPS
-# and installs it at a later stage) they land AFTER a converge, so a validate
-# in between would be asserting on a host that is legitimately mid-assembly.
+# the catena-admin image payload, and on a host whose converge does not install
+# the payload (CATENA_PAYLOAD_INSTALL=false) they land when something else
+# installs it, so a validate before then would be asserting on a host that is
+# legitimately mid-assembly.
 - name: "validate/backup: role-owned fixtures exist + correct mode"
   ansible.builtin.include_role:
     name: common
@@ -41,7 +41,6 @@
       - "{{ backup_coverage_script }}"
       - "{{ backup_restic_env_script }}"
       - "{{ backup_snapshot_list_script }}"
-      - "{{ backup_disk_preflight_script }}"
 
 - name: "validate/backup: pin the payload decision"
   ansible.builtin.set_fact:
@@ -64,7 +63,6 @@
     - "{{ backup_coverage_script }}"
     - "{{ backup_restic_env_script }}"
     - "{{ backup_snapshot_list_script }}"
-    - "{{ backup_disk_preflight_script }}"
   register: _bk_payload_scripts
   when: _bk_payload_expected | bool
 
@@ -128,14 +126,28 @@
   ansible.builtin.debug:
     msg: >-
       Backup is not configured on this host, so the restic repo checks below
-      are skipped. Set the repo + S3 keys in catena-admin > Settings > Backup;
-      catena-backup-run self-gates until then.
+      are skipped. The repo and S3 keys are entered in catena-admin > Settings
+      > Backup, and catena-backup-run self-gates until they are.
   when: not (_bk_configured | bool)
+
+- name: "validate/backup: do the backups wait after a restore"
+  ansible.builtin.stat:
+    path: "{{ backup_held_record }}"
+  register: _bk_held
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool
 
 - name: "validate/backup: restic can reach the repo"
   # End-to-end reachability check: cat config decrypts the repo header,
   # failing cleanly on wrong password, unreachable bucket, or missing
   # credentials. Doesn't require any snapshots to exist.
+  #
+  # restic retries a missing bucket or a revoked key for about fifteen
+  # minutes, so `timeout` ends the attempt after 120 seconds and the assert
+  # below reports it. The status is 124 when restic stops at the TERM; after
+  # the KILL that follows ten seconds later it is 137 from timeout, or -9 when
+  # Ansible reports the signal that ended the process.
   #
   # Gated on the entrypoint existing for the same reason as the block above --
   # it is itself a payload script, so before the payload lands this would be
@@ -143,6 +155,9 @@
   ansible.builtin.command:
     argv:
       - "{{ backup_restic_env_script }}"
+      - timeout
+      - --kill-after=10
+      - "120"
       - restic
       - cat
       - config
@@ -153,11 +168,44 @@
     - _bk_payload_expected | bool
     - _bk_configured | bool
 
+# The repository exists from the moment the destination is saved in
+# catena-admin > Settings, and a backup never creates one, so restic's 10 (no
+# repository there) is a failure like any other, with its own remedy.
+- name: "validate/backup: say why restic cat config did not open the repo"
+  ansible.builtin.set_fact:
+    _bk_repo_reason: >-
+      {% if _bk_restic_cat.rc == 10 %}No restic repository exists at the
+      backup destination, and a backup never creates one. Saving a backup
+      destination in catena-admin > Settings > Backup creates one
+      there.{% elif _bk_restic_cat.rc in [124, 137, -9] %}restic cat config did not
+      answer within 120 seconds, so the backup destination is unreachable (no
+      such bucket, a revoked key or no network route). Check the destination
+      in catena-admin > Settings > Backup.{% else %}restic cat config failed
+      (rc={{ _bk_restic_cat.rc }}, stderr={{ _bk_restic_cat.stderr }}){% endif %}
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool
+
+# While the hold record exists the backups wait for the destination to be
+# confirmed or replaced, so a destination that does not open is the wait.
 - name: "validate/backup: restic cat config exited 0"
   ansible.builtin.assert:
     that:
       - _bk_restic_cat.rc == 0
-    fail_msg: "restic cat config failed (rc={{ _bk_restic_cat.rc }}, stderr={{ _bk_restic_cat.stderr }})"
+    fail_msg: "{{ _bk_repo_reason }}"
   when:
     - _bk_payload_expected | bool
     - _bk_configured | bool
+    - not (_bk_held.stat.exists | default(false))
+
+- name: "validate/backup: the backups wait and the destination does not open"
+  ansible.builtin.debug:
+    msg: >-
+      The backups wait after a restore until the destination is confirmed or
+      replaced in catena-admin > Settings > Backup; until then a destination
+      that does not open is reported here, not failed: {{ _bk_repo_reason }}
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool
+    - _bk_held.stat.exists | default(false)
+    - _bk_restic_cat.rc != 0

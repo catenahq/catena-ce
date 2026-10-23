@@ -8,26 +8,11 @@
 # user (`keycloak`) inside the catena-postgres swarm service that
 # reconcile/roles/postgres deploys. Project convention is one Postgres per VPS,
 # multiple DBs inside (see the PLANNING.md sec 2 decision in the sibling
-# catenahq/sales repo). This DB lives in catena-owned Postgres, not the
-# control plane's own (Portainer uses BoltDB, no shared Postgres to
-# piggyback on).
+# catenahq/sales repo). This DB lives in catena-owned Postgres.
 
 # --- Hostname ---
 keycloak_subdomain: "{{ cfg_keycloak_subdomain | default('auth', true) }}"
 keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
-
-# --- Multi-domain routing (one auth.<zone> island per attached domain) ---
-# The served-domain projection the Cloudflare tunnel engine writes after a
-# successful converge. deploy.yml reads it to route the SECONDARY domains'
-# auth hosts; the primary comes from keycloak_hostname above. Any failure to
-# read or trust it routes the primary alone.
-keycloak_zone_projection_path: "/var/lib/catena/cloudflare-zones.json"
-# Shape version the engine stamps (payload/engines/cloudflared ProjectionSchema).
-# A mismatch is refused rather than mis-parsed.
-keycloak_zone_projection_schema: 1
-# How old a projection may be and still be routed on
-# (playbooks/filter_plugins/catena_served_zones.py says why).
-keycloak_zone_projection_max_age_hours: 48
 
 # --- Image pin ---
 # Phase Two distribution image. Repo:
@@ -36,9 +21,8 @@ keycloak_zone_projection_max_age_hours: 48
 # Pinned to an immutable build, <kc-version>.<unix-build-time>. Phase Two
 # re-pushes the plain <kc-version> tag on every rebuild, so that tag names
 # different bytes over time; a build tag names one image, and the update
-# engine orders builds of one version by their build time. Phase Two tracks
-# Keycloak 26.6.x (one minor behind stock 26.7).
-keycloak_image_tag: "26.6.7.1790010472"
+# engine orders builds of one version by their build time.
+keycloak_image_tag: "26.8.1.1792606898"
 keycloak_image: >-
   {{ ('quay.io/phasetwo/phasetwo-keycloak:' ~ keycloak_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
@@ -46,6 +30,20 @@ keycloak_image: >-
 # --- Compose ---
 keycloak_compose_name: "keycloak"
 keycloak_internal_port: 8080 # KC's HTTP port inside the container
+
+# The swarm secret holding Keycloak's credentials file
+# (templates/keycloak.conf.j2): the name its content's hash is appended to,
+# and the file it is mounted as under /run/secrets/.
+keycloak_config_secret_base: "keycloak-conf"
+keycloak_config_target: "keycloak.conf"
+
+# The Catena extension JAR (provider/), which an image's tree carries in files/.
+# It is copied to the host dir and mounted into Keycloak's providers directory
+# from a swarm config named <base>-<hash of the JAR> (tasks/deploy.yml).
+keycloak_providers_jar: "catena-keycloak.jar"
+keycloak_providers_config_base: "keycloak-providers"
+keycloak_providers_dir: "/var/lib/catena/keycloak"
+keycloak_providers_jar_max_bytes: 512000
 
 # Keycloak 26 split health/metrics off onto a separate "management"
 # port (default 9000). Probes against http://localhost:8080/health/*
@@ -79,31 +77,44 @@ keycloak_health_path: "/health/ready"
 #   https://hub.docker.com/r/adorsys/keycloak-config-cli/tags
 # Tag form: `<cli-version>-<kc-version>`, immutable (the `latest-<kc>`
 # form is re-pushed on every cli release). The update engine moves it
-# together with Keycloak and caps it at Keycloak's major.minor. It can run
-# one minor behind Keycloak while adorsys has no build for the newer minor:
-# the realm-import REST surface is stable across minors, and ce_install
-# runs config-cli during bootstrap, so the bench gates the pairing.
+# together with Keycloak and caps it at Keycloak's major.minor. It trails
+# Keycloak by as many minors as adorsys has no build for: the realm-import
+# REST surface is stable across minors, and ce_install runs config-cli
+# during bootstrap, so a bench run proves each pairing.
 keycloak_config_cli_image_tag: "6.5.1-26.5.5"
 keycloak_config_cli_image: >-
   {{ ('adorsys/keycloak-config-cli:' ~ keycloak_config_cli_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
 
-# Host-side dir that holds rendered realm YAML files. Bind-mounted into
-# the keycloak-config-cli container at /config (RO).
-keycloak_realm_host_dir: "/etc/catena/keycloak/realms"
+# Host-side dirs of the rendered realm YAML files, under a 0700 parent
+# (tasks/realm_bootstrap.yml). Each import bind-mounts one of them into the
+# keycloak-config-cli container at /config (RO): the realm dir on every
+# converge, the seed dir while the realm is bootstrapped.
+keycloak_config_dir: "/etc/catena/keycloak"
+keycloak_realm_host_dir: "{{ keycloak_config_dir }}/realms"
+keycloak_realm_seed_dir: "{{ keycloak_config_dir }}/seed"
+
+# The admin email the last realm import ran under, beside the bootstrap
+# markers: an admin email change moves the admin's accounts from it
+# (tasks/realm_bootstrap.yml).
+keycloak_admin_email_record: "/var/lib/catena/keycloak-realm-admin-email"
 
 # Realm name owning all per-VPS clients + groups + users. Single-realm
 # per VPS today; Phase Two Organizations (multi-tenancy inside one
 # realm) is the upgrade path when a client wants sub-tenants.
 keycloak_realm: "vps"
 
-# Display name surfaced on the login page: the client's own domain, which is
-# what a person signing in recognises.
+# Display name surfaced on the login page and as the sender name of the realm's
+# mail: the client's own domain, which is what a person signing in recognises.
 #
-# Derived from cloudflare_zone, which is a host fact the store already owns, so
-# it follows the zone when that moves. A client who wants their trading name on
-# the login page instead sets it where the zone is set.
+# Derived from cloudflare_zone, which is a host fact the store already owns. The
+# login page takes it in the realm seed and follows a new domain while it still
+# holds the name the seed or a converge wrote, which the realm records in the
+# attribute below; a trading name given to it in Keycloak's realm settings
+# stays (playbooks/filter_plugins/keycloak_signin_name.py). The sender name
+# follows the zone with the rest of the realm's mail settings.
 keycloak_realm_display_name: "{{ cloudflare_zone }}"
+keycloak_realm_display_name_attribute: "catenaDisplayName"
 
 # Nightly realm-export OnCalendar. Default 03:30 host-local --
 # spaced from the backup window (default 02:00) and any auto-update
@@ -128,11 +139,12 @@ keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 # that silently goes nowhere is harder to notice than a realm with no mail
 # configured, which says so on its own login page.
 
-# The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, and all
-# three consumers call it -- here, wordpress_plugins.yml and beszel.yml -- so a
-# host's password-reset mail and its contact form resolve to the same relay
-# from the same stored config. test_smtp_resolution.py holds each consumer to
-# the filter.
+# The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, and
+# every consumer calls it -- here, and the infrastructure role's
+# infrastructure_smtp (Beszel, Healthchecks) -- so a host's
+# password-reset mail and its alerts resolve to the same
+# relay from the same stored config. test_smtp_resolution.py holds each
+# consumer to the filter.
 _smtp: >-
   {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
        host=cfg_smtp_host | default(''),
@@ -146,11 +158,25 @@ smtp_host: "{{ _smtp.host }}"
 smtp_port: "{{ _smtp.port }}"
 smtp_user: "{{ _smtp.user }}"
 smtp_from: "{{ _smtp.sender }}"
-# Always STARTTLS on the port given, never implicit TLS: that is what
-# realm-vps.yaml.j2 renders (starttls true, ssl false) and what both known
-# providers expect on 587. There is no TLS toggle to set: the template pins
-# both values, so nothing can accept a setting that changes nothing.
-smtp_use_starttls: true
+
+# The realm's mail settings without the password: what Settings > Outgoing mail
+# makes of the realm's `smtpServer`, empty when mail is off. realm-vps.yaml.j2
+# renders it, and the realm records its fingerprint in the attribute below
+# (playbooks/filter_plugins/keycloak_mail_settings.py), so settings changed in
+# the realm's own Email tab stay. The port decides the connection: 465 is
+# implicit TLS (ssl true), any other port is STARTTLS.
+keycloak_smtp_server: >-
+  {{ {'host': smtp_host, 'port': smtp_port | string, 'from': smtp_from,
+      'fromDisplayName': keycloak_realm_display_name, 'auth': 'true',
+      'user': smtp_user, 'starttls': (not _smtp.implicit_tls) | string | lower,
+      'ssl': _smtp.implicit_tls | string | lower, 'envelopeFrom': smtp_from}
+     if smtp_enabled | bool else {} }}
+keycloak_realm_mail_attribute: "catenaMailSettings"
+
+# The master realm's service account every realm import and kcadm session of
+# the converge signs in with (tasks/_master_login.yml), holding the master
+# realm's admin role. Its secret is keycloak_automation_client_secret.
+keycloak_automation_client_id: "catena-automation"
 
 # The catena-admin panel's realm service account (users + groups). The panel
 # reads the id from its own env default, so this is the converge's copy of a
@@ -165,7 +191,8 @@ catena_admin_panel_client_id: "catena-admin-panel"
 # (catena-admin payload/cmd/catena-identity-probe).
 catena_identity_probe_client_id: "catena-identity-probe"
 
-# Whether every account in this realm must set up a second factor.
+# Whether every account in this realm, and every master-realm administrator,
+# must set up a second factor.
 #
 # Read from the on-box store (IDENTITY_ENFORCE_MFA, a Settings page value), so
 # a client turns it on without an operator. The CONVERGE owns the write because
@@ -177,3 +204,8 @@ catena_identity_probe_client_id: "catena-identity-probe"
 # next login until they enrol, and that is a decision with a support cost
 # attached rather than one a converge should make on a client's behalf.
 keycloak_enforce_mfa: "{{ cfg_identity_enforce_mfa | default('false') }}"
+
+# The master-realm administrators and whether each holds, or has been asked
+# for, a one-time code, as the last converge left them. The Compliance page
+# reads it from the directory the admin container mounts.
+keycloak_master_admins_path: /var/lib/catena/keycloak-master-admins.json

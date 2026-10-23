@@ -1,0 +1,11 @@
+{#
+  One gate's credentials, in oauth2-proxy's legacy config file format (TOML),
+  read with --config. A swarm secret, so `docker service inspect` shows none
+  of them (tasks/deploy.yml). Each value is quoted as a JSON string, which is
+  a TOML basic string.
+#}
+client_secret = {{ oauth2_proxy_client_secret | to_json }}
+cookie_secret = {{ lookup('vars', _app.cookie_secret_var) | to_json }}
+{% if _app.basic_auth_password_var is defined %}
+basic_auth_password = {{ lookup('vars', _app.basic_auth_password_var) | to_json }}
+{% endif %}

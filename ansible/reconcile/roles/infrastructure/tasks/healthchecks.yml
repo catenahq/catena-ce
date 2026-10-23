@@ -1,14 +1,17 @@
 ---
-# Deploy self-hosted Healthchecks as a Portainer-managed compose app ->
-# heartbeat.<zone>. Purpose-built cron/dead-man monitoring -- the OSS
+# Deploy self-hosted Healthchecks as a swarm stack, served at
+# healthchecks.<zone> through its sign-in gate. Purpose-built cron/dead-man
+# monitoring -- the OSS
 # project behind healthchecks.io. One container, SQLite, no metrics,
 # ntfy-capable.
 #
-# Auto-provision: healthchecks_ping_key is a random value minted
-# at install time. The backup script pings
-# http://healthchecks:8000/ping/<ping_key>/<slug> and Healthchecks
-# creates the check on first ping. Zero manual UI step for the baseline
-# backup heartbeat; operator only has to log in once to wire up ntfy.
+# healthchecks_ping_key is a random value minted at install time; host lanes
+# ping http://127.0.0.1:18000/ping/<ping_key>/<slug>. The scheduled lanes'
+# checks are created and kept on the lanes' schedule by catena-admin's
+# catena-schedule, which runs after this role; any other check is created by
+# its first `?create=1` ping. Alerts reach the admin email through the
+# outgoing mail chosen in Settings > Mail, a channel seeded below with no
+# manual UI step, and any channel added in Healthchecks' integrations page.
 
 # Preflight -- fail loudly if the on-box store is missing any of the keys
 # the compose + seed tasks need. They are all internal-minted, so a gap
@@ -59,26 +62,40 @@
     - _healthchecks_ports_fragment.changed
     - catena_public_ports_installed | default(true) | bool
 
+# The compose names each secret and mounts it; swarm holds the value.
+- name: "Healthchecks: name each swarm secret after its value"
+  ansible.builtin.set_fact:
+    _healthchecks_secrets: "{{ healthchecks_swarm_secrets | swarm_secret_entries }}"
+  no_log: true
+
+- name: "Healthchecks: create the missing swarm secrets"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+  vars:
+    swarm_secrets: "{{ _healthchecks_secrets }}"
+
 - name: "Healthchecks: deploy as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ healthchecks_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'healthchecks.compose.yml.j2') }}"
-    svc_domain_host: "{{ healthchecks_hostname }}"
-    svc_domain_service: "app"
-    svc_domain_port: "{{ healthchecks_internal_port }}"
+    # No route of its own: Healthchecks is on healthchecks_network, which
+    # Traefik is not, so its only public path is its gate's route.
+    svc_domain_host: ""
     # Readiness verified by the aggregate post-role probe in main.yml.
     # The in-container Django ORM probe below gates the seed shell, and
     # is independent of Traefik and the auth proxy.
     svc_readiness_skip_reason: >-
       Verified by the aggregate post-role probe in main.yml.
 
-# ─── Bootstrap channel + check via Django shell ──────────────────────
-# scripts/healthchecks-seed.py seeds Catena's ntfy Channel when one is
-# configured and the "catena-backup-succeeded" + "catena-backup-attempted"
-# Checks, and binds the channel to both. Re-running reconciles and leaves
-# client-added channels alone. Retries while the swarm task, Django and
-# migrations come up.
+- name: "Healthchecks: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: "{{ healthchecks_swarm_secrets | map(attribute='base') | list }}"
+
+# ─── Bootstrap channels via Django shell ─────────────────────────────
+# scripts/healthchecks-seed.py seeds Catena's channel -- the admin email while
+# outgoing mail is on. Re-running reconciles and leaves every other channel
+# alone. Retries while the swarm task, Django and migrations come up.
 #
 # Budget: 60 × 5s = 300s (5 min). Covers cold image pulls without
 # a mirror plus swarm placement + container start. Diagnostic dump
@@ -164,14 +181,14 @@
         - Task in `docker service ps` with Rejected / Failed + an Error
           column -> image pull / placement / config failure.
         - Service replicas=0/1 and no task history -> the control plane
-          accepted the compose but never scheduled it; check the stack
-          status in the Portainer UI.
+          accepted the compose but never scheduled it; check
+          `docker stack ps healthchecks`.
   when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
-# The Django seed lives at vps-scripts/healthchecks-seed.py -- plain
-# Python, no Jinja markers. Per-host values arrive via `docker exec -e
-# KEY=VALUE` flags constructed from Ansible vars; the script reads them
-# from os.environ and KeyErrors loudly on any wiring break.
+# The Django seed lives at scripts/healthchecks-seed.py -- plain
+# Python, no Jinja markers. Per-host values reach it on stdin, as one JSON
+# line ahead of the script, never in an argv or environment, which `ps`
+# shows every local user; the script KeyErrors loudly on any wiring break.
 #
 # The script is copied to disk and piped into `docker exec` rather than
 # embedded inline in the shell module's `|` scalar: inlining the Python
@@ -199,28 +216,35 @@
 # (worker crash, DB lock on prior stale session, volume mount issue)
 # -- fail fast rather than dragging it out.
 #
-# Env vars below land as `-e KEY=VALUE` on docker exec. They mirror the
-# top-level reads in healthchecks-seed.py; missing one surfaces as a
-# KeyError, missing the optional CATENA_HC_API_KEY_READWRITE silently
-# leaves the existing project.api_key in place (migration path).
+# The keys mirror the top-level reads in healthchecks-seed.py; missing one
+# surfaces as a KeyError, a blank api_key_readwrite leaves the existing
+# project.api_key in place (migration path).
+- name: "Healthchecks: the seed's values"
+  ansible.builtin.set_fact:
+    _healthchecks_seed_config:
+      admin_email: "{{ admin_email }}"
+      superuser_password: "{{ healthchecks_superuser_password }}"
+      inventory_hostname: "{{ inventory_hostname }}"
+      api_key_readonly: "{{ healthchecks_api_key_readonly }}"
+      api_key_readwrite: "{{ healthchecks_api_key_readwrite | default('') }}"
+      ping_key: "{{ healthchecks_ping_key }}"
+      mail_enabled: "{{ infrastructure_smtp.enabled | bool | lower }}"
+  no_log: true
+
+# `cat -` puts the values (this task's stdin) ahead of the script; the
+# `shell -c` line reads them into seed_config and runs the rest.
 - name: "Healthchecks: run the Django seed script"
   # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py).
   ansible.builtin.shell: |
     set -o pipefail
     ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | swarm_container_regex("app") }}' | head -n1)
     [ -n "$ct" ] || { echo "no running healthchecks container right now" >&2; exit 1; }
-    docker exec -i \
-      -e CATENA_ADMIN_EMAIL={{ admin_email | quote }} \
-      -e CATENA_HC_SUPERUSER_PASSWORD={{ healthchecks_superuser_password | quote }} \
-      -e CATENA_INVENTORY_HOSTNAME={{ inventory_hostname | quote }} \
-      -e CATENA_HC_API_KEY_READONLY={{ healthchecks_api_key_readonly | quote }} \
-      -e CATENA_HC_API_KEY_READWRITE={{ (healthchecks_api_key_readwrite | default('')) | quote }} \
-      -e CATENA_HC_PING_KEY={{ healthchecks_ping_key | quote }} \
-      -e CATENA_NTFY_TOPIC={{ ntfy_topic | quote }} \
-      -e CATENA_NTFY_SERVER={{ ntfy_server | quote }} \
-      "$ct" python manage.py shell < /root/catena-healthchecks-seed.py
+    cat - /root/catena-healthchecks-seed.py \
+      | docker exec -i "$ct" python manage.py shell \
+          -c 'import json, sys; seed_config = json.loads(sys.stdin.readline()); exec(sys.stdin.read())'
   args:
     executable: /bin/bash
+    stdin: "{{ _healthchecks_seed_config | to_json }}"
   register: _healthchecks_seed
   changed_when: false
   retries: 12
@@ -228,17 +252,15 @@
   until: _healthchecks_seed.rc == 0
   no_log: true
 
-# Say it out loud on the converge. The seed script prints the same thing, but
-# that task runs no_log (it carries the superuser password), so the operator
-# would never see it. A host whose alerts go nowhere must not be a host that
-# looks exactly like a healthy one -- checks still record every ping, but
-# nothing is pushed anywhere until a channel exists.
-- name: "Healthchecks: warn when no notification channel is configured"
+# Say it out loud on the converge: the seed task runs no_log (it carries the
+# superuser password), so nothing it prints is seen. A host whose alerts go
+# nowhere must not be a host that looks exactly like a healthy one -- checks
+# still record every ping, but nothing is sent anywhere until a channel exists.
+- name: "Healthchecks: warn when the converge seeds no notification channel"
   ansible.builtin.debug:
     msg: >-
-      No alert delivery configured on this host: NTFY_SERVER and NTFY_TOPIC
-      must BOTH be set for the converge to seed a channel. Healthchecks will
-      record pings and mark checks down, but nothing will be pushed. Point
-      them at your own ntfy, or have the client attach a channel through the
-      Healthchecks integrations UI.
-  when: not (ntfy_server | default('') | trim) or not (ntfy_topic | default('') | trim)
+      Outgoing mail is off on this host, so the converge seeds no alert
+      channel. Healthchecks will record pings and mark checks down, and send
+      only through channels added in its integrations page. Choose a mail
+      service in Settings > Mail to send alerts to the admin's email.
+  when: not (infrastructure_smtp.enabled | bool)

@@ -9,12 +9,11 @@
 #
 # Caller contract:
 #   tier1_spec_name   the service name (catena-postgres, catena-traefik, ...)
-#   tier1_spec_args   OPTIONAL extra argv for the engine, for the few values
-#                     that are genuinely per-deployment rather than product
-#                     constants (reconcile/roles/portainer passes
-#                     --portainer-ui-port). Kept as opaque argv so this shared
-#                     file needs no per-service knowledge, and so every such
-#                     value is visible at ITS call site rather than buried here.
+#   tier1_spec_args   OPTIONAL extra argv for the engine, for a value that is
+#                     genuinely per-deployment rather than a product constant.
+#                     Kept as opaque argv so this shared file needs no
+#                     per-service knowledge, and so every such value is visible
+#                     at ITS call site rather than buried here.
 # Sets:
 #   tier1_builtin_spec  the spec dict, in the shape reconcile_one.yml takes
 #
@@ -41,12 +40,10 @@
   ansible.builtin.fail:
     msg: >-
       {{ tier1_engine_bin }} is absent, so the built-in spec for
-      {{ tier1_spec_name }} cannot be read. The engine ships in the
-      catena-admin host payload and reconcile/roles/payload installs it right after
-      bootstrap/roles/docker -- check the "Payload:" tasks above for why the extract did
-      not land. A host whose payload is staged out of band
-      (CATENA_PAYLOAD_INSTALL=false) must be staged BEFORE the converge that
-      brings the control plane up.
+      {{ tier1_spec_name }} cannot be read. reconcile/roles/payload installs
+      the engine from the catena-admin image; the "Payload:" tasks above say
+      why it is missing. With CATENA_PAYLOAD_INSTALL=false, stage the payload
+      before running the converge that brings the control plane up.
   when: not (_t1_spec_bin.stat.exists | default(false))
 
 - name: "tier1: read the built-in spec for {{ tier1_spec_name }}"

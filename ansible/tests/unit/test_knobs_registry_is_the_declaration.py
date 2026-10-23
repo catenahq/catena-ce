@@ -281,12 +281,13 @@ def test_nothing_the_panel_edits_is_asked_at_install(registry):
 def test_the_installers_required_fields_are_the_ones_it_cannot_install_without(
         registry):
     """The server's address, its initial login and SSH port, the keypair that
-    reaches it, and the administrator's email. Nothing else blocks an install:
+    reaches it, and the administrator's email and name. Nothing else blocks an install:
     the domain, the tailnet and the backup can all be entered in the panel."""
     required = {e["key"] for e in [*registry["secrets"], *registry["config"]]
                 if e.get("required")}
     assert required == {"HOST_PUBLIC_IP", "HOST_INITIAL_USER", "HOST_SSH_PORT",
-                        "SSH_PRIVATE_KEY", "ADMIN_EMAIL"}
+                        "SSH_PRIVATE_KEY", "ADMIN_EMAIL", "ADMIN_FIRST_NAME",
+                        "ADMIN_LAST_NAME"}
 
 
 def test_reseed_is_true_or_absent_and_only_on_a_stored_knob(tmp_path):

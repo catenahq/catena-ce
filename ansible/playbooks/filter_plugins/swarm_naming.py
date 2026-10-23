@@ -18,9 +18,9 @@ name across a restart. Every caller re-resolves by `(stack, service)` at
 use time, and a retry loop re-resolves on every attempt: the window it waits
 out is the one in which the task is rescheduled.
 
-A Portainer-form name (`<stack>-<service>-<index>`, hyphens throughout) does
-not match, and must not: such a container belongs to a Portainer-deployed
-stack, which no task here operates on.
+A compose-form name (`<stack>-<service>-<index>`, hyphens throughout) does
+not match, and must not: such a container is not a swarm task, and no task
+here operates on it.
 
 Usage in shell-pipe form:
 

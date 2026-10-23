@@ -1,21 +1,38 @@
 ---
 # {{ ansible_managed }}
 # Beszel hub -- web UI + SQLite history store for the resource monitor.
-# Public surface at {{ beszel_hostname }}, admin-gated by oauth2-proxy
-# (vps.auth.mode=admin-only; dashboard-sync synthesises the Traefik route
-# + Keycloak redirect URI from the labels below). Also published on the
-# host loopback so beszel-seed.py and the network_mode:host agent can
-# reach the PocketBase API + WebSocket without leaving the box.
+# Public surface at {{ beszel_hostname }}, behind its own admin-only
+# oauth2-proxy: the `beszel` entry of reconcile/roles/oauth2_proxy
+# oauth2_proxy_apps, which writes the route and the Keycloak redirect URI.
+# Also published on the host loopback so beszel-seed.py and the
+# network_mode:host agent can reach the PocketBase API + WebSocket without
+# leaving the box. On beszel_network only, which its gate, its alert shim and
+# Gatus join and no client app does (playbooks/group_vars/all/main.yml).
 #
-# USER_EMAIL/USER_PASSWORD bootstrap the hub on first boot: Beszel's
-# initial-settings migration creates a PocketBase superuser AND a regular
-# users record with these credentials (verified against henrygd/beszel
-# internal/migrations/initial-settings.go). beszel-seed.py reuses them to
-# authenticate and seed the universal token.
+# No credential in the spec, which `docker service inspect` shows. Without
+# USER_EMAIL/USER_PASSWORD the hub's first boot makes a placeholder superuser
+# and serves its first-user endpoint (beszel v0.20.0
+# internal/migrations/initial-settings.go, internal/users/users.go
+# CreateFirstUser), which scripts/beszel-seed.py, on the host's loopback,
+# calls with admin_email and admin_password before anything else: the
+# superuser and the admin's users record the rest of the seed signs in as.
+# Until then the endpoint answers only what reaches the hub: this host's own
+# processes, the admin-only gate and Gatus.
 #
 # Metrics history (/beszel_data) is a named volume EXCLUDED from restic
 # (see reconcile/roles/backup/defaults backup_exclude_patterns) -- disposable
 # telemetry, reconstructed from live agents within a cycle after restore.
+#
+# x-catena declares that volume: a newer hub migrates it on its first start, so
+# the data is copied before the image moves and put back with the previous
+# image when the move rolls back.
+x-catena:
+  schema: 2
+  data:
+    app:
+      volume: {{ beszel_hub_data_volume }}
+      upgrade: in_place
+
 services:
   app:
     image: {{ beszel_image }}
@@ -24,12 +41,15 @@ services:
         condition: any
         delay: 5s
     environment:
-      USER_EMAIL: "{{ admin_email }}"
-      USER_PASSWORD: "{{ admin_password }}"
       # Same reason healthchecks branches here: with no domain entered yet
       # `beszel_hostname` renders `beszel.`, and a URL whose host ends in a
       # dot is not a degraded address, it is a malformed one. Deferred, the
       # hub addresses itself by the network alias it is already reachable at.
+      #
+      # The hub writes APP_URL over PocketBase's stored meta.appURL each time
+      # it starts (internal/hub/hub.go initialize, beszel v0.20.0), so a new
+      # hostname reaches the links in its mail through the redeploy that this
+      # changed value causes.
 {% if catena_public_surface_deferred | default(false) | bool %}
       APP_URL: "http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}"
 {% else %}
@@ -37,16 +57,17 @@ services:
 {% endif %}
       # Let an OIDC identity with no local record sign in. Without it the
       # Keycloak button works for exactly ONE person -- the holder of
-      # admin_email, whose users record the bootstrap already created -- and
+      # admin_email, whose users record the seed's first-user claim created -- and
       # every other admin still meets the password prompt this is here to
       # remove.
       #
-      # The blast radius is bounded by the proxy, not by this flag: the hub is
-      # published on the host loopback only, and its public surface carries
-      # vps.auth.mode=admin-only / vps.auth.groups=admin, so reaching the
-      # login form at all requires having authenticated to Keycloak AND being
-      # in the admin group. Auto-creating a monitoring account for someone who
-      # has already cleared that grants nothing new.
+      # The blast radius is bounded by who reaches the hub, not by this flag:
+      # its public host is routed through the admin-only oauth2-proxy
+      # (reconcile/roles/oauth2_proxy), its loopback publish answers this host
+      # only, and its network is shared with its gate, its alert shim and Gatus
+      # alone. So driving its sign-in requires having authenticated to Keycloak
+      # AND being in the admin group, and auto-creating a monitoring account for
+      # someone who has already cleared that grants nothing new.
       USER_CREATION: "true"
       # DISABLE_PASSWORD_AUTH is deliberately NOT set. See
       # scripts/beszel-seed.py: Beszel is base-plane infrastructure, and a
@@ -67,21 +88,13 @@ services:
         protocol: tcp
         mode: host
     networks:
-      catena-network:
+      {{ beszel_network }}:
         aliases:
           - {{ beszel_hub_network_alias }}
-    labels:
-      # FALSE on purpose -- see the note in gatus.compose.yml.j2.
-      - traefik.enable=false
-      # Admin-only auth posture (vps.auth.* convention). dashboard-sync
-      # renders the Traefik route to this app's oauth2-proxy instance and
-      # unions the /oauth2/callback redirect URI into the shared Keycloak client.
-      - vps.auth.mode=admin-only
-      - vps.auth.groups=admin
 
 volumes:
   {{ beszel_hub_data_volume }}:
 
 networks:
-  catena-network:
+  {{ beszel_network }}:
     external: true

@@ -1,24 +1,22 @@
 ---
-# Deploy one catena-DECLARED compose stack as SWARM services, with no
-# Portainer in the path.
+# Deploy one catena-DECLARED compose stack as SWARM services.
 #
-# WHY. Every app deployed through this file is something catena declares --
-# the monitoring plane (gatus, healthchecks, beszel), the SSO plane (keycloak,
-# oauth2-proxy), the shared clamd. Deploying them around Portainer keeps the
-# things that report on Portainer independent of it: a control plane that
-# will not start leaves the monitors up, at exactly the moment somebody needs
-# them to find out why. Portainer's DB is the record of CLIENT choices -- the
-# one state that cannot be recomputed -- and nothing else.
+# Every app deployed through this file is something catena declares -- the
+# monitoring plane (gatus, healthchecks, beszel) and the SSO plane (keycloak,
+# oauth2-proxy).
 #
 # Inputs (caller sets via include_tasks vars):
 #
 #   svc_name            -- stack name (also the compose project label and the
 #                          prefix of every service/container it creates)
 #   svc_compose_content -- the full compose YAML as a string
-#   svc_domain_host     -- FQDN to route to this app ("" = intra-cluster only)
+#   svc_domain_host     -- FQDN to route to this app ("" = no route of its
+#                          own: intra-cluster, or served by its sign-in gate)
 #   svc_domain_extra_hosts -- additional Host() rules on the same router
-#   svc_domain_service  -- the network alias the Traefik route targets
-#   svc_domain_port     -- backend port inside the container
+#   svc_domain_service  -- the network alias the Traefik route targets, its
+#                          own service's (with svc_domain_host only)
+#   svc_domain_port     -- backend port inside the container (with
+#                          svc_domain_host only)
 #   svc_readiness_url / svc_readiness_ok_codes / svc_readiness_validate_certs
 #   svc_readiness_skip_reason
 #
@@ -52,6 +50,27 @@
     mode: "0640"
   no_log: true
 
+# A stack file whose x-catena block declares data (data.<service>.volume or
+# .database) names a service whose image can migrate that data on its first
+# start. The verb copies the data of each such service whose image the new file
+# changes, before the deploy, and refuses when it cannot: a stack is never
+# deployed onto data with no copy. CATENA_INFRA_RUN is the run the copy is
+# filed under (the release update sets it, so a rollback finds the copy);
+# empty, the verb names the run itself. A stack with no block is a no-op.
+- name: "Swarm: copy the data a moved image migrates ({{ svc_name }})"
+  ansible.builtin.command:
+    argv:
+      - "{{ catena_admin_stack_update_bin }}"
+      - infra-data
+      - copy
+      - --stack
+      - "{{ svc_name }}"
+      - --file
+      - "{{ swarm_stack_dir }}/{{ svc_name }}.yml"
+      - --run
+      - "{{ lookup('env', 'CATENA_INFRA_RUN') }}"
+  changed_when: false
+
 - name: "Swarm: initialize deploy attempt state ({{ svc_name }})"
   ansible.builtin.set_fact:
     _swarm_deploy_done: false
@@ -79,8 +98,9 @@
 # directly. Routing is not the control plane's job.
 #
 # Opt-out: intra-cluster-only services (e.g. oauth2-proxy, reached by their
-# catena-network alias) pass svc_domain_host="" -> the route file is removed
-# instead of written.
+# catena-network alias) and services a sign-in gate serves (Gatus,
+# Healthchecks, Beszel's hub) pass svc_domain_host="" -> the route file is
+# removed instead of written.
 - name: "Route: write Traefik file-provider route ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
   ansible.builtin.template:
     # Explicit playbook_dir-relative path: this file is include_tasks'd from

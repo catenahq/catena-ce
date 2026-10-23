@@ -8,5 +8,6 @@
     _assert_paths:
       - { path: /srv/catena, type: directory, owner: root, group: root, mode: "0755" }
       - { path: /srv/catena/apps, type: directory, owner: ops, group: ops, mode: "0755" }
+      - { path: /srv/catena/compose, type: directory, owner: root, group: root, mode: "0700" }
       - { path: /srv/catena/backup-staging, type: directory, owner: ops, group: ops, mode: "0750" }
       - { path: /srv/catena/docker, type: directory, owner: root, group: root, mode: "0710" }

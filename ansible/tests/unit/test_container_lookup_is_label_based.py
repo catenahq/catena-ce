@@ -1,4 +1,5 @@
-"""No converge task may find a container by a compose label or by its name.
+"""Container lookups use the swarm service-name label, never a compose label,
+a vps.* label or a name.
 
 Every application on a catena host is a swarm service. `docker stack deploy`
 puts `com.docker.stack.namespace` and `com.docker.swarm.service.name` on a
@@ -8,17 +9,18 @@ nothing -- silently. `docker ps --filter` with no match is an empty list and
 exit 0, which every one of these call sites reads as "that application is not
 deployed":
 
-  clamd never deploys, so the mail path is unscanned
-  coturn never deploys, so Talk and Jitsi have no relay
-  the mailserver tasks all no-op, so DKIM, the TLS cert and the OIDC config
-      are never written
+  the antivirus scanner never deploys, so the mail path is unscanned
+  a wiring task no-ops, so the TLS cert and the OIDC config are never written
 
 None of that fails a converge. It reports success for a host with half its
 wiring missing, which is why this is a gate rather than a convention.
 
-Container NAMES are out too: a name carries whatever stack name a client
-typed into Portainer's deploy form. The catalog labels every service with
-`vps.app` and `vps.component`, and those are what a lookup asks for.
+Container NAMES are out too: a name carries a swarm task id, and its stack
+half is whatever a client typed into the deploy form. What swarm puts
+on every task is `com.docker.swarm.service.name=<app>_<service>`, the
+application's stack name and the compose service key, and that is what a
+lookup asks for, through scripts/catena-container.sh. A `vps.app` or
+`vps.component` label is something a compose file may or may not carry.
 
 Run: uv run pytest tests/unit/test_container_lookup_is_label_based.py
 """
@@ -60,7 +62,24 @@ def test_no_task_filters_on_a_compose_label():
         "a swarm task carries no com.docker.compose.* label, so these filters "
         "match nothing and the caller reads it as 'not deployed':\n  "
         + "\n  ".join(offenders)
-        + "\nUse label=vps.app=<app> / label=vps.component=<service>."
+        + "\nUse catena-container <app> <service>."
+    )
+
+
+_VPS_FILTER = re.compile(r"label=vps\.(app|component)=")
+
+
+def test_no_lookup_filters_on_a_vps_label():
+    offenders = []
+    for path in _sources():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in _VPS_FILTER.finditer(text):
+            line = text[:match.start()].count("\n") + 1
+            offenders.append(f"{path.relative_to(ANSIBLE)}:{line}")
+    assert not offenders, (
+        "these find an application's container by a vps.* label, which its "
+        "compose file may not carry:\n  " + "\n  ".join(offenders)
+        + "\nUse catena-container <app> <service>."
     )
 
 
@@ -109,11 +128,10 @@ def test_no_task_greps_for_the_random_half_of_a_stack_name():
     """A `docker ps` grep that matches the generated part of a name is the same
     defect as a `--filter name=`, wearing different clothes.
 
-    reconcile/roles/infrastructure/tasks/wordpress_plugins.yml matched
-    `wordpress-[0-9a-z]{6,}-wp-`: the stack name Portainer generated, plus a
-    swarm task id. A client who deploys the template under a name of their own
+    A wiring task once matched `app-[0-9a-z]{6,}-web-`: the stack name a deploy
+    generated, plus a swarm task id. A client who deploys the template under a name of their own
     choosing produced no match, the whole block skipped, and the converge
-    reported success on a site with no plugin curation and no option seeding.
+    reported success on a site with none of its wiring.
     Neither test above saw it -- there is no compose label and no
     `--filter name=`, just a regex on the same untrustworthy string.
 
@@ -138,8 +156,7 @@ def test_no_task_greps_for_the_random_half_of_a_stack_name():
         "these match the generated half of a container name, which is the "
         "stack name a client typed plus a swarm task id:\n  "
         + "\n  ".join(offenders)
-        + "\nUse docker ps --filter label=vps.app=<app> "
-          "--filter label=vps.component=<service>."
+        + "\nUse catena-container <app> <service>."
     )
 
 
@@ -158,5 +175,5 @@ def test_no_task_finds_a_container_by_name_shape():
             offenders.append(f"{path.relative_to(ANSIBLE)}:{line}")
     assert not offenders, (
         "these look up a CONTAINER by name, which depends on the stack name a "
-        "client typed into Portainer:\n  " + "\n  ".join(offenders)
+        "client typed at deploy:\n  " + "\n  ".join(offenders)
     )

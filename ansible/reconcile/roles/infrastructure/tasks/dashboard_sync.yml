@@ -5,8 +5,8 @@
 # (payload/lanes/catena-dashboard-sync.py plus payload/lib/), which
 # reconcile/roles/payload extracts earlier in the converge.
 #
-# Why the image owns them: what this reconciler does is read every Portainer
-# stack's `vps.*` labels and decide what the route and the oauth2-proxy for
+# Why the image owns them: what this reconciler does is read every client app's
+# deployed `vps.*` labels and decide what the route and the oauth2-proxy for
 # that app should be. That is the MEANING of a label, and its correct value
 # changes when the product changes, not when the host changes -- so it belongs
 # to the image, and changing how app access is resolved ships as an image
@@ -14,13 +14,19 @@
 #
 # This file holds everything whose correct value changes when the HOST
 # changes:
-#   - the env file, which carries the Portainer API key, the oauth2-proxy
-#     client secret and the per-zone cookie secrets;
-#   - enabling and starting the timer, which is the converge installing
-#     capability.
+#   - the env file, which carries the marketplace token,
+#     the oauth2-proxy client secret, the domains this host serves and their
+#     cookie secrets;
+#   - enabling and starting the timer and the app events watcher, which is the
+#     converge installing capability.
 #
 # That is the same split reconcile/roles/payload's README states: the converge installs
 # capability, the image owns content.
+
+# The served secondary domains, catena_secondary_zones, which the env file
+# names.
+- name: "dashboard-sync: the served domains"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/served_zones.yml"
 
 - name: "dashboard-sync: env file ({{ dashboard_sync_env_path }})"
   ansible.builtin.template:
@@ -107,12 +113,19 @@
     state: started
   when: _dashboard_sync_present | default(false)
 
+# Starts a pass seconds after a stack is deployed, updated or removed; the
+# hourly timer above is its backstop.
+- name: "dashboard-sync: enable + start the app events watcher"
+  ansible.builtin.systemd_service:
+    name: catena-app-events.service
+    enabled: true
+    state: started
+  when: _dashboard_sync_present | default(false)
+
 # systemd hands back an exit code and a pointer to `journalctl`, and on a DR
 # host the machine holding that journal is torn down with the scenario -- so a
 # failure here reports nothing that can still be read afterwards. Capture the
-# reconciler's own output before re-raising, the way
-# reconcile/roles/coturn/tasks/validate.yml dumps the container log before asserting on a
-# missing listener.
+# reconciler's own output before re-raising.
 - name: "dashboard-sync: run the reconciler, reporting its own log on failure"
   when: _dashboard_sync_present | default(false)
   block:

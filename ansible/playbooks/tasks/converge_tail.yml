@@ -3,6 +3,21 @@
 # both include it, naming themselves in `catena_converge_path`. Each task keeps
 # its own tag, so a --tags run still selects one of them.
 
+# Render the control plane as a compose file and prove it loads. Applies nothing: the services were already created and reconciled
+# by the catena-tier1 engine, role by role, as each contributed its spec. This
+# is the oracle -- `docker stack config` type-checking the same dicts against
+# the docker actually installed. Here, after the roles, so it renders the specs
+# every one of them contributed, on whichever path converged the host.
+#
+# `apply:` carries the tag inward: without it, `--tags tier1_stack` fires the
+# include and then filters out every task inside it.
+- name: "Tier 1: render + validate the swarm-service oracle file"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    apply:
+      tags: [tier1_stack]
+  tags: [tier1_stack]
+
 # Reconcile the declarative public-port registry, after every role has dropped
 # its /etc/catena/public-ports.d/ fragment and deployed its containers
 # (vps.expose.* labels), so the merged effective set is complete. Applies ufw +
@@ -20,9 +35,23 @@
   when: catena_public_ports_installed | default(true) | bool
   tags: [public_ports]
 
+# Rewrite the version report now that every role has moved its services, so the
+# panel's System and Apps pages name what runs from the end of an update rather
+# than from the timer's next pass. Upstream lookups are best-effort and it takes
+# no host lock. Skipped where reconcile/roles/infrastructure found the payload
+# staged out of band and the script not yet on the host.
+- name: "Versions: refresh the version report"
+  ansible.builtin.systemd_service:
+    name: catena-version-check.service
+    state: started
+  changed_when: false
+  when: _gatus_sync_present | default(false) | bool
+  tags: [version_check]
+
 # Report -- never repair -- changes to the files boundary.yml puts on the
-# operator's side. A converge does not write them; this task is what keeps
-# that rule from also meaning blindness to them.
+# operator's side, other than the dispatch path switch's own. This task is
+# what keeps the rule that a converge does not write them from also meaning
+# blindness to them.
 - name: "Bootstrap drift: report changes to operator-owned files"
   ansible.builtin.include_tasks:
     file: report_bootstrap_drift.yml

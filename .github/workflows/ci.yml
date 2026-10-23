@@ -1,7 +1,15 @@
 name: CI
 
-# Python installer (ansible/) unit tests. This repo carries no Go. Python
-# tooling comes from uv.
+# The Ansible tree's unit tests and syntax check, and the installer's
+# (installer/). This repo carries no Go. Python tooling comes from uv.
+#
+# A push to a branch keeps the absolute gate. A pull request is judged on what
+# it introduces: the unit tests and the duplication ratchet run through
+# contracts' new-failures-only action, which fails only on failures the base
+# commit does not have, and the prose job gates on the files the change
+# touches. The Keycloak extension job runs plain on both: it builds and tests
+# the JAR under ansible/reconcile/roles/keycloak/provider and fails when a
+# second build gives other bytes.
 
 on:
   # Every pushed branch. Renovate and engine-bump branches always carry a pull
@@ -15,61 +23,98 @@ permissions:
 
 jobs:
   installer:
-    name: Installer (Python) tests
+    # The Ansible tree's unit tests and those of `catena-installer`, the root
+    # project, whose tests include the gate that holds the declaration, the
+    # code it points at and the documented commands to one another, and what
+    # a wheel carries.
+    name: Installer and tree unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      # The installer tests import only seed.py + helpers (no ansible-core), so
-      # run them in a lightweight ephemeral env instead of syncing the project
-      # (which would pull ansible-core for nothing here).
-      - name: Unit tests
-        working-directory: ansible
-        run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      # In ansible/'s own project, on the ansible-core the host runs: some of
+      # the tree's tests render its templates through ansible-core's
+      # templating, others with the Jinja2 it brings.
+      - name: Ansible tree and installer tests
+        uses: catenahq/contracts/.github/actions/new-failures-only@main
+        with:
+          working-directory: ${{ github.workspace }}
+          repo-path: ${{ github.workspace }}
+          failure-lines: '^(FAILED|ERROR) [^ ]+'
+          run: |
+            rc=0
+            (cd ansible && uv run python -m pytest -rfE tests/unit -q) || rc=1
+            uv run pytest -rfE -q || rc=1
+            exit $rc
 
   entry-points:
-    # The two entry points a client runs, `catena-cli` and `catena-gui`, from
-    # the root project and from their own. The launcher's tests include the
-    # gate that holds the declarations, the code they point at, the launcher's
-    # call into the CLI and the documented commands to one another; the locks
-    # are held to their pyprojects here, since resolving needs the index.
-    name: Entry points and the graphical installer
+    # `catena-installer`, the one entry point a client runs, from the root
+    # project and as the wheel uvx installs. The locks are held to their
+    # pyprojects here, since resolving needs the index.
+    name: Entry point and wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - name: Locks match their pyprojects
         run: |
           set -eu
           uv lock --check
           uv lock --check --project ansible
-          uv lock --check --project gui
-      - name: Both entry points run from the root
+      - name: The entry point runs
+        run: uv run catena-installer --help
+      - name: A wheel builds
+        run: uv build --wheel
+
+  keycloak-provider:
+    # The JAR of Catena's Keycloak providers: its tests, then a second offline
+    # build whose SHA-256 must equal the first's, so the same sources always
+    # give the same bytes.
+    name: Keycloak extension
+    runs-on: ubuntu-latest
+    container:
+      image: maven:3.9.16-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320
+    defaults:
+      run:
+        working-directory: ansible/reconcile/roles/keycloak/provider
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Build and test
+        run: mvn -B -ntp --strict-checksums verify
+      - name: Record the JAR's checksum
+        run: sha256sum target/catena-keycloak.jar | tee "$RUNNER_TEMP/first.sha256"
+      # Only the plugins the first build fetched are available offline, and
+      # the clean plugin is not among them.
+      - name: Build again
         run: |
           set -eu
-          uv run catena-cli --help
-          uv run catena-gui --help
-      - name: Graphical installer tests
-        working-directory: gui
-        run: uv run pytest -q
+          rm -rf target
+          mvn -B -ntp -o package -DskipTests
+      - name: The two builds match
+        run: |
+          set -eu
+          sha256sum target/catena-keycloak.jar | tee "$RUNNER_TEMP/second.sha256"
+          cmp "$RUNNER_TEMP/first.sha256" "$RUNNER_TEMP/second.sha256"
 
   syntax:
-    # Every playbook parses, roles and all. The unit job above deliberately
-    # runs without ansible-core, so nothing until now READ the tree Ansible
-    # actually executes: a bad task keyword, a malformed block, a module name
-    # no installed collection provides -- all of it reached a converge before
-    # anything noticed, and a converge is a client's server.
+    # Every playbook parses, roles and all. The unit tests read task files as
+    # data and render single templates; this loads the tree the way a converge
+    # does, so a bad task keyword, a malformed block or a module name
+    # ansible-core does not provide fails here rather than on a client's
+    # server.
     #
     # --syntax-check loads the whole play including every role it includes, so
-    # this covers roles/ without naming them. It resolves module FQCNs, which
-    # is why it needs the pinned collections: without them every
-    # community.general task reads as a conflicting action statement.
+    # this covers roles/ without naming them. With no collection installed, a
+    # module from one reads as a conflicting action statement: the tree runs
+    # on ansible-core alone, on the server.
     #
     # -i localhost, because syntax-check parses rather than connects; the
     # inventory only has to exist.
@@ -80,10 +125,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - name: Vendor the pinned collections
-        working-directory: ansible
-        run: uv run ansible-galaxy collection install -r requirements.yml -p .collections
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - name: Syntax-check every playbook
         working-directory: ansible
         run: |
@@ -109,7 +151,11 @@ jobs:
         with:
           node-version: "24"
       - name: jscpd (threshold in .jscpd.json)
-        run: npx --yes jscpd@4 --silent
+        uses: catenahq/contracts/.github/actions/new-failures-only@main
+        with:
+          working-directory: ${{ github.workspace }}
+          repo-path: ${{ github.workspace }}
+          run: npx --yes jscpd@4 --silent
 
   sentences:
     # The same ratchet for prose: a sentence written in two places fails,
@@ -148,6 +194,9 @@ jobs:
       - name: Repo rules (no tracked env file; .gitignore carries the env rule)
         working-directory: ./catena-ce
         run: node ../contracts/scripts/check-repo-rules.mjs
+      - name: Core app names (debt in .github/core-app-names-debt.json)
+        working-directory: ./catena-ce
+        run: node ../contracts/scripts/check-core-app-names.mjs ansible/
       # Pinned in contracts/.vale-version, which check-prose.mjs also
       # reads and enforces: the grammars decide which comments are
       # visible, so a different version is a different gate.

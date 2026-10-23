@@ -1,0 +1,8 @@
+{#
+  Keycloak's credentials, in its config file format (java.util.Properties),
+  read through KC_CONFIG_FILE from a swarm secret, so `docker service inspect`
+  shows neither (tasks/deploy.yml). Both values are minted on the box from
+  alphabets the format reads verbatim (base64 and URL-safe base64).
+#}
+db-password={{ keycloak_db_password }}
+bootstrap-admin-password={{ admin_password }}

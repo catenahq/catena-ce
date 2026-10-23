@@ -124,7 +124,7 @@
 - name: "Verify docker binary exists on disk (guard against phantom-installed dpkg state)"
   # If /var/lib/dpkg says docker-ce is installed but /usr/bin/docker is
   # missing, apt's idempotent install is a no-op and the failure only
-  # surfaces two roles later when something tries to run `docker`.
+  # surfaces in a later role, when something tries to run `docker`.
   # Force a --reinstall when the binary is absent. This catches the
   # class of bug where dpkg DB was restored without the package files.
   ansible.builtin.stat:
@@ -193,11 +193,11 @@
 # container onto the daemon. Ansible runs handlers at play-end by default;
 # on a fresh install daemon.json changes above (the "Drop
 # /etc/docker/daemon.json" task) and the deferred restart would then fire
-# AFTER traefik/postgres/portainer/keycloak/oauth2-proxy/infrastructure are
+# AFTER traefik/postgres/keycloak/oauth2-proxy/infrastructure are
 # already up. A docker restart restarts every container (live-restore is
 # off under swarm) and re-materializes the catena-network swarm overlay
-# with a NEW id; swarm SERVICES (catena-postgres, catena-portainer)
-# reconnect on their own, while the PLAIN containers the Portainer stacks
+# with a NEW id; swarm SERVICES (catena-postgres, catena-traefik)
+# reconnect on their own, while the PLAIN containers the stacks
 # deploy (keycloak-server-1, oauth2-proxy, gatus, ...) come back with
 # "network catena-network not found" and stay Exited, which surfaced as
 # reconcile/roles/keycloak validate finding keycloak-server-1 dead. Those are healed
@@ -207,7 +207,7 @@
 # leaning on the nudge to clean up afterwards. Idempotent: a no-op when
 # daemon.json was unchanged (no handler was notified).
 - name: "docker: flush pending daemon restart before the app layer deploys"
-  meta: flush_handlers
+  ansible.builtin.meta: flush_handlers
 
 # Atomicity: prove the daemon actually serves API requests before any
 # downstream role (swarm services, infra compose, backup's `docker
@@ -236,8 +236,8 @@
   changed_when: false
 
 # ─── Docker Swarm (single-node) init ─────────────────────────────────────
-# The reverse-proxy + control-plane roles that follow (traefik, postgres,
-# portainer) all deploy `docker service`s, which require an active swarm
+# The reverse-proxy + control-plane roles that follow (traefik, postgres)
+# all deploy `docker service`s, which require an active swarm
 # manager, so this role inits it -- right after the daemon is confirmed
 # serving and before any swarm-service role runs. reconcile/roles/swarm then
 # configures it (task history, the data-node label, the overlay self-heal) on

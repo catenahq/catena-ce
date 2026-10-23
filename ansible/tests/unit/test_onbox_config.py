@@ -1,4 +1,4 @@
-"""Unit tests for helpers/onbox_config.py -- the 0b on-box config store.
+"""Unit tests for helpers/onbox_config.py -- the on-box config store.
 
 Covers: load/dump round-trip + 0600 mode, reconcile-not-overwrite minting,
 minted-value format contracts (mirrors seed.py), external-vs-internal secret
@@ -29,7 +29,7 @@ def oc():
 # --- load / dump ------------------------------------------------------------
 def test_load_absent_returns_empty_sections(oc, tmp_path):
     store = oc.load(tmp_path / "nope.json")
-    assert store == {"secrets": {}, "config": {}, oc.CLIENT_APP_SECRETS_KEY: {}}
+    assert store == {"secrets": {}, "config": {}}
 
 
 def test_dump_then_load_roundtrip(oc, tmp_path):
@@ -37,7 +37,6 @@ def test_dump_then_load_roundtrip(oc, tmp_path):
     store = {
         "secrets": {"admin_password": "s3cr3t/+="},
         "config": {"CLOUDFLARE_ZONE": "x.com"},
-        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "abc"},
     }
     oc.dump(store, p)
     got = oc.load(p)
@@ -161,11 +160,10 @@ def _registries(oc) -> dict[str, set[str]]:
         "INTERNAL_SECRETS": set(oc.INTERNAL_SECRETS),
         "EXTERNAL_SECRETS": set(oc.EXTERNAL_SECRETS),
         "USER_HELD_SECRETS": set(oc.USER_HELD_SECRETS),
-        "ROLE_MINTED_SECRETS": set(oc.ROLE_MINTED_SECRETS),
     }
 
 
-def test_the_four_registries_are_pairwise_disjoint(oc):
+def test_the_three_registries_are_pairwise_disjoint(oc):
     """A name in two registries has two provenances, which means the one the
     reader believes is a coin flip. Enumerated pairwise rather than by total
     length so the failure names the collision."""
@@ -184,10 +182,10 @@ def test_every_registry_is_non_empty(oc):
 
 
 # --- secret_names: the converge loader's discriminator ----------------------
-def test_secret_names_is_the_union_of_the_four_registries(oc):
+def test_secret_names_is_the_union_of_the_three_registries(oc):
     """playbooks/tasks/load_onbox_config.yml reads this list to decide which
     in-scope Ansible variables to capture into the store. The union of the
-    four registries is the declaration, so a variable is captured because
+    three registries is the declaration, so a variable is captured because
     someone declared it a secret, whatever its name looks like."""
     expected = set().union(*_registries(oc).values())
     assert set(oc.secret_names()) == expected
@@ -210,24 +208,6 @@ def test_secret_names_emit_touches_no_store(oc, tmp_path, capsys):
     assert not store_path.exists(), "the query wrote a store"
     printed = json.loads(capsys.readouterr().out)
     assert printed == oc.secret_names()
-
-
-def test_portainer_api_key_is_role_minted(oc):
-    """Portainer mints its own API key: not internal (this module never
-    generates it), not external (no human ever supplies one). It is
-    ROLE_MINTED, which is a category with members rather than a comment
-    saying it belongs to none."""
-    assert oc.ROLE_MINTED_SECRETS["portainer_api_key"] == "portainer"
-    for reg in (oc.INTERNAL_SECRETS, oc.EXTERNAL_SECRETS, oc.USER_HELD_SECRETS):
-        assert "portainer_api_key" not in reg
-
-
-def test_role_minted_secrets_are_not_settable_through_the_api(oc):
-    # apply_inputs' allowlist is EXTERNAL_SECRETS; a role-minted secret has
-    # exactly one writer and the settings form is not it.
-    store = {"secrets": {}, "config": {}}
-    with pytest.raises(ValueError):
-        oc.apply_inputs(store, secrets_in={"portainer_api_key": "x"})
 
 
 def test_dr_keyset_is_user_held_not_external(oc):
@@ -337,87 +317,84 @@ def test_adopt_fills_only_and_captures_any_key(oc):
     store = {"secrets": {"admin_password": "keep"}, "config": {}}
     adopted = oc.adopt(store, {
         "admin_password": "IGNORED-existing-wins",
-        "portainer_api_key": "ptr",       # out-of-registry, still captured
+        "some_role_key": "ptr",           # out-of-registry, still captured
         "cloudflare_api_token": "cf",
         "blank_secret": "   ",                   # blank skipped
     })
-    assert set(adopted) == {"portainer_api_key", "cloudflare_api_token"}
+    assert set(adopted) == {"some_role_key", "cloudflare_api_token"}
     assert store["secrets"]["admin_password"] == "keep"
-    assert store["secrets"]["portainer_api_key"] == "ptr"
+    assert store["secrets"]["some_role_key"] == "ptr"
     assert "blank_secret" not in store["secrets"]
 
 
 def test_adopt_overwrite_replaces_a_dead_value(oc):
-    """reconcile/roles/portainer re-mints when Portainer REJECTS the stored key. Without
-    overwrite the store would keep serving the dead one and every API call
-    would 401 for the rest of the converge."""
-    store = {"secrets": {"portainer_api_key": "revoked"}, "config": {}}
-    adopted = oc.adopt(store, {"portainer_api_key": "fresh"}, overwrite=True)
-    assert adopted == ["portainer_api_key"]
-    assert store["secrets"]["portainer_api_key"] == "fresh"
+    """Without overwrite the store would keep serving the dead value."""
+    store = {"secrets": {"some_role_key": "revoked"}, "config": {}}
+    adopted = oc.adopt(store, {"some_role_key": "fresh"}, overwrite=True)
+    assert adopted == ["some_role_key"]
+    assert store["secrets"]["some_role_key"] == "fresh"
 
 
 def test_adopt_overwrite_still_refuses_a_blank(oc):
-    store = {"secrets": {"portainer_api_key": "keep"}, "config": {}}
-    assert oc.adopt(store, {"portainer_api_key": "  "}, overwrite=True) == []
-    assert store["secrets"]["portainer_api_key"] == "keep"
+    store = {"secrets": {"some_role_key": "keep"}, "config": {}}
+    assert oc.adopt(store, {"some_role_key": "  "}, overwrite=True) == []
+    assert store["secrets"]["some_role_key"] == "keep"
 
 
 def test_adopt_reports_no_change_when_the_value_is_identical(oc):
-    """An unchanged re-adopt must not report a write: the portainer role's
-    task reports changed from this, and a converge that changed nothing has
-    to recap changed=0 for the bench idempotency gates."""
-    store = {"secrets": {"portainer_api_key": "same"}, "config": {}}
-    assert oc.adopt(store, {"portainer_api_key": "same"}, overwrite=True) == []
+    """An unchanged re-adopt must not report a write: a converge that changed
+    nothing has to recap changed=0 for the bench idempotency gates."""
+    store = {"secrets": {"some_role_key": "same"}, "config": {}}
+    assert oc.adopt(store, {"some_role_key": "same"}, overwrite=True) == []
 
 
 def test_cli_overwrite_reaches_adopt(oc, tmp_path, capsys, monkeypatch):
     import io
     p = tmp_path / "config.json"
-    oc.dump({"secrets": {"portainer_api_key": "revoked"}, "config": {}}, p)
-    monkeypatch.setattr("sys.stdin", io.StringIO('{"portainer_api_key": "fresh"}'))
+    oc.dump({"secrets": {"some_role_key": "revoked"}, "config": {}}, p)
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"some_role_key": "fresh"}'))
     rc = oc.main(["--path", str(p), "--adopt-stdin", "--overwrite",
                   "--no-mint", "--emit", "none"])
     assert rc == 0
     assert capsys.readouterr().out == ""
-    assert oc.load(p)["secrets"]["portainer_api_key"] == "fresh"
+    assert oc.load(p)["secrets"]["some_role_key"] == "fresh"
 
 
 def test_cli_adopt_without_overwrite_keeps_the_stored_value(oc, tmp_path, monkeypatch):
     import io
     p = tmp_path / "config.json"
-    oc.dump({"secrets": {"portainer_api_key": "stored"}, "config": {}}, p)
-    monkeypatch.setattr("sys.stdin", io.StringIO('{"portainer_api_key": "other"}'))
+    oc.dump({"secrets": {"some_role_key": "stored"}, "config": {}}, p)
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"some_role_key": "other"}'))
     assert oc.main(["--path", str(p), "--adopt-stdin", "--no-mint",
                     "--emit", "none"]) == 0
-    assert oc.load(p)["secrets"]["portainer_api_key"] == "stored"
+    assert oc.load(p)["secrets"]["some_role_key"] == "stored"
 
 
 def test_cli_adopt_stdin_then_mint(oc, tmp_path, capsys, monkeypatch):
     import io
     p = tmp_path / "config.json"
     monkeypatch.setattr("sys.stdin", io.StringIO(
-        '{"portainer_api_key": "ptr", "admin_password": "adopted-admin"}'
+        '{"some_role_key": "ptr", "admin_password": "adopted-admin"}'
     ))
     rc = oc.main(["--path", str(p), "--adopt-stdin", "--emit", "secrets"])
     assert rc == 0
     emitted = json.loads(capsys.readouterr().out)
     # adopted values survive; missing internal secrets get minted
-    assert emitted["portainer_api_key"] == "ptr"
+    assert emitted["some_role_key"] == "ptr"
     assert emitted["admin_password"] == "adopted-admin"  # adopt beats mint
     assert emitted["catena_postgres_password"]           # minted
     on_disk = oc.load(p)
-    assert on_disk["secrets"]["portainer_api_key"] == "ptr"
+    assert on_disk["secrets"]["some_role_key"] == "ptr"
 
 
 def test_cli_adopt_file_then_mint(oc, tmp_path, capsys):
     p = tmp_path / "config.json"
     adopt = tmp_path / "adopt.json"
-    adopt.write_text('{"portainer_api_key": "ptr", "admin_password": "adopted"}')
+    adopt.write_text('{"some_role_key": "ptr", "admin_password": "adopted"}')
     rc = oc.main(["--path", str(p), "--adopt-file", str(adopt), "--emit", "secrets"])
     assert rc == 0
     emitted = json.loads(capsys.readouterr().out)
-    assert emitted["portainer_api_key"] == "ptr"
+    assert emitted["some_role_key"] == "ptr"
     assert emitted["admin_password"] == "adopted"
     assert emitted["catena_postgres_password"]  # minted
 
@@ -476,6 +453,102 @@ def test_dispatch_read_prints_store(oc, tmp_path, capsys, monkeypatch):
     assert got["config"]["BACKUP_RESTIC_REPO"] == "s3:x/y"
 
 
+def test_dispatch_write_stores_the_error_reports_switch(oc, tmp_path, monkeypatch, capsys):
+    """The panel's error reports section writes the switch, a store knob with
+    no settings field, and a read hands it back."""
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {}, "config": {}}, p)
+    for value in ("on", "off"):
+        request = {"op": "write", "config": {"ERROR_REPORTS_TO_SUPPORT": value}}
+        assert _dispatch(oc, p, request, monkeypatch, capsys) == {"ok": True}
+        got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
+        assert got["config"]["ERROR_REPORTS_TO_SUPPORT"] == value
+
+
+# --- the panel's view -------------------------------------------------------
+# catena-admin reads the store through `read`. It is the most exposed component
+# on the host, so it is handed the secrets it uses and no others.
+def _every_key_stored(oc) -> dict:
+    """A store holding every declared secret, a client app's per-deploy value
+    and another writer's block."""
+    return {
+        "secrets": {name: f"value-of-{name}" for name in oc.secret_names()},
+        "config": {"CLOUDFLARE_ZONE": "x.com",
+                   "CLOUDFLARE_ZONES": [{"zone": "x.com"}]},
+        "image_pins": {"traefik": "traefik:v3.7.12"},
+        oc.APP_REPOSITORIES_KEY: [{"url": "https://git.example.test/org/apps", "trusted": False}],
+        oc.APP_REPOSITORY_TOKENS_KEY: {"https://git.example.test/org/apps": "tok-secret"},
+    }
+
+
+def _dispatch(oc, path, request, monkeypatch, capsys) -> dict:
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
+    assert oc.main(["--path", str(path), "--dispatch-stdin"]) == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def test_the_panels_read_carries_no_master_realm_credential(oc, tmp_path, monkeypatch, capsys):
+    """The automation client signs in to the master realm with its admin role
+    and no second factor, and Keycloak's database password reaches the same
+    realm underneath it."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(_every_key_stored(oc)))
+    got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
+    for key in ("keycloak_automation_client_secret", "keycloak_db_password"):
+        assert key not in got["secrets"], f"the panel's read hands it {key}"
+
+
+def test_the_panels_read_holds_the_secrets_it_uses_and_no_others(oc, tmp_path, monkeypatch, capsys):
+    p = tmp_path / "config.json"
+    stored = _every_key_stored(oc)
+    p.write_text(json.dumps(stored))
+    got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
+    assert set(got) == {"secrets", "config"}
+    assert set(got["secrets"]) == oc.PANEL_SECRETS
+    assert got["config"] == stored["config"]
+    # The value the panel signs in with and the disaster-recovery keyset it
+    # reveals, beside every Settings field.
+    for key in ("admin_password", "backup_restic_password", "cloudflare_api_token"):
+        assert got["secrets"][key] == f"value-of-{key}"
+    for key in ("console_recovery_password",
+                "catena_admin_session_key", "catena_marketplace_token"):
+        assert key not in got["secrets"]
+
+
+def test_the_panels_read_carries_neither_the_app_repositories_nor_their_tokens(oc, tmp_path, monkeypatch, capsys):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(_every_key_stored(oc)))
+    got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
+    assert "tok-secret" not in json.dumps(got)
+    assert oc.APP_REPOSITORIES_KEY not in got
+    assert oc.APP_REPOSITORY_TOKENS_KEY not in got
+    assert not {oc.APP_REPOSITORIES_KEY, oc.APP_REPOSITORY_TOKENS_KEY} & (
+        oc.PANEL_SECRETS | set(oc.secret_names()))
+
+
+def test_every_secret_the_panel_reads_is_declared(oc):
+    """A misspelt name would leave the panel without a value it reads."""
+    assert oc.PANEL_SECRETS <= set(oc.secret_names())
+
+
+def test_a_panel_write_keeps_the_keys_its_read_leaves_out(oc, tmp_path, monkeypatch, capsys):
+    """The panel saves the fields it sees, and the host merges them into the
+    whole file."""
+    p = tmp_path / "config.json"
+    stored = _every_key_stored(oc)
+    p.write_text(json.dumps(stored))
+    assert _dispatch(oc, p, {"op": "write", "secrets": {"smtp_password": "new"},
+                             "config": {"SMTP_PROVIDER": "resend"}},
+                     monkeypatch, capsys) == {"ok": True}
+    doc = json.loads(p.read_text())
+    assert doc["secrets"] == {**stored["secrets"], "smtp_password": "new"}
+    assert doc["config"] == {**stored["config"], "SMTP_PROVIDER": "resend"}
+    for key in (oc.APP_REPOSITORIES_KEY, oc.APP_REPOSITORY_TOKENS_KEY):
+        assert doc[key] == stored[key]
+    assert doc["image_pins"] == stored["image_pins"]
+
+
 def test_dispatch_write_persists_without_minting(oc, tmp_path, capsys, monkeypatch):
     import io
     p = tmp_path / "config.json"
@@ -511,92 +584,18 @@ def test_dispatch_write_rejects_restic_password(oc, tmp_path, monkeypatch):
         oc.main(["--path", str(p), "--dispatch-stdin"])
 
 
-# --- client-app env secrets (the marketplace's per-deploy values) -----------
-def _wanted(key="kimai/DB_PASSWORD", length=32, charset="alnum"):
-    return {key: {"length": length, "charset": charset}}
-
-
-def test_app_secrets_mint_then_reuse(oc):
-    """Asking twice returns the SAME value. The catalog is re-rendered on every
-    marketplace fetch; a mint per render would hand the client a different
-    database password each time they opened the page."""
-    store = {"secrets": {}, "config": {}}
-    first = oc.ensure_app_secrets(store, _wanted())
-    second = oc.ensure_app_secrets(store, _wanted())
-    assert first == second
-    assert len(first["kimai/DB_PASSWORD"]) == 32
-
-
-def test_app_secrets_charsets(oc):
-    store = {"secrets": {}, "config": {}}
-    got = oc.ensure_app_secrets(store, {
-        "outline/OUTLINE_SECRET_KEY": {"length": 64, "charset": "hex"},
-        "kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"},
-    })
-    assert set(got["outline/OUTLINE_SECRET_KEY"]) <= set("0123456789abcdef")
-    assert got["kimai/DB_PASSWORD"].isalnum()
-
-
-def test_app_secrets_blank_is_reminted(oc):
-    """A blank stored value is not a value -- same reconcile rule the internal
-    set follows, and the state a hand-edited store can be left in."""
-    store = {"secrets": {}, "config": {}, oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "  "}}
-    got = oc.ensure_app_secrets(store, _wanted())
-    assert got["kimai/DB_PASSWORD"].strip()
-
-
-@pytest.mark.parametrize("bad", [
-    "../../etc/passwd/KEY",
-    "kimai/db_password",
-    "Kimai/DB_PASSWORD",
-    "kimai DB_PASSWORD",
-    "kimai/",
-])
-def test_app_secrets_rejects_bad_key(oc, bad):
-    """This is the one store write the unprivileged container can ask for by
-    name, so the key shape is what keeps a forged request inside the block."""
-    with pytest.raises(ValueError):
-        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(key=bad))
-
-
-@pytest.mark.parametrize("length", [0, 8, 257, "32", True, None])
-def test_app_secrets_rejects_bad_length(oc, length):
-    with pytest.raises(ValueError):
-        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(length=length))
-
-
-def test_app_secrets_rejects_unknown_charset(oc):
-    with pytest.raises(ValueError):
-        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(charset="base64"))
-
-
-def test_app_secrets_never_takes_a_value_from_the_request(oc):
-    """The request names what it wants, never what it should be. A caller that
-    could supply the value could pin every client's password to one string."""
-    store = {"secrets": {}, "config": {}}
-    got = oc.ensure_app_secrets(store, {
-        "kimai/DB_PASSWORD": {"length": 32, "charset": "alnum", "value": "chosen"},
-    })
-    assert got["kimai/DB_PASSWORD"] != "chosen"
-
-
-def test_dispatch_mint_app_secrets_persists_and_returns(oc, tmp_path, monkeypatch):
+# --- the settings dispatch ---------------------------------------------------
+def test_dispatch_refuses_an_op_it_does_not_serve(oc, tmp_path, monkeypatch):
     import io
-    p = tmp_path / "config.json"
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
-        "op": "mint-app-secrets",
-        "app_secrets": {"kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"}},
-    })))
-    rc = oc.main(["--path", str(p), "--dispatch-stdin"])
-    assert rc == 0
-    stored = oc.client_app_secrets(p)
-    assert len(stored["kimai/DB_PASSWORD"]) == 32
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"op": "mint-app-secrets"})))
+    with pytest.raises(SystemExit, match="unknown op"):
+        oc.main(["--path", str(tmp_path / "config.json"), "--dispatch-stdin"])
 
 
-def test_dispatch_mint_app_secrets_preserves_other_blocks(oc, tmp_path, monkeypatch):
+def test_a_dump_carries_the_blocks_other_writers_own_past_untouched(oc, tmp_path):
     """The store is shared. catena-schedule owns `schedules`, the update lane
-    owns `image_pins`, and a mint must carry both past untouched."""
-    import io
+    owns `image_pins`, and a dump of a hand-built {"secrets", "config"} store
+    must carry both past."""
     p = tmp_path / "config.json"
     p.write_text(json.dumps({
         "secrets": {"admin_password": "keep"},
@@ -604,32 +603,11 @@ def test_dispatch_mint_app_secrets_preserves_other_blocks(oc, tmp_path, monkeypa
         "image_pins": {"catena/thing": "sha256:abc"},
         "schedules": {"backup": "daily"},
     }))
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
-        "op": "mint-app-secrets",
-        "app_secrets": {"kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"}},
-    })))
-    assert oc.main(["--path", str(p), "--dispatch-stdin"]) == 0
+    oc.dump({"secrets": {"admin_password": "keep"}, "config": {}}, p)
     doc = json.loads(p.read_text())
     assert doc["image_pins"] == {"catena/thing": "sha256:abc"}
     assert doc["schedules"] == {"backup": "daily"}
     assert doc["secrets"]["admin_password"] == "keep"
-
-
-def test_converge_style_dump_does_not_blank_app_secrets(oc, tmp_path):
-    """The converge loader dumps a hand-built {"secrets", "config"} store. It
-    has no opinion about client_app_secrets and must not erase it -- the same
-    trap that made dump() stop re-serialising the whole document."""
-    p = tmp_path / "config.json"
-    p.write_text(json.dumps({
-        "secrets": {}, "config": {},
-        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "survives"},
-    }))
-    oc.dump({"secrets": {"a": "b"}, "config": {}}, p)
-    assert oc.client_app_secrets(p) == {"kimai/DB_PASSWORD": "survives"}
-
-
-def test_client_app_secrets_absent_store_is_empty(oc, tmp_path):
-    assert oc.client_app_secrets(tmp_path / "nope.json") == {}
 
 
 def test_cli_mints_user_held_on_first_install(oc, tmp_path, capsys):
@@ -719,8 +697,8 @@ def test_no_settings_key_is_read_from_dotenv_outside_the_seed(oc):
 
 
 def test_settings_config_vars_projects_only_present_keys(oc):
-    got = oc.settings_config_vars({"NTFY_SERVER": "https://n.example"})
-    assert got == {"cfg_ntfy_server": "https://n.example"}
+    got = oc.settings_config_vars({"SMTP_SENDER": "no-reply@n.example"})
+    assert got == {"cfg_smtp_sender": "no-reply@n.example"}
 
 
 def test_settings_config_vars_ignores_unknown_keys(oc):
@@ -744,25 +722,25 @@ def test_seeding_is_fill_only(oc, tmp_path):
     overwrote would undo every settings-page edit on the next run."""
     p = tmp_path / "config.json"
     store = oc.load(p)
-    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://seed.example"})
+    oc.apply_inputs(store, config_in={"SMTP_SENDER": "seed@example.test"})
     oc.dump(store, p)
 
     store = oc.load(p)
-    store["config"]["NTFY_SERVER"] = "https://client-chose.example"
+    store["config"]["SMTP_SENDER"] = "client-chose@example.test"
     oc.dump(store, p)
 
     store = oc.load(p)
-    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://seed.example"})
-    assert store["config"]["NTFY_SERVER"] == "https://client-chose.example"
+    oc.apply_inputs(store, config_in={"SMTP_SENDER": "seed@example.test"})
+    assert store["config"]["SMTP_SENDER"] == "client-chose@example.test"
 
 
 def test_a_settings_write_overwrites(oc, tmp_path):
     """The panel edit path uses overwrite=True, which is what makes the store
     the owner rather than a cache of the first value seen."""
-    store = {"secrets": {}, "config": {"NTFY_SERVER": "https://old.example"}}
-    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://new.example"},
+    store = {"secrets": {}, "config": {"SMTP_SENDER": "old@example.test"}}
+    oc.apply_inputs(store, config_in={"SMTP_SENDER": "new@example.test"},
                     overwrite=True)
-    assert store["config"]["NTFY_SERVER"] == "https://new.example"
+    assert store["config"]["SMTP_SENDER"] == "new@example.test"
 
 
 def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path, capsys):
@@ -773,13 +751,14 @@ def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path,
     assert rc == 0
     assert not p.exists(), "a pure query must not create the store"
     names = json.loads(capsys.readouterr().out)
-    assert "ADMIN_EMAIL" in names
-    assert not {"BACKUP_RESTIC_REPO", "CLOUDFLARE_ZONE", "PORTAINER_SUBDOMAIN"} & set(names)
+    assert {"ADMIN_EMAIL", "ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"} <= set(names)
+    assert not {"BACKUP_RESTIC_REPO", "CLOUDFLARE_ZONE", "KEYCLOAK_SUBDOMAIN"} & set(names)
 
 
 def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_path, capsys):
-    """The development ACME and staging keys, which the `.env` keeps editing.
-    ADMIN_EMAIL is seeded and never reseeded: the panel owns it afterwards."""
+    """The development keys (ACME, staging, the app catalog), which the
+    `.env` keeps editing. ADMIN_EMAIL and the administrator's names are seeded
+    and never reseeded: they have no editor after install."""
     p = tmp_path / "config.json"
     rc = oc.main(["--path", str(p), "--emit", "env-reseed-names"])
     assert rc == 0
@@ -787,11 +766,30 @@ def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_pat
     names = json.loads(capsys.readouterr().out)
     assert names == sorted(oc.ENV_RESEEDED_CONFIG)
     assert set(names) == {
-        "COTURN_CERTBOT_STAGING", "MAILSERVER_CERTBOT_STAGING",
+        "CATENA_ACME_STAGING",
         "CATENA_ACME_DIRECTORY_URL", "CATENA_ACME_HOST_IP",
         "CATENA_ACME_CA_BUNDLE_PEM_B64",
     }
     assert set(names) <= oc.ENV_SEEDED_CONFIG
+    assert not {"ADMIN_EMAIL", "ADMIN_FIRST_NAME", "ADMIN_LAST_NAME"} & set(names)
+
+
+def test_the_administrators_name_is_seeded_once_and_never_reseeded(oc, tmp_path):
+    p = tmp_path / "config.json"
+    store = oc.load(p)
+    oc.apply_inputs(store, config_in={"ADMIN_FIRST_NAME": "Alex",
+                                      "ADMIN_LAST_NAME": "Tremblay"})
+    oc.dump(store, p)
+
+    store = oc.load(p)
+    store["config"]["ADMIN_FIRST_NAME"] = "Alexandre"
+    oc.dump(store, p)
+
+    store = oc.load(p)
+    oc.apply_inputs(store, config_in={"ADMIN_FIRST_NAME": "Alex",
+                                      "ADMIN_LAST_NAME": "Other"})
+    assert store["config"]["ADMIN_FIRST_NAME"] == "Alexandre"
+    assert store["config"]["ADMIN_LAST_NAME"] == "Tremblay"
 
 
 def test_a_reseed_replaces_the_stored_value_and_a_blank_keeps_it(oc, tmp_path):

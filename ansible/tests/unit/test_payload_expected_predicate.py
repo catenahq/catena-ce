@@ -33,16 +33,19 @@ CALLERS = {
         "{{ gatus_sync_script_path }}",
         "{{ version_check_script_path }}",
         "/etc/systemd/system/gatus-sync.timer",
+        "/etc/systemd/system/catena-version-check.timer",
     ]],
-    "reconcile/roles/host_maintenance/tasks/main.yml": [[
-        "/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer",
-    ]],
+    "reconcile/roles/host_maintenance/tasks/main.yml": [
+        ["/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"],
+        ["/etc/systemd/system/{{ license_refresh_systemd_unit_name }}.timer"],
+        ["/etc/systemd/system/{{ error_report_systemd_unit_name }}.timer"],
+        ["/etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer"],
+    ],
     "reconcile/roles/backup/tasks/validate.yml": [[
         "{{ backup_wrapper_script }}",
         "{{ backup_coverage_script }}",
         "{{ backup_restic_env_script }}",
         "{{ backup_snapshot_list_script }}",
-        "{{ backup_disk_preflight_script }}",
     ]],
     # The lib dir rides along because the reconciler imports four modules from
     # it at module scope. /usr/local/bin is in backup_paths and the modules

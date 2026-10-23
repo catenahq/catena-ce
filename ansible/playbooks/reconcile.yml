@@ -6,13 +6,14 @@
 # checks.
 #
 # Same roles as converge.yml, in the same order, minus the bootstrap roles,
-# which only `catena-cli install` applies, and minus the converge's preflights
-# and its tier1_stack render. What is left is the work a host can do to itself:
-# render config from the image, reconcile swarm services, install units, apply
-# the schedule. boundary.yml declares which roles belong here, and
-# tests/unit/test_converge_boundary.py holds the two files to each other.
+# which only the install applies, and minus the converge's external-service
+# preflights. What is left is the work a host can do to itself: render config from the image,
+# reconcile swarm services, install units, apply the schedule. Both end on the
+# same tail, the tier-1 oracle render included. boundary.yml declares which
+# roles belong here, and tests/unit/test_converge_boundary.py holds the two
+# files to each other.
 #
-# Every value comes from the on-box store or the image, none from a controller
+# Every value comes from the on-box store or the image, none from an installer's
 # inventory. That test holds at zero the inventory variables a reconcile role
 # names directly; a value reached through a derived name escapes its count.
 - name: Reconcile a VPS from its on-box configuration
@@ -46,8 +47,8 @@
         fail_msg: >-
           This reconcile needs ansible-core {{ catena_reconcile_min_ansible }}
           or newer and is running {{ ansible_version.full }}. The runtime at
-          /opt/catena/ansible is what bootstrap installed; run `catena-cli
-          install` again from a controller, which re-runs bootstrap, to move it. Refusing here rather
+          /opt/catena/ansible is what the install put there; run the install
+          again (`catena-installer install`), which moves it. Refusing here rather
           than failing partway through a converge on a host nobody is watching.
       run_once: true
       tags: [always]
@@ -65,6 +66,16 @@
           tags: [always, onbox]
       tags: [always, onbox]
 
+    # Refuse a critically full filesystem before any role writes, with the
+    # check and message converge.yml uses. The panel shows the refusal in the
+    # converge's failed status and log tail; the converge timer's log carries it.
+    - name: "Preflight (disk): the host's own converge checks its filesystems"
+      ansible.builtin.include_tasks:
+        file: tasks/disk_preflight.yml
+        apply:
+          tags: [always, disk_preflight]
+      tags: [always, disk_preflight]
+
     # The version this converge applies, from the image's vendor record, before
     # any role writes. The same file converge.yml includes.
     - name: "Version: stamp the version this converge applies"
@@ -75,6 +86,10 @@
       tags: [stamp_version]
 
   roles:
+    # First, as in converge.yml: a proof that fails stops the converge before
+    # any other role changes the host, and a panel update gets the dispatch
+    # path it needs before the rest of its converge runs.
+    - { role: dispatch_path, tags: [dispatch_path] }
     - { role: payload, tags: [payload] }
     # Right after the payload that installs the reconciler, as in converge.yml:
     # every role below drops a fragment into the registry it wires up.
@@ -83,26 +98,24 @@
     - { role: swarm, tags: [swarm] }
     - { role: traefik, tags: [traefik] }
     - { role: postgres, tags: [postgres] }
-    - { role: portainer, tags: [portainer] }
-    # `edge` marks what moves or checks the public edge (this role, the mail
-    # and TURN A records, the public-URL probes). A restore converges with
+    # `edge` marks what moves or checks the public edge (this role, the
+    # public-URL probes). A restore converges with
     # --skip-tags edge; tests/unit/test_restore_converge_leaves_the_edge_alone.py.
     - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare, edge] }
     - { role: keycloak, tags: [keycloak, auth] }
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
     - { role: infrastructure, tags: [infrastructure] }
-    # The panel's container and its action catalog. Its trust path -- the runner
-    # account, the sudoers drop-in, the forced command -- is the bootstrap-side
-    # bootstrap/roles/catena_admin_host.
+    # The panel's container and its action catalog. The path its dispatch
+    # crosses is dispatch_path, first above; the runner account and the
+    # panel's key are the bootstrap-side bootstrap/roles/catena_admin_host.
     - { role: catena-admin, tags: [catena_admin] }
-    - { role: coturn, tags: [coturn] }
     - { role: backup, tags: [backup] }
 
   post_tasks:
     # The tail converge.yml ends on too.
-    - name: "Converge tail: ports, drift, prune, release"
+    - name: "Converge tail: tier-1 render, ports, versions, drift, prune, release"
       ansible.builtin.include_tasks:
         file: tasks/converge_tail.yml
       vars:
         catena_converge_path: reconcile
-      tags: [public_ports, bootstrap_drift, prune, release_manifest]
+      tags: [tier1_stack, public_ports, version_check, bootstrap_drift, prune, release_manifest]

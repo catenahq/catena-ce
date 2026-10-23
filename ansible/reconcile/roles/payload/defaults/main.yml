@@ -5,7 +5,7 @@
 # catena-daily, the lane scripts, the systemd units, the dispatch drop-ins)
 # are Go binaries built into the PUBLIC catena-admin image. This role extracts
 # them from that image and installs them to /usr/local/bin -- WITHOUT deploying
-# the container, and without Portainer.
+# the container.
 #
 # It runs immediately after bootstrap/roles/docker, because
 # reconcile/roles/cloudflare_tunnel dispatches catena-cloudflared-sync: engines
@@ -13,41 +13,15 @@
 # Cloudflare token with no tunnel at all, and the keycloak and oauth2_proxy
 # validation probes then fail against an edge nobody brought up.
 
-# Image the payload is extracted from. The SAME variable reconcile/roles/catena-admin
-# runs the shell from, declared in playbooks/group_vars/all/main.yml because the
-# two roles sit far apart in the play: extracting the engines from one image
-# while running the shell from another is how a host ends up with an engine
-# and a panel that disagree about the config schema.
-#
-# `catena_admin_image` is not a literal anybody maintains. The config loader
-# runs helpers/catena_admin_release.py on the host once per converge, which
-# asks GHCR for the highest published `vX.Y.Z` tag and its digest. That is the
-# INTENT: catena-ce installs the newest published release, so a converge from a
-# controller picks up a release without anyone editing a pin here. The registry
-# is the one version input. A host converging itself (catena-admin
-# catena-converge) sets CATENA_ADMIN_IMAGE to the image it is running and stays
-# on it; the panel's self-update moves it. When the registry does not answer,
-# the loader keeps the image the host already runs
-# (playbooks/group_vars/all/main.yml).
-#
-# The version TAG, not `:latest`. publish-image.yml moves `:latest` with
-# `docker buildx imagetools create`, which builds a new index -- so `:latest`
-# and the release it points at have different digests, and only the version
-# tag's digest is the one that gets scanned, signed and written to
-# image-digest.txt.
-#
-# CATENA_PAYLOAD_IMAGE pins one and suppresses the registry call. That is the
-# change-control path, and what the bench sets: it builds
-# local/catena-admin:bench on the VPS so the extract runs against the working
-# tree rather than the last published release.
-#
-# tasks/main.yml replaces this value with the image the catena-admin swarm
-# service runs whenever that service exists, because "which image do the
-# engines come from" and "which image does the shell come from" must be one
-# question. This value answers the bootstrap case alone: no service yet, so
-# nothing to follow.
-catena_payload_image: >-
-  {{ lookup('env', 'CATENA_PAYLOAD_IMAGE') | default(catena_admin_image, true) }}
+# The image the payload is extracted from is `catena_admin_image`, the SAME
+# variable reconcile/roles/catena-admin runs the shell from, declared in
+# playbooks/group_vars/all/main.yml because the two roles sit far apart in the
+# play: extracting the engines from one image while running the shell from
+# another is how a host ends up with an engine and a panel that disagree about
+# the config schema. It is CATENA_ADMIN_IMAGE, the image the running tree came
+# from: install-host.sh sets it to the release it installs, and catena-admin's
+# catena-converge to the image the panel runs, so the tree, the engines and the
+# shell are one image; the panel's self-update moves it.
 
 # Immutable digest the image must resolve to before anything is extracted from
 # it. The payload is root-executed (install-ee-payload.sh puts Go binaries into
@@ -56,55 +30,42 @@ catena_payload_image: >-
 # offline, needs nothing installed on the host, and does not depend on the
 # registry being honest at extract time.
 #
-# Empty is NOT "verified", it is "unchecked", and the role says so out loud on
-# every converge. A silent skip here would read exactly like a passing
-# verification, which is the failure mode this whole gate exists to avoid.
+# The digest catena_admin_image carries: the release that delivered the running
+# tree. An install's image is `repo:tag@sha256:...` as
+# catena-ce/ansible/helpers/fetch_release.py resolved and verified it, and a
+# host's own converge (catena-admin catena-converge) names the panel service's
+# image by digest: the one the service spec records, else the one that image
+# carries on the host for its repository.
 #
-# The digest comes from the SAME registry answer that chose the version --
-# catena_admin_release, resolved once per converge by the config loader. One
-# writer, deliberately: a gate whose expected value has a different writer than
-# the thing it checks fails closed on correct hosts.
+# What the check proves, and what it leaves to provenance: README.md, "Which
+# digest this asserts".
 #
-# WHAT THIS PROVES, precisely: that the image about to be extracted is the one
-# this converge resolved. Both halves come from the same registry answer, so
-# this is a same-converge consistency check: it catches a tag moved
-# mid-converge and a mismatched override, and a compromised registry passes it.
-#
-# It applies only when the image being extracted IS the resolved one. Anything
-# else has a digest nobody here knows: the bench builds its own image on the
-# VPS, the on-host update lane may have pinned a version this converge did not
-# resolve, and a converge the registry did not answer keeps the running image
-# (catena_admin_fallback_image) with no resolved release at all. Asserting the
-# resolved digest against one of those would fail closed on a correct host,
-# which is worse than saying out loud that it went unchecked.
+# Empty refuses the converge (tasks/main.yml) before anything is pulled or
+# extracted: an image named by tag alone carries no digest, so there is
+# nothing to check its engines against.
 #
 # CATENA_PAYLOAD_IMAGE_DIGEST wins over all of it, and a deliberately wrong
 # value is how the fail-closed leg gets exercised.
-#
-# The comparison strips a trailing @sha256:, because both sides can carry one:
-# swarm resolves the tag at create/update time and stores `repo:tag@sha256:...`
-# in the spec, and the resolved ref is digest-pinned on purpose. Comparing whole
-# strings would never match, so every converged host would silently drop to
-# "unchecked" -- a passing-looking skip, which is the exact failure this gate
-# exists to avoid.
 catena_payload_image_digest: >-
   {{ lookup('env', 'CATENA_PAYLOAD_IMAGE_DIGEST', default='')
-     | default((catena_admin_release | default({})).get('digest', '')
-               if (catena_payload_image
-                   | regex_replace('@sha256:[0-9a-f]{64}$', ''))
-                  == ((catena_admin_release | default({})).get('ref', '')
-                      | regex_replace('@sha256:[0-9a-f]{64}$', ''))
-               else '', true) }}
+     | default(catena_admin_image.partition('@')[2], true) }}
 
-# Where the image's payload tree is unpacked on the host. The catena-admin
-# container also mirrors its embedded payload here at startup, so both writers
-# agree on one location and the dir's ownership is preserved across an extract
-# (the container syncs as its nonroot uid; see tasks/main.yml).
-catena_payload_dir: "/var/lib/catena/ee-payload"
+# Where root unpacks the image's payload tree and runs its installer from:
+# emptied and created root-owned 0700 before every extract (tasks/main.yml).
+# The panel's self-update and install-payload verb use the same directory
+# (catena-admin payload/engines/stackupdate/selfupdate.go, payloadStageDir).
+catena_payload_stage_dir: "/var/lib/catena/ee-payload-root"
 
 # Path inside the image that holds the assembled payload (bin/, lib/, units/,
 # hooks/, install-ee-payload.sh). Set by the catena-admin image build.
 catena_payload_image_path: "/usr/local/share/catena-ee"
+
+# The catena-ce tree this converge runs (a checkout, or the tree staged out of
+# an image), and where an image records the tree its build vendored.
+# tasks/main.yml refuses engines from an image whose record names another
+# tree (helpers/tree_hash.py).
+catena_payload_tree_root: "{{ playbook_dir }}/../.."
+catena_payload_tree_record: "/usr/local/share/catena-ce/VENDOR.json"
 
 # Records the image ID the installed engines came from. A converge whose image
 # resolves to the same ID reinstalls nothing; a new image reinstalls every
@@ -115,15 +76,12 @@ catena_payload_image_path: "/usr/local/share/catena-ee"
 catena_payload_marker: "/etc/catena/.payload-image"
 
 # Pull the image before extracting, unless a digest-pinned reference is already
-# on the host (tasks/main.yml). Production pulls the published GHCR tag.
-# The test bench builds local/catena-admin:bench ON the VPS and has no
-# published tag to pull -- and must never exercise the last published image in
-# place of the working tree -- so it sets CATENA_PAYLOAD_PULL=false.
+# on the host (tasks/main.yml). CATENA_PAYLOAD_PULL=false extracts from an
+# image already on the host.
 catena_payload_pull: >-
   {{ lookup('env', 'CATENA_PAYLOAD_PULL', default='true') | bool }}
 
-# Install the payload FROM the converge at all. The bench stages the payload
-# out of band (first-time-only, from the image it just built on the VPS) and
-# sets CATENA_PAYLOAD_INSTALL=false. Production leaves it true.
+# Install the payload FROM the converge at all, as every converge does;
+# CATENA_PAYLOAD_INSTALL=false leaves the engines on the host as they are.
 catena_payload_install: >-
   {{ lookup('env', 'CATENA_PAYLOAD_INSTALL', default='true') | bool }}

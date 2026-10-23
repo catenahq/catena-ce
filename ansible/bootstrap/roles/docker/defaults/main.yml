@@ -13,16 +13,17 @@ docker_log_max_files: 5
 
 # live-restore lets dockerd restart without killing running containers.
 # HOWEVER: it is incompatible with Docker Swarm mode, which the catena
-# control plane requires (catena-traefik, catena-postgres, catena-portainer
-# all run as swarm services). live-restore must be false; swarm's own
+# control plane requires (catena-traefik and catena-postgres run as swarm
+# services). live-restore must be false; swarm's own
 # orchestrator handles container lifecycle across daemon restarts instead.
 docker_live_restore: false
 
 # Docker Swarm advertise address: the address the installer reaches the host
-# at, recorded in the swarm raft at init. This role inits a single-node swarm
-# that the reverse-proxy + control-plane roles deploy their services onto, and
-# reconcile/roles/swarm configures.
-docker_swarm_advertise_addr: "{{ ansible_host }}"
+# at (public_ip, the installer's HOST_PUBLIC_IP), recorded in the swarm raft at
+# init. This role inits a single-node swarm that the reverse-proxy +
+# control-plane roles deploy their services onto, and reconcile/roles/swarm
+# configures.
+docker_swarm_advertise_addr: "{{ public_ip }}"
 
 # Seconds a single systemctl call against docker.service may take before the
 # converge gives up on it.
@@ -55,7 +56,7 @@ docker_apt_repo: "deb [arch={{ 'amd64' if ansible_facts['architecture'] == 'x86_
 # catena-admin's catena-engine-upgrade, which reads these two keys from the
 # reconcile tree the panel image carries. Renovate (renovate.json) proposes a
 # bump 14 days after a release.
-docker_version: "29.8.1"
+docker_version: "29.8.2"
 docker_containerd_version: "2.3.5"
 
 # How Docker's repository names those versions for this host's Debian release.

@@ -1,37 +1,6 @@
 ---
-# Dispatcher -- backup_mode picks which subfile to run.
-#   install   (default, converge.yml path) -- configuration and the initial
-#             snapshot; the units and scripts ship in the catena-admin payload
-#   verify    (verify-backup.yml)      -- dry-restore + assert
-
-- name: Assert backup_mode is valid
-  ansible.builtin.assert:
-    that:
-      - backup_mode in ['install', 'verify']
-    fail_msg: "backup_mode must be install | verify (got: {{ backup_mode }})"
-
-# verify reads the repo this run, so it needs the creds NOW. The `install`
-# (converge) path does NOT: backup creds are deferred -- the user sets them
-# post-install in catena-admin and the run-backup wrapper self-gates on the
-# on-box store at runtime. So the converge installs the units unconditionally
-# and only verify asserts. The creds come from the on-box store (load_onbox
-# facts).
-- name: Assert restic credentials are available (verify)
-  ansible.builtin.assert:
-    that:
-      - backup_restic_password is defined
-      - backup_s3_access_key is defined
-      - backup_s3_secret_key is defined
-      - backup_restic_repo | length > 0
-    fail_msg: >-
-      Restic credentials are not available for backup_mode={{ backup_mode }}.
-      They come from /etc/catena/config.json (set in catena-admin).
-  when: backup_mode != 'install'
+# Configuration and the initial snapshot; the units and scripts ship in the
+# catena-admin payload.
 
 - name: Install backup infrastructure
   ansible.builtin.include_tasks: install.yml
-  when: backup_mode == 'install'
-
-- name: Verify restic repo is restorable (dry-restore drill)
-  ansible.builtin.include_tasks: verify.yml
-  when: backup_mode == 'verify'

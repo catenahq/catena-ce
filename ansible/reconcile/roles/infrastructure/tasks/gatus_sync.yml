@@ -1,10 +1,12 @@
 ---
 # Per-host wiring for gatus-sync, the Gatus monitor-config regenerator.
 #
-# The scripts (catena-gatus-sync, and catena-version-check, which the service
-# runs first) and gatus-sync.service/.timer ship in the catena-admin payload,
-# which reconcile/roles/payload extracts earlier in the play. What stays here is
-# the env file, whose values are this host's, and enabling the timer.
+# The scripts (catena-gatus-sync and catena-version-check) and their units
+# (gatus-sync.service/.timer, catena-version-check.service/.timer) ship in the
+# catena-admin payload, which reconcile/roles/payload extracts earlier in the
+# play. What stays here is the env file both read, whose values are this
+# host's, and enabling the timers. dashboard-sync also starts gatus-sync
+# whenever the app intent changes.
 #
 # The script regenerates ONLY {{ gatus_host_config_dir }}/50-catena-apps.yaml
 # and 40-infra.yaml. 00-base.yaml stays Ansible-owned; 99-*.yaml files are
@@ -28,6 +30,7 @@
       - "{{ gatus_sync_script_path }}"
       - "{{ version_check_script_path }}"
       - /etc/systemd/system/gatus-sync.timer
+      - /etc/systemd/system/catena-version-check.timer
 
 - name: "gatus-sync: the sync is missing from a converge that installs it"
   ansible.builtin.fail:
@@ -54,12 +57,15 @@
   ansible.builtin.set_fact:
     _gatus_sync_present: "{{ catena_payload_missing | length == 0 }}"
 
-- name: "gatus-sync: enable + start timer"
+- name: "gatus-sync: enable + start timers"
   ansible.builtin.systemd_service:
-    name: gatus-sync.timer
+    name: "{{ item }}"
     enabled: true
     state: started
     daemon_reload: true
+  loop:
+    - gatus-sync.timer
+    - catena-version-check.timer
   when: _gatus_sync_present | bool
 
 - name: "gatus-sync: run once now (populate 50-catena-apps.yaml)"

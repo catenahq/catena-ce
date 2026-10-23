@@ -1,6 +1,7 @@
 ---
 # Extract the host engine payload from the catena-admin image and install it.
-# See defaults/main.yml for why this runs at role 5.5 rather than at 13.
+# See defaults/main.yml for why this runs right after bootstrap/roles/docker
+# rather than with reconcile/roles/catena-admin.
 
 # Published for the roles downstream that dispatch an engine. They cannot read
 # this role's defaults reliably, and the difference matters to them: with the
@@ -11,101 +12,46 @@
     catena_payload_engines_expected: "{{ catena_payload_install | bool }}"
 
 # ─── which image the engines come from ───────────────────────────────────
-# The shell's, whenever there is a shell. Asking swarm instead of resolving the
-# floor a second time is what makes drift unrepresentable rather than merely
-# detectable: "which image do the engines come from" stops being a separate
-# question from "which image does the shell come from", so the two cannot
-# answer differently.
-#
-# reconcile/roles/catena-admin reconciles the service to catena_admin_image
-# (the override, the pin or the resolved release) at role 13. Resolving the
-# same expression here would be a second reader of one value, evaluated earlier
-# in the same converge: a pin written between the two, or a registry that
-# answered differently, gives a host new engines under the shell it already had.
-#
-# The spec's image carries the digest swarm resolved at create/update time, so
-# following it is byte-exact rather than tag-exact.
-- name: "Payload: what image is the catena-admin service running"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - inspect
-      - "{{ catena_admin_service_name }}"
-      - "--format={{ '{{ .Spec.TaskTemplate.ContainerSpec.Image }}' }}"
-  register: _payload_service_image
-  changed_when: false
-  # "no such service" is the normal first-converge answer, not an error: this
-  # role runs at 5.5 and reconcile/roles/catena-admin creates the service at 13.
-  failed_when: false
+# catena_admin_image, the image this converge was started with:
+# install-host.sh names the release it installs, and catena-admin's
+# catena-converge the image the panel runs, by digest.
+# reconcile/roles/catena-admin reconciles the panel's service to the same
+# image later in this converge, so the engines and the shell have one input.
 
-- name: "Payload: the engines follow the shell"
-  ansible.builtin.set_fact:
-    catena_payload_image: "{{ _payload_service_image.stdout | trim }}"
-    _payload_from_service: true
-  when:
-    - lookup('env', 'CATENA_PAYLOAD_IMAGE') | default('', true) | length == 0
-    - _payload_service_image.rc | default(1) == 0
-    - (_payload_service_image.stdout | default('') | trim) | length > 0
-
-- name: "Payload: nothing to follow -- using the resolved image"
-  ansible.builtin.debug:
+# Refused, before anything is pulled, copied out or run. The engines run as
+# root, and without a digest nothing holds them, or the panel, to the bytes a
+# registry published. Every install, every host's own converge and the panel's
+# update name the image by digest (README.md, "Which digest this asserts"), so
+# what reaches this is a converge started by hand with a tag, or an image
+# built or loaded on the server.
+- name: "Payload: the image names no digest -- refusing"
+  ansible.builtin.fail:
     msg: >-
-      The engines come from {{ catena_payload_image }}. Either this host has no
-      {{ catena_admin_service_name }} service yet -- reconcile/roles/catena-admin creates
-      it later in this converge, from this same image -- or
-      CATENA_PAYLOAD_IMAGE named one explicitly.
-  when: not (_payload_from_service | default(false))
+      This converge names the catena-admin image {{ catena_admin_image }}
+      without a digest, so nothing can check that its engines and the panel
+      are the bytes a registry published.
+      Nothing was pulled, extracted or run.
+      Name the image by digest (repo:tag@sha256:...). An image built or
+      loaded by hand on the server has no digest until it is pushed to a
+      registry and pulled from there.
+  when: catena_payload_image_digest | length == 0
 
 - name: "Payload: install skipped -- engines are staged out of band"
   ansible.builtin.debug:
     msg: >-
       CATENA_PAYLOAD_INSTALL=false: not extracting engines from
-      {{ catena_payload_image }}. Whatever put /usr/local/bin/catena-* on this
+      {{ catena_admin_image }}. Whatever put /usr/local/bin/catena-* on this
       host owns them for this converge.
   when: not (catena_payload_install | bool)
 
 - name: "Payload: extract and install the host engines"
   when: catena_payload_install | bool
   block:
-    # Created owned by the CONTAINER's uid, not root.
-    #
-    # This role runs fifteen roles before catena-admin, so on a first converge
-    # it is what brings this directory into existence -- and the capture-restore
-    # pair below preserves whatever owner it finds. Creating it root-owned meant
-    # restoring it root-owned, and the chown in reconcile/roles/catena-admin only touches
-    # the TOP directory, so `bin/` and every other subdirectory the extract made
-    # stayed root's. The container's startup sync then failed on its first
-    # write:
-    #
-    #   payload: sync to /var/lib/catena/ee-payload failed:
-    #   open /var/lib/catena/ee-payload/bin/.payload-...: permission denied
-    #
-    # Both writers put the SAME payload here, from the same digest-pinned image,
-    # so the shared ownership grants the container nothing it does not already
-    # ship itself.
-    - name: "Payload: ensure the extraction directory exists"
-      ansible.builtin.file:
-        path: "{{ catena_payload_dir }}"
-        state: directory
-        owner: "{{ catena_container_uid }}"
-        group: "{{ catena_container_gid }}"
-        mode: "0755"
-
-    # Capture BEFORE the extract. The catena-admin container mirrors its own
-    # payload into this directory as its nonroot uid; `docker cp` writes as
-    # root. Leaving the tree root-owned makes the container's next startup sync
-    # fail, which is silent until an engine goes stale.
-    - name: "Payload: capture the extraction directory's ownership"
-      ansible.builtin.stat:
-        path: "{{ catena_payload_dir }}"
-      register: _payload_dir_before
-
     # A digest names the same bytes wherever they come from, so an image
-    # addressed by one and already on this host needs no registry. The image
-    # the panel service runs always is, which keeps the host's own converge
-    # running while the registry does not answer. A tag can move, so a
-    # reference without a digest is always pulled.
+    # addressed by one and already on this host needs no registry. The host's
+    # own converge names the image the panel runs, which always is, so that
+    # converge keeps running while the registry does not answer. A tag can
+    # move, so a reference without a digest is always pulled.
     - name: "Payload: is the digest-pinned image already on this host"
       ansible.builtin.command:
         argv:
@@ -113,20 +59,20 @@
           - image
           - inspect
           - "--format={{ '{{ .Id }}' }}"
-          - "{{ catena_payload_image }}"
+          - "{{ catena_admin_image }}"
       register: _payload_present
       changed_when: false
       failed_when: false
       when:
         - catena_payload_pull | bool
-        - "'@sha256:' in catena_payload_image"
+        - "'@sha256:' in catena_admin_image"
 
-    - name: "Payload: pull {{ catena_payload_image }}"
+    - name: "Payload: pull {{ catena_admin_image }}"
       ansible.builtin.command:
         argv:
           - docker
           - pull
-          - "{{ catena_payload_image }}"
+          - "{{ catena_admin_image }}"
       register: _payload_pull
       changed_when: "'Downloaded newer image' in _payload_pull.stdout"
       when:
@@ -140,7 +86,7 @@
           - image
           - inspect
           - "--format={{ '{{ .Id }}' }}"
-          - "{{ catena_payload_image }}"
+          - "{{ catena_admin_image }}"
       register: _payload_image_id
       changed_when: false
 
@@ -155,70 +101,145 @@
           - image
           - inspect
           - "--format={{ '{{ join .RepoDigests \",\" }}' }}"
-          - "{{ catena_payload_image }}"
+          - "{{ catena_admin_image }}"
       register: _payload_repo_digests
       changed_when: false
-      when: catena_payload_image_digest | length > 0
 
     - name: "Payload: the image is not the pinned one -- refusing to extract"
       ansible.builtin.fail:
         msg: >-
-          {{ catena_payload_image }} resolved to
+          {{ catena_admin_image }} resolved to
           {{ _payload_repo_digests.stdout | default('') | trim | default('no repo digest', true) }}
           but this deployment pins {{ catena_payload_image_digest }}. Refusing
           to extract or root-execute the payload.
-      when:
-        - catena_payload_image_digest | length > 0
-        - catena_payload_image_digest not in (_payload_repo_digests.stdout | default(''))
+      when: catena_payload_image_digest not in (_payload_repo_digests.stdout | default(''))
 
-    - name: "Payload: image digest is NOT pinned"
+    # Said out loud, so a converge's output shows the check ran.
+    - name: "Payload: image digest matches the pin"
       ansible.builtin.debug:
         msg: >-
-          catena_payload_image_digest is empty: {{ catena_payload_image }} is
-          being extracted and root-executed WITHOUT a digest check. Set it (or
-          CATENA_PAYLOAD_IMAGE_DIGEST) to the published image's digest. This is
-          unchecked, not verified.
-      when: catena_payload_image_digest | length == 0
+          {{ catena_admin_image }} carries {{ catena_payload_image_digest }},
+          the digest this converge pins: digest check passed.
 
-    - name: "Payload: read the installed-image marker"
-      ansible.builtin.slurp:
-        src: "{{ catena_payload_marker }}"
-      register: _payload_marker
-      failed_when: false
-
-    - name: "Payload: decide whether the installed engines are current"
-      ansible.builtin.set_fact:
-        _payload_current: >-
-          {{ (_payload_marker.content | default('') | b64decode | trim)
-             == (_payload_image_id.stdout | trim) }}
-
-    - name: "Payload: engines already installed from this image"
-      ansible.builtin.debug:
-        msg: >-
-          /usr/local/bin already carries the engines from
-          {{ _payload_image_id.stdout | trim }} -- nothing to install.
-      when: _payload_current | bool
-
-    - name: "Payload: copy the payload tree out of the image"
-      when: not (_payload_current | bool)
+    - name: "Payload: read the image, then remove what was created to read it"
       block:
         - name: "Payload: create a throwaway container to copy out of"
           ansible.builtin.command:
             argv:
               - docker
               - create
-              - "{{ catena_payload_image }}"
+              - "{{ catena_admin_image }}"
           register: _payload_cid
-          changed_when: true
+          changed_when: false
 
-        - name: "Payload: docker cp the payload tree onto the host"
+        # ─── the tree and the engines are one version ──────────────────────
+        # The roles running now and the engines about to be installed must come
+        # from one catena-ce tree. A file one version's converge installs and
+        # the other version's payload claims, or the reverse, is otherwise left
+        # with no owner, and the next converge fails on its absence. Checked on
+        # every converge, before anything is copied out or run.
+        - name: "Payload: a file to read the image's tree record into"
+          ansible.builtin.tempfile:
+            state: file
+          register: _payload_record_file
+          changed_when: false
+
+        - name: "Payload: copy out the record of the tree the image was built with"
+          ansible.builtin.command:
+            argv:
+              - docker
+              - cp
+              - "{{ _payload_cid.stdout | trim }}:{{ catena_payload_tree_record }}"
+              - "{{ _payload_record_file.path }}"
+          changed_when: false
+
+        - name: "Payload: read the image's tree record"
+          ansible.builtin.slurp:
+            src: "{{ _payload_record_file.path }}"
+          register: _payload_record_raw
+
+        # A lookup, so it runs where ansible-playbook and the tree it runs are.
+        - name: "Payload: name the tree this converge runs, and the image's"
+          ansible.builtin.set_fact:
+            _payload_tree: >-
+              {{ lookup('pipe', ansible_playbook_python | quote ~ ' '
+                 ~ (catena_payload_tree_root ~ '/ansible/helpers/tree_hash.py') | quote ~ ' '
+                 ~ catena_payload_tree_root | quote) | from_json }}
+            _payload_record: "{{ _payload_record_raw.content | b64decode | from_json }}"
+
+        - name: "Payload: the tree and the image are not one version -- refusing to install"
+          ansible.builtin.fail:
+            msg: >-
+              This converge runs catena-ce
+              {{ _payload_tree.describe | default('(unknown)', true) }},
+              and {{ catena_admin_image }} was built with catena-ce
+              {{ _payload_record.describe | default('(unknown)', true) }}.
+              Their contents differ, so its engines would run under another
+              version's configuration. Nothing was installed. Converge with the
+              tree that image carries, or build an image from this tree.
+          when: >-
+            (_payload_record.tree_sha256 | default('', true) | length == 0)
+            or (_payload_record.tree_sha256 != _payload_tree.tree_sha256)
+
+        - name: "Payload: read the installed-image marker"
+          ansible.builtin.slurp:
+            src: "{{ catena_payload_marker }}"
+          register: _payload_marker
+          failed_when: false
+
+        - name: "Payload: decide whether the installed engines are current"
+          ansible.builtin.set_fact:
+            _payload_current: >-
+              {{ (_payload_marker.content | default('') | b64decode | trim)
+                 == (_payload_image_id.stdout | trim) }}
+
+        - name: "Payload: engines already installed from this image"
+          ansible.builtin.debug:
+            msg: >-
+              /usr/local/bin already carries the engines from
+              {{ _payload_image_id.stdout | trim }} -- nothing to install.
+          when: _payload_current | bool
+
+        # --- the tree root runs ---------------------------------------------
+        # Root runs install-ee-payload.sh out of this directory, so root is the
+        # only writer: it is created here, root-owned and 0700, inside the
+        # /var/lib/catena the panel's service mounts read-only
+        # (playbooks/filter_plugins/catena_admin_service.py). The panel is built
+        # with no root and no docker socket so that a compromise of it does not
+        # become host root, and a tree it could write would let it choose what
+        # root installs into /usr/local/bin and /etc/catena/admin-actions.d.
+        #
+        # Emptied first. The installer installs every file it finds and records
+        # each one in the manifest its prune reads, so a file an earlier image
+        # left here would be installed again and never withdrawn.
+        #
+        # The panel's self-update and its install-payload verb extract into the
+        # same directory the same way (catena-admin
+        # payload/engines/stackupdate/selfupdate.go, payloadStageDir).
+        - name: "Payload: empty the stage directory"
+          ansible.builtin.file:
+            path: "{{ catena_payload_stage_dir }}"
+            state: absent
+          when: not (_payload_current | bool)
+
+        - name: "Payload: create the stage directory, root-owned"
+          ansible.builtin.file:
+            path: "{{ catena_payload_stage_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0700"
+          when: not (_payload_current | bool)
+
+        - name: "Payload: docker cp the payload tree into the stage directory"
           ansible.builtin.command:
             argv:
               - docker
               - cp
               - "{{ _payload_cid.stdout | trim }}:{{ catena_payload_image_path }}/."
-              - "{{ catena_payload_dir }}/"
+              - "{{ catena_payload_stage_dir }}/"
           changed_when: true
+          when: not (_payload_current | bool)
 
       always:
         # The container is created, never started; it still holds a writable
@@ -235,22 +256,18 @@
           failed_when: false
           when: _payload_cid.stdout | default('') | length > 0
 
-    - name: "Payload: restore the extraction directory's ownership"
-      ansible.builtin.file:
-        path: "{{ catena_payload_dir }}"
-        state: directory
-        owner: "{{ _payload_dir_before.stat.uid }}"
-        group: "{{ _payload_dir_before.stat.gid }}"
-        recurse: true
-      when:
-        - not (_payload_current | bool)
-        - _payload_dir_before.stat.exists | default(false)
+        - name: "Payload: remove the copied tree record"
+          ansible.builtin.file:
+            path: "{{ _payload_record_file.path }}"
+            state: absent
+          changed_when: false
+          when: _payload_record_file.path is defined
 
     - name: "Payload: install the engines onto the host"
       ansible.builtin.command:
         argv:
           - bash
-          - "{{ catena_payload_dir }}/install-ee-payload.sh"
+          - "{{ catena_payload_stage_dir }}/install-ee-payload.sh"
       register: _payload_install
       changed_when: true
       when: not (_payload_current | bool)
@@ -266,3 +283,10 @@
       ansible.builtin.debug:
         msg: "{{ _payload_install.stdout | trim }}"
       when: not (_payload_current | bool)
+
+# The engines read each application's own compose file; nothing writes this
+# cache.
+- name: "Payload: remove the templates catalog cache"
+  ansible.builtin.file:
+    path: /var/lib/catena/templates-catalog.json
+    state: absent

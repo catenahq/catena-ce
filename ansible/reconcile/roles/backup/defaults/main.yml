@@ -1,6 +1,4 @@
 ---
-backup_mode: install # install | verify
-
 # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic. Store-owned: the inventory
 # .env seeds it on the first converge and catena-admin > Settings owns it
 # after that. catena-backup-run already read the store at runtime; this makes the
@@ -10,12 +8,15 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # Cadence is not set here. It is a customizable RPO: an OnCalendar string
 # per lane, set in the Catena admin panel, stored in /etc/catena/config.json
 # and applied by `catena-schedule apply`, which verifies this host's licence
-# before it enables anything. A client editing their own config.json does not
-# get around it: the applier reads the licence, not the file's opinion of it.
+# before it enables anything. The backup lane is open to every edition at most
+# once a week; a faster cadence needs Catena Pro. A client editing their own
+# config.json does not get around it: the applier reads the licence, not the
+# file's opinion of it.
 #
-# Every lane ships DISABLED. Scheduled work spends disk and object-store quota
-# nobody has confirmed the client has, so a fresh host schedules nothing until
-# someone turns a lane on.
+# Every lane ships DISABLED, except the vulnerability watch on a host that never
+# saved its schedules. Scheduled work spends disk and object-store quota nobody
+# has confirmed the client has, so a fresh host schedules no backup until
+# someone turns the lane on.
 
 # Offsite copy (ransomware mitigation).
 #
@@ -27,8 +28,8 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # immutable byte-image at copy time, with the provider retaining prior
 # versions for the lock period. A ransomware-driven `forget --prune`
 # against a live bucket cannot reach the locked copies because the lane
-# issues no DELETEs in the first place; recovery means rclone-copy locked
-# -> fresh mutable bucket and point restic at that.
+# issues no DELETEs in the first place. The dashboard's Restore page reads a
+# locked copy where it is, with a key that only reads it.
 #
 # WHICH buckets are copied is NOT configured here and has no converge
 # projection. It is the `offsite_copies` list in /etc/catena/config.json,
@@ -38,9 +39,10 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # a client runs or what each one is called.
 #
 # Default cold partner: eazybackup s3.ca-central-1.eazybackup.com
-# (Canadian-owned, CGP-certified). Alternatives: Backblaze B2,
-# AWS S3, Cloudflare R2. Pick a different provider from the live
-# bucket so a single provider compromise can't reach both copies.
+# (Canadian-owned, CGP-certified). Alternatives with Object Lock and
+# versioning: Backblaze B2, AWS S3, OVHcloud Object Storage. Pick a
+# different provider from the live bucket so a single provider compromise
+# can't reach both copies.
 #
 # Ordering: sequencing across backup + verify + copy + auto-update +
 # container-update is owned by the catena-daily orchestrator chain.
@@ -56,7 +58,7 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 #
 # Fail-soft contract: if nothing is declared OR a destination's creds are
 # missing OR a destination bucket is unreachable, the lane logs the reason,
-# records a skip on the healthcheck below, and exits 0. Daily backups never
+# records it on the attempted check below, and exits 0. Daily backups never
 # read any of it and stay unaffected -- a misconfigured copy cannot brick
 # the primary chain.
 #
@@ -66,77 +68,71 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # it is about.
 offsite_healthcheck_url: >-
   {{
-    cfg_offsite_healthcheck_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-offsite-copy-succeeded?create=1'
-        if healthchecks_ping_key is defined else '')
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-offsite-copy-succeeded?create=1'
+    if healthchecks_ping_key is defined else ''
   }}
 offsite_healthcheck_attempted_url: >-
   {{
-    cfg_offsite_healthcheck_attempted_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-offsite-copy-attempted?create=1'
-        if healthchecks_ping_key is defined else '')
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-offsite-copy-attempted?create=1'
+    if healthchecks_ping_key is defined else ''
   }}
-# Two healthchecks per backup, not one. Restic / S3 are flaky
-# enough that a single nightly failure should not page; two consecutive
-# failures should. Splitting the ping into "attempted" (every run start,
-# /fail on hard error) + "succeeded" (only on clean exit) lets the
-# operator side configure the alarm threshold via Healthchecks' grace
-# window -- succeeded gets a 2x-schedule grace, so one failure goes
-# "late" and a second consecutive one trips DOWN.
+# Two healthchecks per backup, not one. Restic / S3 are flaky enough that a
+# single nightly failure should not page; two consecutive failures should.
 #
-# - succeeded: pinged at end-of-run on success. Operator configures
-#   grace ≥ 2x backup_schedule for "alarm on N=2 consecutive misses".
+# - succeeded: pinged at end-of-run on success.
 # - attempted: pinged on /start always, /fail on hard error (pg_dumpall
-#   abort, etc.). Catches "host went away" and operator-actionable
-#   structural failures immediately.
+#   abort, etc.). Catches "host went away" and structural failures
+#   immediately.
 #
-# Both auto-provision on first ping (?create=1) using the same
-# healthchecks_ping_key, against healthchecks_ping_base -- the loopback
-# publish, not the public hostname. These run from a systemd unit ON the box
-# reaching a container ON the box; routing that through Cloudflare made the
-# backup dead-man die with the edge it reports on. .env can override either
-# with an off-host URL (healthchecks.io etc.) for survivability past full VPS
-# loss, which is the one case loopback cannot cover.
+# catena-schedule (catena-admin payload/engines/schedule) keeps both checks on
+# the schedule of the lanes that run the backup, and gives the succeeded one
+# one schedule gap more grace, so a single miss alerts nobody and a second one
+# does. ?create=1 provisions a check its first ping finds missing.
+#
+# Both ping healthchecks_ping_base -- the loopback publish, not the public
+# hostname. These run from a systemd unit ON the box reaching a container ON
+# the box; routing that through Cloudflare made the backup dead-man die with
+# the edge it reports on. A host that is gone is reported by the heartbeat
+# lane's off-site call instead.
 backup_healthcheck_url: >-
   {{
-    cfg_backup_healthcheck_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-backup-succeeded?create=1'
-        if healthchecks_ping_key is defined else '')
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-backup-succeeded?create=1'
+    if healthchecks_ping_key is defined else ''
   }}
 backup_healthcheck_attempted_url: >-
   {{
-    cfg_backup_healthcheck_attempted_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-backup-attempted?create=1'
-        if healthchecks_ping_key is defined else '')
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-backup-attempted?create=1'
+    if healthchecks_ping_key is defined else ''
   }}
-
-# External dead-man pings, client and operator.
-#
-# The two URLs above auto-provision against the LOCAL Healthchecks
-# instance -- fine for day-to-day visibility, useless if the whole VPS
-# dies (the host that should be alerting is the host that's down). R13
-# closes that gap with up to two parallel external pings, both pinged
-# in addition to the local URLs at end-of-run on success.
-#
-# - URL_CLIENT  -- endpoint the CLIENT controls (their own healthchecks.io
-#                 project, their Slack via Zapier, etc.). Optional.
-# - URL_OPERATOR -- endpoint the OPERATOR controls (the operator's
-#                  off-host Healthchecks for fleet-wide visibility).
-#                  Optional.
-#
-# Either, both, or neither set is valid. If BOTH are empty, the backup
-# install task prints an ORANGE non-fatal warning ("no external dead-man
-# set; whole-host outage will be silent"). Never blocks the converge.
-backup_healthcheck_url_client: "{{ cfg_backup_healthcheck_url_client | default('') }}"
-backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | default('') }}"
+# The weekly integrity check's own check: catena-restic-check --subset pings it
+# with /fail when the deep read fails and success when it passes, whatever state
+# the nightly chain is in. catena-schedule keeps it on the restic_check_subset
+# lane's schedule.
+restic_check_healthcheck_url: >-
+  {{
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-restic-check-subset?create=1'
+    if healthchecks_ping_key is defined else ''
+  }}
+# The restore test lane's own check: catena-restore-test pings it with /fail
+# when the restore fails and success when it passes. catena-schedule keeps it on
+# the restore_test lane's schedule.
+restore_test_healthcheck_url: >-
+  {{
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-restore-test?create=1'
+    if healthchecks_ping_key is defined else ''
+  }}
 
 # Retention is not set by this repo at all.
 #
@@ -186,9 +182,9 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 #      -> /srv/catena/docker/volumes/<name>/_data/
 #      ✓ covered by {{ storage_mount_point }}/docker/volumes
 #
-#   B. Relative bind mounts in a Portainer stack (`- ./myapp:/app`)
-#      -> the stack's working dir inside the Portainer data volume
-#      ✓ covered by {{ storage_mount_point }}/docker/volumes
+#   B. Relative bind mounts in an application folder (`- ./myapp:/app`)
+#      -> the folder under /srv/catena/compose
+#      ✓ covered by {{ storage_mount_point }}/compose
 #
 #   C. catena host config (traefik, gatus, keycloak realms, ...)
 #      -> /etc/catena/<component>
@@ -217,6 +213,7 @@ backup_paths: "{{ backup_product_paths + backup_extra_paths }}"
 
 backup_product_paths:
   - "{{ storage_mount_point }}/apps"
+  - "{{ storage_mount_point }}/compose"
   - "{{ storage_mount_point }}/backup-staging"
   - "{{ storage_mount_point }}/docker/volumes"
   - /etc/ssh
@@ -259,8 +256,12 @@ backup_product_paths:
 # relative to the wrapper's working directory, which is not a place a client
 # can reason about, and a path that silently backed up the wrong tree is worse
 # than one that is ignored.
+#
+# regex_replace, because Ansible keeps the backslash of a '\n' literal inside
+# {{ }}: replace would look for a backslash and an n, and the regex reads it
+# as a newline.
 backup_extra_paths: >-
-  {{ (cfg_backup_extra_paths | default('')) | replace('\n', ',')
+  {{ (cfg_backup_extra_paths | default('')) | regex_replace('\n', ',')
      | split(',') | map('trim') | select('match', '^/') | list }}
 
 # restic --exclude patterns (fnmatch-style, applied to absolute paths).
@@ -269,14 +270,14 @@ backup_extra_paths: >-
 # value. Common examples (uncomment per client via an inventory override,
 # e.g. inventory/<client>/group_vars/all/backup.yml):
 #
-#   # Nextcloud user files directory -- if users treat Nextcloud as a
+#   # Nextcloud's user files directory -- if users treat it as a
 #   # sync of their local machines, the S3 backup is redundant and
 #   # expensive at TB scale. WARNING: Nextcloud's Postgres database
 #   # still indexes those files by path, so after restore those rows
 #   # reference missing files. Document this as a known state for the
 #   # client; don't exclude files silently without also documenting the
 #   # restore expectation.
-#   - "*/nextcloud*_nc-data/_data/data/*/files/*"
+#   - "*/catena-nextcloud_nc-data/_data/data/*/files/*"
 #
 #   # Paperless consume/ and export/ -- ephemeral work directories,
 #   # reproducible from originals/.
@@ -327,16 +328,16 @@ backup_exclude_patterns:
   # agent, so only the charts reset.
   - "*/docker/volumes/beszel-hub-data"
   - "*/docker/volumes/beszel-hub-data/*"
-  # Shared ClamAV signature database (clamav-db:/var/lib/clamav, see
-  # reconcile/roles/infrastructure/templates/clamav.compose.yml.j2). Re-downloadable
-  # by freshclam on container start AND refreshed multiple times daily, so
-  # the on-disk bytes churn and defeat restic content-defined chunking --
-  # backing it up is client-paid cold-storage bloat for data that is fetched
-  # free from Spamhaus/ClamAV mirrors. A fresh volume on restore is correct:
-  # freshclam repopulates it within minutes. The mailboxes themselves
-  # (mail-data/mail-state) are NOT excluded -- only this regenerable cache.
-  - "*/docker/volumes/clamav-db"
-  - "*/docker/volumes/clamav-db/*"
+  # The copies catena-stack-update-managed takes of the data of Catena's own
+  # services before an image moves (/var/lib/catena/prebump/infra-<run>, with
+  # its record). They hold the volumes listed above, Beszel's history among
+  # them, and are removed after 14 days without waiting on a backup that
+  # carries them.
+  - "*/prebump/infra-*"
+  - "*/prebump/infra-*/*"
+  # An application's own regenerable volume is not listed here: its compose
+  # file labels the top-level volume vps.backup.exclude=true, and each backup
+  # run adds an exclude for every volume carrying the label.
   # Postgres runtime lock files, in EVERY data dir -- the infra DB and
   # every app that ships its own postgres. They are process state, not
   # data: postmaster.pid holds the PID, port and shared-memory key of a
@@ -398,20 +399,6 @@ backup_pg_dump_user: postgres
 # immediately. Subsequent plays skip (repo already has snapshots).
 backup_run_initial_snapshot: true
 
-# Single canonical environment dict for every restic CLI invocation. Every
-# callsite (install init + initial snapshot; verify) reaches it through
-# `environment: "{{ backup_restic_env }}"`, so the four credential keys have
-# one definition and one audit surface.
-#
-# CRITICAL: every task that uses backup_restic_env MUST also set
-# `no_log: true`. The dict still expands at runtime; no_log is what
-# keeps Jinja-rendered creds out of task results / debug output.
-backup_restic_env:
-  RESTIC_REPOSITORY: "{{ backup_restic_repo | default('') }}"
-  RESTIC_PASSWORD_FILE: "{{ backup_password_file }}"
-  AWS_ACCESS_KEY_ID: "{{ backup_s3_access_key | default('') }}"
-  AWS_SECRET_ACCESS_KEY: "{{ backup_s3_secret_key | default('') }}"
-
 # Wrapper + helper locations. Every path below is INSTALLED BY THE IMAGE
 # PAYLOAD: the lane scripts and the backup units live in catena-admin
 # payload/lanes/ and reconcile/roles/payload puts them on the host right after
@@ -426,7 +413,9 @@ backup_wrapper_script: /usr/local/bin/catena-backup-run
 backup_coverage_script: /usr/local/bin/catena-backup-coverage
 # Single canonical entrypoint for running restic with backup.env loaded
 # from outside the systemd-launched scripts. See that script's header for why
-# this exists.
+# this exists. Every restic call in this role runs under it: it loads the
+# repository, the S3 keys and the password file from backup.env and the store
+# on the host, so none of them is on a command line.
 backup_restic_env_script: /usr/local/bin/catena-restic-env
 # Per-app PITR recovery via FUSE. Mounts the restic repo read-only at
 # /mnt/restic-browse so the operator can copy a single file out of a
@@ -435,11 +424,6 @@ backup_restic_env_script: /usr/local/bin/catena-restic-env
 # snapshot browser".
 backup_restic_mount_script: /usr/local/bin/catena-restic-mount
 backup_restic_unmount_script: /usr/local/bin/catena-restic-unmount
-# Companion helper: extracts the first snapshot's short_id from
-# `restic snapshots --json` output piped on stdin via a real JSON parse --
-# positional field extraction (e.g. awk $4) is not safe against compact
-# JSON's field order.
-backup_restic_short_id_script: /usr/local/bin/catena-restic-short-id
 # Repo integrity probe, shipped in the engine payload. catena-backup-run calls it
 # with --metadata after every successful backup; the weekly 5% bit-rot read is
 # a separate timer (catena-restic-check-subset.timer) because that one is
@@ -454,15 +438,12 @@ backup_restic_check_timeout: 600
 # which controls enable/disable and OnCalendar for every lane out of
 # /etc/catena/config.json -- an Ansible default here would only relocate a
 # value the client still could not move, not make it configurable.
-# Disk-space preflight catena-backup-run calls before dumping.
-backup_disk_preflight_script: /usr/local/bin/catena-disk-preflight
 # FLOOR for free bytes at {{ storage_mount_point }}/backup-staging before a
 # backup run is allowed to start -- not the requirement. catena-backup-run sums
 # pg_database_size across every running postgres container at runtime and
-# demands that instead whenever it exceeds this, because pg_dumpall stages
-# UNCOMPRESSED SQL locally before gzip and a number sized for a reference host
-# cannot know when it stops being right. 5 GiB covers restic's temp/cache plus
-# a small stack; the derived value takes over from there.
+# demands that instead whenever it exceeds this, because a number sized for a
+# reference host cannot know when it stops being right. 5 GiB covers restic's
+# temp/cache plus a small stack; the derived value takes over from there.
 backup_preflight_min_bytes: 5368709120 # 5 GiB
 backup_env_file: /etc/catena/backup.env
 # The offsite-copy lane's dead-man endpoints, kept separate because backup.env
@@ -486,6 +467,10 @@ backup_managed_paths: []
 backup_stats_dir: /var/lib/catena
 backup_stats_file: "{{ backup_stats_dir }}/backup-stats.json"
 
+# Written by the restore engine when a restore leaves the backups waiting for
+# the destination; its presence alone holds them.
+backup_held_record: /var/lib/catena/backup-held.json
+
 # Snapshot-export mode (catena-admin Recovery-tab button: "Export latest snapshot")
 # Streams `restic dump latest /` through gzip into a single tarball under
 # backup_export_dir for the operator/client to scp off-host. No S3 or
@@ -494,16 +479,10 @@ backup_export_dir: "{{ catena_export_dir }}"
 backup_export_script: /usr/local/bin/catena-snapshot-export
 backup_export_keep_last: 1 # rotation: keep only the newest N exports
 
-# F6: snapshot-list helper. Renders ${backup_export_dir}/index.html with
+# Snapshot-list helper. Renders ${backup_export_dir}/index.html with
 # a curated table of current restic snapshots + pre-exported tarballs.
 # Called by catena-backup-run after forget+prune so the listing tracks the
 # live repo state. It travels WITH the directory: the panel's Recovery tab
 # renders its own list from the same files, so this one is for whoever ends
 # up holding a copy of the folder and no panel.
 backup_snapshot_list_script: /usr/local/bin/catena-snapshot-list
-
-# Verify mode
-verify_scratch_dir: /var/tmp/restic-verify
-verify_expected_paths:
-  - "{{ verify_scratch_dir }}{{ storage_mount_point }}"
-  - "{{ verify_scratch_dir }}/etc/ssh"

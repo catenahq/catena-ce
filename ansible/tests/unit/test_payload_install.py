@@ -1,8 +1,8 @@
 """Lock down reconcile/roles/payload -- the host engine install.
 
-The role closes a real ordering hole. reconcile/roles/cloudflare_tunnel at
-converge.yml position 9 dispatches one of the engines, so engines arriving any later
--- from reconcile/roles/catena-admin at position 13, say -- leave a first
+The role closes a real ordering hole. reconcile/roles/cloudflare_tunnel
+dispatches one of the engines, so engines arriving any later -- from
+reconcile/roles/catena-admin, which runs after it, say -- leave a first
 converge on a host that already holds a Cloudflare token with no tunnel, and
 reconcile/roles/oauth2_proxy then waits on an edge nobody brought up. These tests
 pin the two things that keep it closed: the role's POSITION in converge.yml, and the
@@ -13,8 +13,11 @@ Run: uv run pytest tests/unit/test_payload_install.py
 """
 from __future__ import annotations
 
+import importlib.util
+import re
 from pathlib import Path
 
+import jinja2
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
@@ -91,62 +94,26 @@ def test_payload_precedes_the_roles_that_wait_on_the_edge():
 
 
 # --- what it installs from --------------------------------------------------
-def test_image_defaults_to_the_catena_admin_image():
-    d = _defaults()
-    assert "catena_admin_image" in d["catena_payload_image"]
+_DOCKER_STEPS = ("already on this host", "Payload: pull", "resolve the image ID",
+                 "resolve the image's repo digest", "create a throwaway container")
 
 
-def test_the_engines_follow_the_running_shell():
-    """One version input per host, not two.
-
-    reconcile/roles/catena-admin resolves max(floor, pin) and reconciles the
-    service to it at role 13. Resolving that expression here as well would be a
-    second reader of one value, four roles earlier -- and the two can disagree,
-    which puts new engines under the shell the host already had. Following the
-    service spec deletes the second input instead of adding a check against it.
-    """
+def test_the_engines_come_from_the_image_the_converge_names():
+    """One version input: catena_admin_image, which reconcile/roles/catena-admin
+    reconciles the panel's service to later in the converge. Every docker call
+    that reads the image names it, and the role has no image of its own, no
+    environment override for it and no read of the running service to
+    disagree with it."""
     flat = _flatten(_tasks())
-    inspect = flat[_index_of(flat, "what image is the catena-admin service")]
-    argv = inspect["ansible.builtin.command"]["argv"]
-    assert "service" in argv and "inspect" in argv
-    assert any("ContainerSpec.Image" in str(a) for a in argv)
-    assert inspect.get("failed_when") is False, (
-        "no such service is the normal first-converge answer, not an error")
-
-    follow = flat[_index_of(flat, "the engines follow the shell")]
-    assert (follow["ansible.builtin.set_fact"]["catena_payload_image"]
-            == "{{ _payload_service_image.stdout | trim }}")
-
-
-def test_following_the_shell_happens_before_the_image_is_resolved():
-    """Resolving the ID, gating the digest or pulling before the source is
-    settled would all act on the fallback."""
-    flat = _flatten(_tasks())
-    follow = _index_of(flat, "the engines follow the shell")
-    for later in ("pull", "resolve the image ID", "not the pinned one",
-                  "docker cp the payload tree"):
-        assert follow < _index_of(flat, later), f"{later!r} runs first"
-
-
-def test_an_explicit_image_override_still_wins():
-    """The bench points CATENA_PAYLOAD_IMAGE at the tag it built ON the VPS. A
-    service-derived value that overrode it would send the bench back to the
-    last published image, which is the one thing a bench must never exercise.
-    """
-    flat = _flatten(_tasks())
-    follow = flat[_index_of(flat, "the engines follow the shell")]
-    conds = " ".join(str(c) for c in _as_list(follow.get("when")))
-    assert "CATENA_PAYLOAD_IMAGE" in conds
-    assert "length == 0" in conds
-
-
-def test_having_no_service_to_follow_says_so_out_loud():
-    """Silence here reads as "followed the shell" on a host where nothing was
-    followed -- the same shape as the unchecked-digest skip."""
-    flat = _flatten(_tasks())
-    notice = flat[_index_of(flat, "nothing to follow")]
-    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
-    assert "_payload_from_service" in conds
+    for step in _DOCKER_STEPS:
+        argv = flat[_index_of(flat, step)]["ansible.builtin.command"]["argv"]
+        assert argv[-1] == "{{ catena_admin_image }}", (step, argv)
+    assert "catena_payload_image" not in _defaults()
+    for text in (TASKS.read_text(), DEFAULTS.read_text()):
+        assert not re.search(r"CATENA_PAYLOAD_IMAGE(?!_DIGEST)", text)
+    for task in flat:
+        argv = (task.get("ansible.builtin.command") or {}).get("argv") or []
+        assert not ("service" in argv and "inspect" in argv), task.get("name")
 
 
 def test_extraction_reads_the_image_payload_path():
@@ -171,7 +138,7 @@ def test_a_digest_pinned_image_already_here_is_not_pulled_again():
     flat = _flatten(_tasks())
     present = flat[_index_of(flat, "digest-pinned image already on this host")]
     conds = " ".join(str(c) for c in _as_list(present.get("when")))
-    assert "'@sha256:' in catena_payload_image" in conds
+    assert "'@sha256:' in catena_admin_image" in conds
     assert present.get("failed_when") is False
     pull = flat[_index_of(flat, "Payload: pull")]
     assert "(_payload_present.rc | default(1)) != 0" in _as_list(pull.get("when"))
@@ -201,6 +168,8 @@ def test_reconverge_against_the_same_image_installs_nothing():
         if any(
             k in name
             for k in (
+                "empty the stage directory",
+                "create the stage directory",
                 "docker cp the payload tree",
                 "install the engines onto the host",
                 "record the image the engines came from",
@@ -224,13 +193,62 @@ def test_throwaway_container_is_removed_even_on_failure():
     raise AssertionError("container removal is not in an `always` block")
 
 
-def test_ownership_is_captured_before_the_copy_and_restored_after():
-    """docker cp writes as root; the container syncs here as its nonroot uid."""
-    names = [t.get("name", "") for t in _flatten(_tasks())]
-    capture = next(i for i, n in enumerate(names) if "capture the extraction" in n)
-    copy = next(i for i, n in enumerate(names) if "docker cp the payload tree" in n)
-    restore = next(i for i, n in enumerate(names) if "restore the extraction" in n)
-    assert capture < copy < restore
+# --- the tree root runs -----------------------------------------------------
+# Root runs install-ee-payload.sh out of the tree it extracts, and the installer
+# installs every file it finds there, dispatch drop-ins the root dispatcher
+# sources among them. So only root may write that tree, and an extract starts
+# from an empty one.
+_STAGE = "/var/lib/catena/ee-payload-root"
+_PANEL_SERVICE = ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
+
+
+def _panel_mounts() -> tuple:
+    spec = importlib.util.spec_from_file_location("catena_admin_service", _PANEL_SERVICE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod._MOUNTS
+
+
+def test_the_installer_runs_from_the_root_owned_stage() -> None:
+    flat = _flatten(_tasks())
+    assert _defaults()["catena_payload_stage_dir"] == _STAGE
+    create = flat[_index_of(flat, "create the stage directory")]["ansible.builtin.file"]
+    assert create == {"path": "{{ catena_payload_stage_dir }}", "state": "directory",
+                      "owner": "root", "group": "root", "mode": "0700"}
+    cp = flat[_index_of(flat, "docker cp the payload tree")]["ansible.builtin.command"]
+    assert cp["argv"][-1] == "{{ catena_payload_stage_dir }}/"
+    install = flat[_index_of(flat, "install the engines onto the host")]
+    assert install["ansible.builtin.command"]["argv"] == [
+        "bash", "{{ catena_payload_stage_dir }}/install-ee-payload.sh"]
+
+
+def test_the_stage_is_emptied_before_the_copy() -> None:
+    """The installer records every file it installs in the manifest its prune
+    reads, so a file an earlier image left in the tree would be installed
+    again and never withdrawn."""
+    flat = _flatten(_tasks())
+    empty = flat[_index_of(flat, "empty the stage directory")]["ansible.builtin.file"]
+    assert empty == {"path": "{{ catena_payload_stage_dir }}", "state": "absent"}
+    assert (_index_of(flat, "empty the stage directory")
+            < _index_of(flat, "create the stage directory")
+            < _index_of(flat, "docker cp the payload tree")
+            < _index_of(flat, "install the engines onto the host"))
+
+
+def test_the_panel_cannot_write_the_stage() -> None:
+    """The panel is built with no root and no docker socket so that a
+    compromise of it does not become host root. A tree it could write would be
+    the panel choosing what root installs: no directory its service mounts
+    writable may hold the stage, and the role creates nothing owned by the
+    panel's uid."""
+    for source, _destination, readonly in _panel_mounts():
+        if not readonly:
+            assert not (_STAGE + "/").startswith(source.rstrip("/") + "/"), (
+                f"the panel's service mounts {source} writable, and the stage "
+                f"root installs from is inside it")
+    text = TASKS.read_text()
+    assert "catena_container_uid" not in text
+    assert "catena_container_gid" not in text
 
 
 # --- the hand-off to cloudflare_tunnel --------------------------------------
@@ -286,6 +304,7 @@ def test_digest_mismatch_fails_before_anything_is_extracted_or_run() -> None:
     fail_at = _index_of(flat, "not the pinned one")
 
     for later in ("create a throwaway container",
+                  "empty the stage directory",
                   "docker cp the payload tree",
                   "install the engines onto the host"):
         assert fail_at < _index_of(flat, later), (
@@ -294,27 +313,146 @@ def test_digest_mismatch_fails_before_anything_is_extracted_or_run() -> None:
         )
 
 
-def test_digest_gate_is_conditional_on_a_pin_being_set() -> None:
+# --- pairing gate -----------------------------------------------------------
+# The roles running a converge and the engines it installs must come from one
+# catena-ce tree, or a file one version hands to the other is left with no
+# owner, and the next converge fails on its absence.
+
+
+def test_a_tree_the_image_was_not_built_with_is_refused_before_anything_is_installed() -> None:
+    flat = _flatten(_tasks())
+    refuse = _index_of(flat, "not one version -- refusing")
+    assert _index_of(flat, "create a throwaway container") < refuse
+    for later in ("empty the stage directory",
+                  "docker cp the payload tree",
+                  "install the engines onto the host",
+                  "record the image the engines came from"):
+        assert refuse < _index_of(flat, later), f"{later!r} runs before the refusal"
+
+
+def test_the_pairing_gate_runs_on_every_converge_not_only_on_an_extract() -> None:
+    """A re-converge whose engines are current still runs this tree's roles
+    over them, so it is checked whether or not anything is copied out."""
+    flat = _flatten(_tasks())
+    for needle in ("copy out the record of the tree",
+                   "name the tree this converge runs",
+                   "not one version -- refusing"):
+        conds = " ".join(str(c) for c in _as_list(flat[_index_of(flat, needle)].get("when")))
+        assert "_payload_current" not in conds, needle
+    assert _index_of(flat, "not one version -- refusing") < _index_of(
+        flat, "decide whether the installed engines are current")
+
+
+def test_both_sides_are_named_by_the_one_helper_and_an_unrecorded_image_is_refused() -> None:
+    flat = _flatten(_tasks())
+    name = flat[_index_of(flat, "name the tree this converge runs")]
+    assert "helpers/tree_hash.py" in name["ansible.builtin.set_fact"]["_payload_tree"]
+    refuse = flat[_index_of(flat, "not one version -- refusing")]
+    cond = " ".join(str(c) for c in _as_list(refuse.get("when")))
+    assert "_payload_record.tree_sha256 | default('', true) | length == 0" in cond
+    assert "_payload_record.tree_sha256 != _payload_tree.tree_sha256" in cond
+    assert _defaults()["catena_payload_tree_record"] == "/usr/local/share/catena-ce/VENDOR.json"
+
+
+def test_the_copied_record_is_removed_even_on_failure() -> None:
+    for task in _flatten(_tasks()):
+        if "always" in task:
+            names = [t.get("name", "") for t in task["always"]]
+            if any("remove the copied tree record" in n for n in names):
+                return
+    raise AssertionError("the tree record copy is not removed in an `always` block")
+
+
+def test_digest_gate_compares_the_image_with_the_pin() -> None:
     flat = _flatten(_tasks())
     fail_task = flat[_index_of(flat, "not the pinned one")]
     conds = " ".join(str(c) for c in _as_list(fail_task.get("when")))
-    assert "catena_payload_image_digest | length > 0" in conds
     assert "catena_payload_image_digest not in" in conds
 
 
-def test_an_unpinned_image_says_so_out_loud() -> None:
-    """Empty is "unchecked", not "verified". A silent skip reads exactly like
-    a passing verification, which is the failure this gate exists to avoid."""
+def test_an_image_without_a_digest_is_refused_before_anything_is_pulled_or_run() -> None:
+    """Nothing is extracted unchecked. The refusal sits outside the install
+    block, so a converge that installs no engines still refuses to put an
+    unchecked panel on the host, and an empty pin cannot reach the mismatch
+    gate, where `'' not in ...` would read as a match."""
     flat = _flatten(_tasks())
-    notice = flat[_index_of(flat, "digest is NOT pinned")]
-    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
-    assert "catena_payload_image_digest | length == 0" in conds
-    assert "WITHOUT a digest check" in notice["ansible.builtin.debug"]["msg"]
+    refuse_at = _index_of(flat, "names no digest -- refusing")
+    refuse = flat[refuse_at]
+    conds = " ".join(str(c) for c in _as_list(refuse.get("when")))
+    assert conds == "catena_payload_image_digest | length == 0"
+    msg = refuse["ansible.builtin.fail"]["msg"]
+    assert "repo:tag@sha256:" in msg
+    assert "pushed to a registry and pulled" in msg
+    for later in ("Payload: pull",
+                  "empty the stage directory",
+                  "not the pinned one",
+                  "create a throwaway container",
+                  "docker cp the payload tree",
+                  "install the engines onto the host"):
+        assert refuse_at < _index_of(flat, later), f"{later!r} runs before the refusal"
+    assert "WITHOUT a digest check" not in TASKS.read_text()
 
 
-def test_digest_is_env_overridable_and_defaults_to_empty() -> None:
-    """Empty by default: no image is published yet, and a default that
-    pretended otherwise would fail every converge."""
+def test_a_checked_image_says_so() -> None:
+    """The converge's output names the check, so a reader of it can tell it
+    ran. Placed after the refusal, which stops the play on a mismatch, and
+    before anything is copied out."""
+    flat = _flatten(_tasks())
+    notice = flat[_index_of(flat, "digest matches the pin")]
+    assert "digest check passed" in notice["ansible.builtin.debug"]["msg"]
+    assert (_index_of(flat, "not the pinned one") < _index_of(flat, "digest matches the pin")
+            < _index_of(flat, "create a throwaway container"))
+
+
+def _render_digest(admin_image: str, env_digest: str = "") -> str:
+    """catena_payload_image_digest rendered under a fake context. A substring
+    check cannot tell a pin from one that never matches."""
     raw = _defaults()["catena_payload_image_digest"]
-    assert "CATENA_PAYLOAD_IMAGE_DIGEST" in raw
-    assert "default=''" in raw
+    asked = []
+
+    def lookup(kind, name, default=""):
+        asked.append((kind, name))
+        return env_digest or default
+
+    out = jinja2.Environment().from_string(raw).render(
+        lookup=lookup, catena_admin_image=admin_image).strip()
+    assert asked == [("env", "CATENA_PAYLOAD_IMAGE_DIGEST")], asked
+    return out
+
+
+def test_every_install_and_host_converge_arms_the_digest_gate() -> None:
+    """The pin is the digest of the image the converge was started with:
+    the release install-host.sh fetched, `repo:tag@sha256:...`, or the image
+    the panel service runs, which catena-converge names by digest."""
+    digest = "sha256:" + "ab" * 32
+    for image in (f"ghcr.io/catenahq/catena-admin:v0.6.2@{digest}",
+                  f"10.0.0.1:5001/catena-admin:bench-3@{digest}",
+                  f"ghcr.io/catenahq/catena-admin@{digest}"):
+        assert _render_digest(image) == digest, image
+
+
+def test_an_image_named_by_tag_alone_arms_no_pin() -> None:
+    """No digest to hold it to, which the role refuses."""
+    assert _render_digest("ghcr.io/catenahq/catena-admin:v0.6.2") == ""
+    assert _render_digest("") == ""
+
+
+def test_an_explicit_digest_wins() -> None:
+    """CATENA_PAYLOAD_IMAGE_DIGEST is how the fail-closed leg is exercised: a
+    deliberately wrong value must replace the image's own digest."""
+    wrong = "sha256:" + "0" * 64
+    image = "ghcr.io/catenahq/catena-admin:v0.6.2@sha256:" + "ab" * 32
+    assert _render_digest(image, env_digest=wrong) == wrong
+    assert _render_digest("ghcr.io/catenahq/catena-admin:v0.6.2",
+                          env_digest=wrong) == wrong
+
+
+def test_the_templates_catalog_cache_is_removed_on_every_converge() -> None:
+    """No engine writes it, so a host that still holds one is cleared. The task
+    sits outside the install block: it does not depend on the marker or on the
+    converge owning the engines."""
+    top = _tasks()[-1]
+    assert top["name"] == "Payload: remove the templates catalog cache"
+    assert top["ansible.builtin.file"] == {
+        "path": "/var/lib/catena/templates-catalog.json", "state": "absent"}
+    assert "when" not in top

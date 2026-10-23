@@ -127,5 +127,3 @@ def test_every_pinned_image_the_repo_ships_is_scanned():
         "quay.io/oauth2-proxy/oauth2-proxy",
     ):
         assert repo in declared, f"{repo} is unscanned again: {sorted(declared)}"
-    whole_ref = [p["pattern"] for p in _image_pins() if not p.get("repo")]
-    assert any("clamav" in p for p in whole_ref), "clamav is unscanned again"

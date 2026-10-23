@@ -12,6 +12,27 @@
 # CLAUDE.md, the import MUST NOT race the server's own first-boot
 # migrate; /health/ready is the canonical "migrations are done" signal,
 # stronger than "container exists in docker ps".
+#
+# Two imports. The SEED (realm-vps.yaml.j2 with realm_seed true: the realm
+# admin's account, the realm's tunable settings and, when it creates the realm,
+# the realm switched on) is rendered into keycloak_realm_seed_dir, imported
+# while a bootstrap marker or the realm itself is missing, and deleted. The
+# PERSISTENT realm dir (realm_seed false, plus the client files) is imported on
+# every converge, and what it renders depends on the store and on whether the
+# realm's mail settings still follow the panel (below), so the converge that
+# bootstraps the realm leaves it settled.
+
+# The realm files carry the SMTP password and the client secrets, and the
+# seed the admin password. 0700 on their parent keeps every account but root
+# out; the config-cli container bind-mounts a 0755 subdirectory and still
+# reads it.
+- name: "Keycloak realm: keep the realm config root private"
+  ansible.builtin.file:
+    path: "{{ keycloak_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
 
 - name: "Keycloak realm: ensure host-side realm dir"
   ansible.builtin.file:
@@ -21,83 +42,49 @@
     group: root
     mode: "0755"
 
-# Reconcile-not-overwrite: the realm template renders the smtpServer
-# block ONLY on the first install. Subsequent re-imports omit it so
-# keycloak-config-cli's MERGE semantics preserve whatever the client
-# may have edited (admin UI -> Realm settings -> Email tab).
-# Operator-driven SMTP rotation goes through the runbook (rotate at
-# upstream provider, edit the Portainer env, optionally rm the marker
-# below to force a re-bootstrap from the on-box store).
+# The bootstrap markers. Either one missing renders and imports the seed, then
+# writes both; so does a realm missing from Keycloak (below).
+#
+# The realm admin: KC_BOOTSTRAP_ADMIN_* creates the admin's account in the
+# MASTER realm and nowhere else, and this realm's copy of that account has no
+# password unless one is imported. Seeding it from the same on-box
+# admin_password keeps one identity from becoming two accounts, one of them
+# passwordless. The account is seeded once, password and all: asserting it on
+# every converge would undo each edit made to it, a password changed in the
+# Account Console or the account disabled in the admin console. Removing the
+# marker re-seeds it from the store, which is the recovery path for an admin
+# who has lost it.
+#
+# The tunable settings (login flow, brute-force numbers, defaultGroups,
+# locales) are preferences about how this client runs their own tenant, so an
+# edit made in the Keycloak admin UI must survive the next converge. The four
+# that are NOT preferences -- registrationAllowed, duplicateEmailsAllowed,
+# editUsernameAllowed, bruteForceProtected -- are in the persistent file,
+# because public self-registration or an unprotected login on an SSO tenant is
+# a security posture this product states, not a setting.
 #
 # The markers live under /var/lib/catena, outside the restore set, so a host
-# that restores its data keeps its own: its realm was imported here once, and
+# that restores its data keeps its own: its realm was seeded here once, and
 # the restored database carries the source's settings, which a later converge
 # must not reset.
-- name: "Keycloak realm: probe SMTP-bootstrap marker"
-  ansible.builtin.stat:
-    path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
-  register: _kc_smtp_marker
-
-# Same shape as the SMTP marker above, for the admin user's password.
-#
-# KC_BOOTSTRAP_ADMIN_* creates the operator's account in the MASTER realm and
-# nowhere else, and this realm's copy of that account imports with no
-# credentials at all. Seeding it here from the same on-box admin_password is
-# what keeps one identity from becoming two accounts, one of them passwordless:
-# the same email and password open the master realm and are refused here, with
-# nothing on the login page to tell the two apart.
-#
-# First import only. Rendering it on every converge would reset the password
-# back to the store's value each time, silently undoing a change made in the
-# Account Console -- which is the reason the credentials block was left out to
-# begin with.
 - name: "Keycloak realm: probe admin-password bootstrap marker"
   ansible.builtin.stat:
     path: /var/lib/catena/keycloak-realm-admin-bootstrapped
   register: _kc_admin_pw_marker
 
-# Third marker, same shape, for the realm's TUNABLE settings.
-#
-# The realm YAML declared every login-flow knob, all eight brute-force numbers,
-# defaultGroups and the locale attributes unconditionally, so keycloak-config-cli
-# merged them back on every converge. An admin who turned "Verify email" off in
-# the Keycloak UI, widened the lockout window, added a second default group or
-# switched the realm's default locale found it undone by the next converge, and
-# nothing said so.
-#
-# Those are preferences about how this client runs their own tenant. The four
-# that are NOT preferences -- registrationAllowed, duplicateEmailsAllowed,
-# editUsernameAllowed, bruteForceProtected -- stay asserted on every converge,
-# because public self-registration or an unprotected login on an SSO tenant is a
-# security posture this product states, not a setting.
-#
-# Remove the marker to re-seed the tunables from the template, exactly as the
-# SMTP marker above documents for its own block.
 - name: "Keycloak realm: probe realm-settings bootstrap marker"
   ansible.builtin.stat:
     path: /var/lib/catena/keycloak-realm-settings-bootstrapped
   register: _kc_settings_marker
 
-# realm_bootstrap.yml is included from BOTH reconcile/roles/keycloak/tasks/main.yml
-# AND reconcile/roles/oauth2_proxy/tasks/main.yml (the latter calls back here to
-# re-import the realm after rendering its own client. Mirrors the
-# pattern oauth2_proxy uses for realm-oauth2-proxy.yaml.j2). Ansible's
-# template lookup uses the CALLING role's templates/ dir, so when the
-# call comes from oauth2_proxy this template wouldn't resolve. Use an
-# explicit playbook_dir-relative path so it works from either caller.
-- name: "Keycloak realm: render realm config ({{ keycloak_realm }})"
-  ansible.builtin.template:
-    src: "{{ playbook_dir }}/../reconcile/roles/keycloak/templates/realm-vps.yaml.j2"
-    dest: "{{ keycloak_realm_host_dir }}/{{ keycloak_realm }}.yaml"
-    owner: root
-    group: root
-    mode: "0644"
-  vars:
-    smtp_render_password: "{{ not _kc_smtp_marker.stat.exists }}"
-    admin_render_password: "{{ not _kc_admin_pw_marker.stat.exists }}"
-    settings_render: "{{ not _kc_settings_marker.stat.exists }}"
-  register: _keycloak_realm_render
-
+# realm_bootstrap.yml is included from this role's tasks/main.yml and from the
+# roles that register an OIDC client of their own (oauth2_proxy, and the
+# infrastructure role's beszel.yml), which call back
+# here to re-import the realm after rendering that client. Ansible's template
+# lookup uses the CALLING role's templates/ dir, so a template named plainly
+# would not resolve from them. The realm file and the clients below use an
+# explicit playbook_dir-relative path so they work from any caller.
+#
 # Service-account client for the host-side dashboard-sync cron. Rendered
 # into the same /config dir so the keycloak-config-cli import below picks
 # it up. Gated on the secret being present so a realm imports cleanly
@@ -135,10 +122,6 @@
 # view-realm (which is how it reads whether MFA is enforced) and the panel is
 # deliberately denied it, while the panel needs manage-users and a supervision
 # credential must never hold it.
-#
-# Nothing created this client before, so the probe could not authenticate on
-# any real host -- only on a bench that provisioned it itself, which is how a
-# lane with no writer stayed green.
 - name: "Keycloak realm: render identity-probe service-account client"
   ansible.builtin.template:
     src: "{{ playbook_dir }}/../reconcile/roles/keycloak/templates/realm-identity-probe.yaml.j2"
@@ -189,224 +172,345 @@
     - _keycloak_realm_health.rc == 0
     - "'200' in (_keycloak_realm_health.stdout | default(''))"
 
-# keycloak-config-cli runs as a one-shot Docker container against the
-# bind-mounted realm dir. We use `docker run --rm` directly rather than
-# a Portainer stack because:
-#   1. It must run to completion + exit, not stay alive (a stack deploy
-#      expects long-running services).
-#   2. We need stdout/stderr inline in the Ansible run for diagnostics;
-#      the control plane buffers logs into its own log surface.
-#   3. The image is operator-internal (not part of the customer-facing
-#      suite) -- no point cluttering the App Templates catalog with it.
+# The email the last import ran under, recorded beside the bootstrap markers:
+# the automation client's first sign-in and an admin email change read it.
+- name: "Keycloak realm: the admin email the last import ran under"
+  ansible.builtin.slurp:
+    src: "{{ keycloak_admin_email_record }}"
+  register: _kc_admin_email_record
+  failed_when: false
+
+- name: "Keycloak realm: keep the admin email the last import ran under"
+  ansible.builtin.set_fact:
+    _kc_recorded_admin_email: >-
+      {{ (_kc_admin_email_record.content | default('') | b64decode) | trim }}
+
+# --- The automation client ---
 #
-# Network: catena-network so we can reach keycloak-server:8080 by
-# alias. Pull policy is the default (use cached image if present;
-# fall back to registry pull on first run).
-- name: "Keycloak realm: keycloak-config-cli import-update-merge"
+# Every realm import and kcadm session of the converge signs in to the master
+# realm as the automation client (_master_login.yml): the master admin carries a
+# second factor (below), which a kcadm sign-in cannot answer. The client's
+# service account holds the master realm's admin role: the converge manages the
+# master realm's own settings and its admin's account as well as this realm,
+# and a credential that may change the master admin's account reaches every
+# realm through it, so no narrower set of roles would narrow what it can reach.
+#
+# The client is ready once it signs in and reads the master realm, which takes
+# an admin role (RealmAdminResource getRealm, Keycloak 26.6.7). Otherwise it is
+# created, or given the store's secret and the role, on an admin-password
+# sign-in as admin_email, then as the email the last import ran under when that
+# differs (an email change not yet moved). That works while the master admin
+# has no second factor, which is asked for only once the client exists: the
+# converge that first meets a host, fresh or upgraded, makes it, and a restore
+# brings it back with the database that holds it. The secret and the password
+# reach kcadm as KC_CLI_CLIENT_SECRET and KC_CLI_PASSWORD, read from this
+# task's stdin, and the client's representation on kcadm's stdin, never an
+# argv.
+#
+# A refused password counts toward the master realm's lockout: 30 failures by
+# Keycloak's default failureFactor, which the lockout step below leaves as it
+# finds it, and two within a second lock the account for a minute
+# (DefaultBruteForceProtector, Keycloak 26.6.7). So an attempt tries each
+# address once, and an attempt in which Keycloak is ready (/health/ready) and
+# refuses them all exits 3, which ends the retries: they wait out a Keycloak
+# still starting or rescheduled, which refuses no password.
+- name: "Keycloak realm: the automation client exists"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    IFS= read -r KC_CLI_CLIENT_SECRET
+    IFS= read -r KC_CLI_PASSWORD
+    export KC_CLI_CLIENT_SECRET KC_CLI_PASSWORD
+    client={{ keycloak_automation_client_id | quote }}
+    server=http://localhost:{{ keycloak_internal_port }}
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1) || true
+    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
+    kc() { docker exec -e KC_CLI_CLIENT_SECRET -e KC_CLI_PASSWORD "$ct" /opt/keycloak/bin/kcadm.sh "$@"; }
+    ready() { docker exec "$ct" bash -c 'exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} && printf "GET {{ keycloak_health_path }} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && head -1 <&3 | grep -q 200'; }
+    acts() {
+      kc config credentials --server "$server" --realm master --client "$client" \
+        && kc get realms/master --fields realm >/dev/null
+    }
+    if acts; then
+      exit 0
+    fi
+    admin=
+    for user in {{ [admin_email, _kc_recorded_admin_email] | select | unique | map('quote') | join(' ') }}; do
+      if kc config credentials --server "$server" --realm master --user "$user"; then
+        admin=$user
+        break
+      fi
+    done
+    if [ -z "$admin" ]; then
+      if ready; then
+        echo "$client cannot manage the master realm, and the admin's password does not sign in to it" >&2
+        exit 3
+      fi
+      echo "keycloak is not ready" >&2
+      exit 1
+    fi
+    rep=$(printf '{"clientId":"%s","name":"Catena automation","description":"%s","enabled":true,"publicClient":false,"clientAuthenticatorType":"client-secret","serviceAccountsEnabled":true,"standardFlowEnabled":false,"implicitFlowEnabled":false,"directAccessGrantsEnabled":false,"secret":"%s"}' \
+      "$client" "Signs the converge and its realm imports in to the master realm." "$KC_CLI_CLIENT_SECRET")
+    id=$(kc get clients -r master -q "clientId=$client" --fields id --format csv --noquotes)
+    if [ -z "$id" ]; then
+      printf '%s' "$rep" | docker exec -i "$ct" /opt/keycloak/bin/kcadm.sh create clients -r master -f -
+      echo "created: $client"
+    else
+      printf '%s' "$rep" | docker exec -i "$ct" /opt/keycloak/bin/kcadm.sh update "clients/$id" -r master -m -f -
+      echo "secret reset: $client"
+    fi
+    kc add-roles -r master --uusername "service-account-$client" --rolename admin
+    acts
+  args:
+    executable: /bin/bash
+    stdin: "{{ keycloak_automation_client_secret }}\n{{ admin_password }}"
+  register: _kc_automation_client
+  changed_when: >-
+    'created:' in _kc_automation_client.stdout
+    or 'secret reset:' in _kc_automation_client.stdout
+  # Reported by the task below, which no_log here would leave unexplained.
+  # Retries that run out fail the task whatever failed_when says, so the error
+  # is ignored here and that task stops the converge.
+  ignore_errors: true
+  retries: 15
+  delay: 4
+  until: _kc_automation_client.rc in [0, 3]
+  no_log: true
+
+# The last attempt's stderr: kcadm's errors, which name the sign-ins it tried
+# and how each was refused, and the script's own, neither carrying a
+# credential.
+- name: "Keycloak realm: stop when the automation client cannot be made"
+  ansible.builtin.fail:
+    msg:
+      - "The converge cannot manage Keycloak (rc={{ _kc_automation_client.rc }}): {{ _kc_automation_client_failure }}"
+      - "{{ (_kc_automation_client.stderr_lines | default([]))[-20:] }}"
+  vars:
+    _kc_automation_client_failure: >-
+      {{ ("the automation client " ~ keycloak_automation_client_id
+          ~ " cannot manage Keycloak's master realm, and the master admin's password does not sign in to it."
+          ~ " The client must exist in the master realm with keycloak_automation_client_secret from"
+          ~ " /etc/catena/config.json as its secret, and its service account must hold the master realm's admin role.")
+         if _kc_automation_client.rc == 3
+         else "the automation client step ran out of retries, Keycloak not ready or the client not made; its last attempt's errors follow." }}
+  when: _kc_automation_client.rc != 0
+
+# The session the admin move and the realm list run on. Its `always` is the
+# one the realm seed's import below explains.
+- name: "Keycloak realm: sign kcadm in to the master realm"
+  ansible.builtin.include_tasks:
+    file: _master_login.yml
+    apply:
+      tags: [always]
+
+# The realm file's deny steps are the extension's catena-tier-refusal and the
+# identity providers are named by its catena-tier-binding (provider/): a
+# Keycloak that does not list both has not loaded the JAR, and the import below
+# would fail on an unknown step or leave providers unbound.
+- name: "Keycloak realm: the Catena extension is loaded"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker exec {{ _kc_master_login.stdout | quote }} /opt/keycloak/bin/kcadm.sh get serverinfo \
+      | python3 -c '
+    import json, sys
+    providers = json.load(sys.stdin)["providers"]
+    need = {"authenticator": "catena-tier-refusal", "eventsListener": "catena-tier-binding"}
+    missing = [spi + "/" + pid for spi, pid in need.items()
+               if pid not in providers.get(spi, {}).get("providers", {})]
+    if missing:
+        sys.exit("Keycloak does not list " + ", ".join(missing) + ": the extension JAR is not loaded")
+    '
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+# --- An admin email change moves the admin, and adds none ---
+#
+# The realm seed keys the realm admin on its username, admin_email.
+# keycloak-config-cli finds a user by username (then by email, first and last
+# name together), creates one it does not find, and deletes none
+# (UserImportService, keycloak-config-cli v6.5.1): re-seeded under a new email,
+# the seed would add a second admin. The step that refills an empty /admin
+# finds this realm's account by admin_email, and the master realm's second
+# factor is asked of the master account named by it. So before either import,
+# on the automation client's session, the admin's two accounts take the new
+# email, by id, which keeps their passwords and second factors (Keycloak keys
+# both on the user id):
+#   - the master realm's, whose username the admin API changes only while the
+#     realm allows username edits, so that is allowed for the one update;
+#   - this realm's, whose username follows its email
+#     (registrationEmailAsUsername).
+# In either realm, a new email that already holds an account is left for an
+# administrator to settle.
+- name: "Keycloak realm: move the admin's accounts to a changed admin email"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    old={{ _kc_recorded_admin_email | quote }}
+    new={{ admin_email | quote }}
+    realm={{ keycloak_realm | quote }}
+    kc() { docker exec {{ _kc_master_login.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    user_id() { kc get users -r "$1" -q "username=$2" -q exact=true --fields id --format csv --noquotes; }
+    old_id=$(user_id master "$old")
+    new_id=$(user_id master "$new")
+    if [ -n "$old_id" ] && [ -z "$new_id" ]; then
+      allowed=$(kc get realms/master --fields editUsernameAllowed --format csv --noquotes)
+      kc update realms/master -s editUsernameAllowed=true
+      kc update "users/$old_id" -r master -s "username=$new"
+      kc update realms/master -s "editUsernameAllowed=$allowed"
+      echo "moved: master"
+    elif [ -n "$old_id" ]; then
+      echo "both $old and $new hold an account in master: neither was moved" >&2
+    fi
+    old_id=$(user_id "$realm" "$old")
+    new_id=$(user_id "$realm" "$new")
+    if [ -n "$old_id" ] && [ -z "$new_id" ]; then
+      kc update "users/$old_id" -r "$realm" -s "email=$new"
+      echo "moved: $realm"
+    elif [ -n "$old_id" ]; then
+      echo "both $old and $new hold an account in $realm: neither was moved" >&2
+    fi
+  args:
+    executable: /bin/bash
+  register: _kc_admin_move
+  changed_when: "'moved:' in _kc_admin_move.stdout"
+  when:
+    - _kc_recorded_admin_email | length > 0
+    - _kc_recorded_admin_email != admin_email
+
+# Whether the realm exists, from the master realm's list of realms. A realm
+# Keycloak's database lost while the markers remain is created again by the
+# seed, the one import that switches it on: the persistent import would create
+# it switched off and without its admin account. A failed listing fails the
+# task rather than reading as a missing realm, which would re-seed the admin's
+# password.
+- name: "Keycloak realm: list the realms Keycloak holds"
   ansible.builtin.command:
     argv:
       - docker
-      - run
-      - --rm
-      - --network
-      - catena-network
-      - -e
-      - "KEYCLOAK_URL=http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}"
-      - -e
-      - "KEYCLOAK_USER={{ admin_email }}"
-      # KEYCLOAK_PASSWORD is forwarded from the task environment (set
-      # below) rather than spelled out as `KEY=value` on the argv. Argv
-      # is visible in `docker ps`, the host process tree, AND any Ansible
-      # log sink that captures the command line. Forwarding from env
-      # keeps the cleartext out of all three surfaces.
-      - -e
-      - KEYCLOAK_PASSWORD
-      - -e
-      - "KEYCLOAK_AVAILABILITYCHECK_ENABLED=true"
-      # Short per-attempt wait: kc-config-cli resolves keycloak-server via
-      # the JVM, which negative-DNS-caches a first-lookup miss for the life
-      # of the container -- so a long in-container wait never recovers if
-      # the catena-network alias is not yet registered at startup (the
-      # network-attachment race after an anchor-rewind reboot / redeploy).
-      # We instead retry the WHOLE run at the Ansible level below: each
-      # retry is a fresh container with a fresh resolver, so the lookup
-      # succeeds once the alias is up. Keep this short so a doomed attempt
-      # fails fast into the next retry.
-      - -e
-      - "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT=25s"
-      - -e
-      - "IMPORT_FILES_LOCATIONS=/config/*.yaml"
-      - -e
-      - "IMPORT_VAR_SUBSTITUTION_ENABLED=false"
-      # NO_DELETE for managed entities -- per-client YAMLs (nextcloud,
-      # oauth2-proxy, roundcube, etc.) each contain only THEIR one
-      # client. With the default FULL behavior, each import
-      # silently DELETES every other client because they're not in
-      # the file's `clients:` array. Result: only the last-imported
-      # client survives and the rest are gone -- the apps that depend
-      # on them then fail with "Client not found" at the OIDC auth
-      # endpoint.
-      #
-      # NO_DELETE flips merge semantics from "the file is the
-      # complete state" to "the file is a delta to apply". Since our
-      # per-client files are in fact deltas (one client each), this
-      # is the correct mode. The base realm (vps.yaml) does not
-      # declare any clients, so it is unaffected.
-      #
-      # Same reasoning applies to groups / users / etc. -- per-app
-      # files only declare their own group memberships and we want
-      # them merged, not used as a complete-state replacement.
-      #
-      # COMPLETENESS IS THE WHOLE PROPERTY, AND IT IS NOT SELF-CHECKING.
-      # keycloak-config-cli defaults every managed-entity type it supports to
-      # FULL, so a type this list does not name is a type whose entities get
-      # DELETED when a per-app YAML does not declare them. The list below is
-      # what is set for the keycloak-config-cli release that
-      # keycloak_config_cli_image_tag pins (../defaults/main.yml). It has NOT
-      # been diffed against that release's own `import.managed.*` property
-      # list, and until it has, "no client data is deleted here" rests on the
-      # list happening to be complete rather than on anything checking.
-      #
-      # When bumping the image tag: diff this block against the new release's
-      # documented `import.managed.*` properties and add any type that
-      # appeared. A missing one fails silently and looks like drift.
-      - -e
-      - "IMPORT_MANAGED_CLIENT=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_GROUP=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_REQUIRED_ACTION=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_CLIENT_SCOPE=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_SCOPE_MAPPING=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_COMPONENT=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_SUB_COMPONENT=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_AUTHENTICATION_FLOW=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_IDENTITY_PROVIDER=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_IDENTITY_PROVIDER_MAPPER=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_ROLE=NO_DELETE"
-      - -e
-      - "IMPORT_MANAGED_CLIENT_AUTHORIZATION_RESOURCES=NO_DELETE"
-      - -v
-      - "{{ keycloak_realm_host_dir }}:/config:ro"
-      - "{{ keycloak_config_cli_image }}"
-  environment:
-    KEYCLOAK_PASSWORD: "{{ admin_password }}"
-  register: _keycloak_realm_import
-  # Tool reports its own changed/no-op state on stdout. Treat as
-  # `changed_when` true if the realm YAML was re-rendered OR the
-  # tool reports it created/updated entities. False positives here
-  # are cheap (idempotent re-import).
-  changed_when:
-    - _keycloak_realm_import.rc == 0
-    - >-
-      _keycloak_realm_render is changed
-      or 'Updated realm' in (_keycloak_realm_import.stdout | default(''))
-      or 'Created realm' in (_keycloak_realm_import.stdout | default(''))
-  # `failed_when: false` so the play doesn't abort BEFORE we get a
-  # chance to surface stdout/stderr through the debug + fail pair
-  # below. no_log: true on THIS task suppresses Ansible's default
-  # task-result log (which echoes the `environment:` block and would
-  # leak admin_password); the registered variable still carries
-  # the stdout/stderr that the debug task explicitly emits next.
-  failed_when: false
-  # Retry the whole run on any failure: each attempt is a FRESH container
-  # with a fresh DNS resolver, so a keycloak-server lookup that missed on
-  # the first attempt (alias not yet registered after a rewind-reboot /
-  # redeploy, then JVM-negative-cached for that container's life) resolves
-  # on a later attempt once the alias is up -- and a transient catena-
-  # network attach error is ridden out too. `until` retries while rc != 0;
-  # on final exhaustion failed_when=false keeps the play alive so the debug
-  # + abort pair below still surface the real error. The import is
-  # idempotent (import-update-merge, NO_DELETE), so re-running is safe.
-  # A single attempt can die with `UnknownHostException: keycloak-server`
-  # for the full availability wait.
-  retries: 6
-  delay: 8
-  until: _keycloak_realm_import.rc == 0
-  no_log: true
+      - exec
+      - "{{ _kc_master_login.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - realms
+      - --fields
+      - realm
+      - --format
+      - csv
+      - --noquotes
+  register: _kc_realms
+  changed_when: false
 
-# Surface stdout + stderr from the kc-config-cli run. Restricted to
-# the two fields that are SAFE to log -- the env block (which holds
-# admin_password) lives on the task definition above, not in
-# _keycloak_realm_import.* fields. Without this, no_log: true on the
-# parent task blackholes the actual error message and operators are
-# left guessing across the dozens of realm YAMLs that just rendered.
-- name: "Keycloak realm: surface kc-config-cli output on import failure"
-  ansible.builtin.debug:
-    msg:
-      - "kc-config-cli rc={{ _keycloak_realm_import.rc | default('?') }}"
-      - "stdout (last 60 lines):"
-      - "{{ (_keycloak_realm_import.stdout_lines | default([]))[-60:] }}"
-      - "stderr (last 60 lines):"
-      - "{{ (_keycloak_realm_import.stderr_lines | default([]))[-60:] }}"
-  when: (_keycloak_realm_import.rc | default(0)) != 0
+# The realm's mail settings follow the panel's Settings > Outgoing mail while
+# they are the ones Catena wrote, which the realm records in an attribute; the
+# realm files declare `smtpServer` only then, and a change made in the realm's
+# Email tab stays (playbooks/filter_plugins/keycloak_mail_settings.py). The
+# whole realm is read, since `--fields` drops the values of the attributes and
+# smtpServer maps. A realm Keycloak does not hold yet takes them.
+- name: "Keycloak realm: read the mail settings before the imports"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _kc_master_login.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - "realms/{{ keycloak_realm }}"
+  register: _kc_realm_before
+  changed_when: false
+  when: keycloak_realm in _kc_realms.stdout_lines
 
-- name: "Keycloak realm: abort the play when kc-config-cli import failed"
-  ansible.builtin.fail:
-    msg: >-
-      keycloak-config-cli import-update-merge failed with
-      rc={{ _keycloak_realm_import.rc | default('?') }}. See the
-      preceding debug task for stdout/stderr; common causes are an
-      invalid YAML in {{ keycloak_realm_host_dir }}/*.yaml, a missing
-      store-derived value (e.g. dashboard_sync_client_secret)
-      that left a Jinja placeholder un-substituted, or a Keycloak
-      Phase Two version drift that the import schema does not yet
-      handle.
-  when: (_keycloak_realm_import.rc | default(0)) != 0
+- name: "Keycloak realm: decide whether the imports write the mail settings"
+  ansible.builtin.set_fact:
+    keycloak_smtp_write: >-
+      {{ (_kc_realm_before.stdout | default('{}', true) | from_json)
+         | keycloak_mail_follows(keycloak_realm_mail_attribute) }}
 
-# Reconcile-not-overwrite: write the SMTP marker after the FIRST
-# successful import, so subsequent runs render the realm template
-# without the smtpServer block. Operator can `rm` the marker to
-# force a re-bootstrap of SMTP from the on-box store.
-- name: "Keycloak realm: mark SMTP as bootstrapped"
-  ansible.builtin.file:
-    path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
-    state: touch
+# The seed, imported alone, and deleted whether the import succeeded or not.
+# The markers are written only once it has.
+- name: "Keycloak realm: seed the admin password and the realm settings"
+  when: >-
+    not (_kc_admin_pw_marker.stat.exists and _kc_settings_marker.stat.exists)
+    or keycloak_realm not in _kc_realms.stdout_lines
+  block:
+    - name: "Keycloak realm: ensure the seed dir"
+      ansible.builtin.file:
+        path: "{{ keycloak_realm_seed_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: "Keycloak realm: render the realm seed ({{ keycloak_realm }})"
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../reconcile/roles/keycloak/templates/realm-vps.yaml.j2"
+        dest: "{{ keycloak_realm_seed_dir }}/{{ keycloak_realm }}.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+      vars:
+        realm_seed: true
+        realm_create: "{{ keycloak_realm not in _kc_realms.stdout_lines }}"
+
+    # apply: the tasks inside an include carry no tag of their own, so a
+    # tag-scoped converge (--tags keycloak_realm) would fire this include and
+    # skip the import. `always` runs them whenever the include itself runs.
+    - name: "Keycloak realm: import the realm seed"
+      ansible.builtin.include_tasks:
+        file: _config_cli_import.yml
+        apply:
+          tags: [always]
+      vars:
+        kc_import_dir: "{{ keycloak_realm_seed_dir }}"
+        kc_import_rendered: true
+
+    - name: "Keycloak realm: mark the admin password as bootstrapped"
+      ansible.builtin.file:
+        path: /var/lib/catena/keycloak-realm-admin-bootstrapped
+        state: touch
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: "Keycloak realm: mark the realm settings as bootstrapped"
+      ansible.builtin.file:
+        path: /var/lib/catena/keycloak-realm-settings-bootstrapped
+        state: touch
+        owner: root
+        group: root
+        mode: "0644"
+  always:
+    - name: "Keycloak realm: delete the realm seed"
+      ansible.builtin.file:
+        path: "{{ keycloak_realm_seed_dir }}/{{ keycloak_realm }}.yaml"
+        state: absent
+
+- name: "Keycloak realm: render realm config ({{ keycloak_realm }})"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../reconcile/roles/keycloak/templates/realm-vps.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/{{ keycloak_realm }}.yaml"
     owner: root
     group: root
     mode: "0644"
-  when:
-    - smtp_enabled | bool
-    - not _kc_smtp_marker.stat.exists
-    - (_keycloak_realm_import.rc | default(1)) == 0
+  vars:
+    realm_seed: false
+  register: _keycloak_realm_render
 
-# Same reconcile-not-overwrite rule for the admin password: written after the
-# FIRST successful import so later converges render the user without a
-# credentials block and stop resetting it. Removing the marker re-seeds the
-# password from the on-box store, which is the recovery path for an operator
-# who has lost it.
-- name: "Keycloak realm: mark the admin password as bootstrapped"
-  ansible.builtin.file:
-    path: /var/lib/catena/keycloak-realm-admin-bootstrapped
-    state: touch
+- name: "Keycloak realm: import the realm config"
+  ansible.builtin.include_tasks:
+    file: _config_cli_import.yml
+    apply:
+      tags: [always]
+  vars:
+    kc_import_dir: "{{ keycloak_realm_host_dir }}"
+    kc_import_rendered: "{{ _keycloak_realm_render is changed }}"
+
+# Read by the next converge's move of the admin's accounts above.
+- name: "Keycloak realm: record the admin email this import ran under"
+  ansible.builtin.copy:
+    dest: "{{ keycloak_admin_email_record }}"
+    content: "{{ admin_email }}\n"
     owner: root
     group: root
     mode: "0644"
-  when:
-    - not _kc_admin_pw_marker.stat.exists
-    - (_keycloak_realm_import.rc | default(1)) == 0
-
-# Same rule for the tunable realm settings: written after the FIRST successful
-# import, so later converges render the realm without them and stop reverting a
-# change made in the Keycloak admin UI.
-- name: "Keycloak realm: mark the realm settings as bootstrapped"
-  ansible.builtin.file:
-    path: /var/lib/catena/keycloak-realm-settings-bootstrapped
-    state: touch
-    owner: root
-    group: root
-    mode: "0644"
-  when:
-    - not _kc_settings_marker.stat.exists
-    - (_keycloak_realm_import.rc | default(1)) == 0
 
 # ─── Clear the "temporary admin" marker on the master-realm bootstrap user ───
 #
@@ -462,31 +566,16 @@
   delay: 4
   until: _keycloak_realm_server_ct.stdout | length > 0
 
+# Retried and re-resolving the container each attempt (_master_login.yml): the
+# sign-in is the first use of the name above, so a reschedule landing between
+# the two would put the whole cleanup back where it started, and a server still
+# finishing its own startup is waited out. `always` for the reason the realm
+# seed's import gives.
 - name: "Keycloak realm: kcadm login to master (for temp-admin cleanup)"
-  # RETRIED, and re-resolving the container each attempt: the login is the
-  # first use of the name above, so a reschedule landing between the two
-  # would put the whole cleanup back where it started. `until` on rc means a
-  # server still finishing its own startup is waited out rather than reported
-  # as a bad password -- which is what no_log turns this failure into.
-  ansible.builtin.shell: |
-    set -o pipefail
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
-      | head -n1)
-    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
-    docker exec "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
-      --server "http://localhost:{{ keycloak_internal_port }}" \
-      --realm master \
-      --user {{ admin_email | quote }} \
-      --password {{ admin_password | quote }}
-  args:
-    executable: /bin/bash
-  register: _keycloak_master_login
-  changed_when: false
-  retries: 15
-  delay: 4
-  until: _keycloak_master_login.rc == 0
-  no_log: true
+  ansible.builtin.include_tasks:
+    file: _master_login.yml
+    apply:
+      tags: [always]
 
 - name: "Keycloak realm: look up bootstrap admin user-id in master"
   ansible.builtin.command:
@@ -619,3 +708,385 @@
           - -f
           - /tmp/master-profile-restored.json
       changed_when: true
+
+# The master realm's sign-in at auth.<zone>/admin: repeated wrong passwords
+# lock an account out as they do in this realm, a pause that grows with each
+# failure up to 15 minutes (bruteForceProtected; the numbers are the ones
+# Keycloak gives every realm it creates, which this realm's seed repeats:
+# RealmManager setupRealmDefaults, Keycloak 26.6.7), and the master admin, while
+# holding no one-time code, is asked to set one up at their next sign-in
+# (CONFIGURE_TOTP), after which the master realm's browser flow asks for it at
+# every sign-in. While Settings requires a second factor (keycloak_enforce_mfa),
+# every other master-realm user holding the admin role, directly, through a
+# group or through a composite role, is asked the same, the
+# automation service account excepted. Each admin's state (holds a code, has
+# been asked) is written, with the time, to keycloak_master_admins_path, which
+# the Compliance page reads; a run that fails leaves no record. Only the switch and the missing second
+# factor are put back: numbers tuned in the master realm stay. The role README
+# says how a lockout or a lost second factor is lifted from the server.
+- name: "Keycloak realm: the master realm locks out wrong passwords and asks its admin for a second factor"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    admin={{ admin_email | quote }}
+    enforce={{ ('true' if keycloak_enforce_mfa | bool else 'false') | quote }}
+    record={{ keycloak_master_admins_path | quote }}
+    rm -f "$record"
+    rows=""
+    if [ "$(kc get realms/master --fields bruteForceProtected --format csv --noquotes)" != true ]; then
+      kc update realms/master -s bruteForceProtected=true
+      echo "locks out: master"
+    fi
+    settle() {
+      local held asked otp=0 has=0
+      held=$(kc get "users/$1/credentials" -r master --fields type --format csv --noquotes)
+      if grep -qxF otp <<<"$held"; then
+        otp=1
+      else
+        asked=$(kc get "users/$1" -r master --fields requiredActions --format csv --noquotes)
+        if grep -qxF CONFIGURE_TOTP <<<"${asked//,/$'\n'}"; then
+          has=1
+        elif [ "$3" = true ]; then
+          kc update "users/$1" -r master -s 'requiredActions+=CONFIGURE_TOTP'
+          echo "asks for a second factor: $2"
+          has=1
+        fi
+      fi
+      rows+="$2"$'\t'"$otp"$'\t'"$has"$'\n'
+    }
+    id=$(kc get users -r master -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
+    if [ -z "$id" ]; then
+      echo "the master realm has no account $admin to ask for a second factor" >&2
+    else
+      settle "$id" "$admin" true
+    fi
+    members=$(kc get users -r master -q max=1000 --fields id,username --format csv --noquotes)
+    while IFS=, read -r uid uname; do
+      if [ -z "$uid" ] || [ "$uid" = "$id" ]; then
+        continue
+      fi
+      case "$uname" in service-account-*) continue ;; esac
+      effective=$(kc get "users/$uid/role-mappings/realm/composite" -r master --fields name --format csv --noquotes)
+      if grep -qxF admin <<<"$effective"; then
+        settle "$uid" "$uname" "$enforce"
+      fi
+    done <<<"$members"
+    python3 -I -c 'import datetime, json, os, sys
+    rows = [l.split("\t") for l in sys.stdin.read().splitlines() if l]
+    doc = {"checked_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "admins": [{"name": n, "otp": o == "1", "asked": a == "1"} for n, o, a in sorted(rows)]}
+    path = sys.argv[1]
+    tmp = path + ".tmp"
+    open(tmp, "w").write(json.dumps(doc, indent=1) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)' "$record" <<<"$rows"
+  args:
+    executable: /bin/bash
+  register: _keycloak_master_posture
+  changed_when: >-
+    'locks out:' in _keycloak_master_posture.stdout
+    or 'asks for a second factor:' in _keycloak_master_posture.stdout
+
+# The tier roles the sign-in flows of realm-vps.yaml.j2 check, each held
+# through its group. keycloak-config-cli makes a declared role's composites and
+# a declared group's role mappings exact, so the realm file declares neither and
+# this task only adds: a missing tier role is created, a group without its tier
+# role gets it back, and a role an admin maps to /admin or /staff, or adds to a
+# tier role, stays. Runs on the kcadm session the login above opened. The
+# group is found by its path first: kcadm's --gpath looks only among the realm's
+# first two groups (OperationUtils.getAttrForType, Keycloak 26.6.7).
+- name: "Keycloak realm: each tier group holds its tier role"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    role={{ item.role | quote }}
+    group={{ ('/' ~ item.group) | quote }}
+    if ! kc get "roles/$role" -r "$realm" >/dev/null 2>&1; then
+      kc create roles -r "$realm" -s "name=$role" -s {{ ('description=' ~ item.description) | quote }}
+      echo "created: $role"
+    fi
+    gid=$(kc get "group-by-path$group" -r "$realm" --fields id --format csv --noquotes)
+    held=$(kc get-roles -r "$realm" --gid "$gid" --fields name --format csv --noquotes)
+    if ! grep -qxF "$role" <<<"$held"; then
+      kc add-roles -r "$realm" --gid "$gid" --rolename "$role"
+      echo "granted: $role to $group"
+    fi
+  args:
+    executable: /bin/bash
+  loop:
+    - group: admin
+      role: catena-tier-admin
+      description: "Signs in to applications limited to administrators. Held through /admin."
+    - group: staff
+      role: catena-tier-staff
+      description: "Signs in to applications open to staff. Held through /staff and its departments."
+  loop_control:
+    label: "/{{ item.group }}: {{ item.role }}"
+  register: _keycloak_tier_role
+  changed_when: "'created:' in _keycloak_tier_role.stdout or 'granted:' in _keycloak_tier_role.stdout"
+
+# The realm's default client scopes, which Keycloak copies onto a client it
+# creates without scope lists (the applications' own sign-in entries are):
+# groups for the group claim every gate and application reads, basic for the
+# sub and auth_time claims, acr for the authentication level, and Keycloak's
+# own profile, email, roles and web-origins. keycloak-config-cli makes a
+# declared list exact, so the realm file declares none and this task only adds:
+# a scope an admin adds to the list stays, and one of these taken off it comes
+# back.
+- name: "Keycloak realm: the default client scopes hold the ones applications need"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    held=$(kc get default-default-client-scopes -r "$realm" --fields name --format csv --noquotes)
+    scopes=$(kc get client-scopes -r "$realm" --fields id,name --format csv --noquotes)
+    for name in {{ _keycloak_needed_scopes | map('quote') | join(' ') }}; do
+      if grep -qxF "$name" <<<"$held"; then
+        continue
+      fi
+      id=
+      while IFS=, read -r sid sname; do
+        if [ "$sname" = "$name" ]; then id=$sid; fi
+      done <<<"$scopes"
+      if [ -z "$id" ]; then
+        echo "client scope $name is missing from realm $realm" >&2
+        exit 1
+      fi
+      kc update "default-default-client-scopes/$id" -r "$realm"
+      echo "added: $name"
+    done
+  args:
+    executable: /bin/bash
+  vars:
+    _keycloak_needed_scopes: [groups, profile, email, roles, web-origins, basic, acr]
+  register: _keycloak_default_scopes
+  changed_when: "'added:' in _keycloak_default_scopes.stdout"
+
+# The realm admin is a seed (realm-vps.yaml.j2), so an edit made to it stays.
+# The one thing put back: when /admin has no member left, nobody reaches the
+# panel or the admin tools, so the admin account rejoins it. A deleted account
+# comes back only through a re-seed (the bootstrap markers above).
+- name: "Keycloak realm: an empty /admin gets the realm admin back"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    admin={{ admin_email | quote }}
+    group=$(kc get group-by-path/admin -r "$realm" --fields id --format csv --noquotes)
+    members=$(kc get "groups/$group/members" -r "$realm" -l 1 --fields id --format csv --noquotes)
+    if [ -n "$members" ]; then
+      exit 0
+    fi
+    user=$(kc get users -r "$realm" -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
+    if [ -z "$user" ]; then
+      echo "/admin is empty and realm $realm has no account $admin" >&2
+      exit 0
+    fi
+    kc update "users/$user/groups/$group" -r "$realm"
+    echo "joined: $admin"
+  args:
+    executable: /bin/bash
+  register: _keycloak_admin_rejoin
+  changed_when: "'joined:' in _keycloak_admin_rejoin.stdout"
+
+# The administrator's first and last name are the person's own data, seeded once
+# from the store: a name is written only while empty, so one changed in the
+# Account Console stays. The vps realm's user profile requires both names, and
+# the master admin's console shows them. Names go in over stdin, never argv. A
+# write kcadm refuses (a name the realm's profile rejects, or a session that
+# ended) leaves the account as it is, with a warning carrying kcadm's error.
+- name: "Keycloak realm: the administrator's accounts carry the administrator's name"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    IFS= read -r first
+    IFS= read -r last
+    export first last
+    kc() { docker exec -i {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    admin={{ admin_email | quote }}
+    for realm in master {{ keycloak_realm | quote }}; do
+      id=$(kc get users -r "$realm" -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
+      [ -n "$id" ] || continue
+      cur=$(kc get "users/$id" -r "$realm" --fields firstName,lastName)
+      payload=$(CUR="$cur" python3 - <<'PY'
+    import json, os
+    cur = json.loads(os.environ["CUR"])
+    want = {"firstName": os.environ["first"], "lastName": os.environ["last"]}
+    print(json.dumps({k: v for k, v in want.items() if not cur.get(k)}))
+    PY
+      )
+      [ "$payload" != "{}" ] || continue
+      if err=$(printf '%s' "$payload" | kc update "users/$id" -r "$realm" -m -f - 2>&1); then
+        echo "named: $realm"
+      else
+        echo "refused: $realm: $(printf '%s' "$err" | tr '\r\n' '  ')"
+      fi
+    done
+  args:
+    executable: /bin/bash
+    stdin: "{{ admin_first_name }}\n{{ admin_last_name }}"
+  register: _keycloak_admin_name
+  changed_when: "'named:' in _keycloak_admin_name.stdout"
+  when:
+    - admin_email | length > 0
+    - admin_first_name | length > 0
+    - admin_last_name | length > 0
+
+- name: "Keycloak realm: a realm refused the administrator's name"
+  ansible.builtin.debug:
+    msg: >-
+      The administrator's name was not written in realm
+      {{ item | regex_replace('^refused: ', '') }}
+      (ADMIN_FIRST_NAME, ADMIN_LAST_NAME in the store); its account keeps the
+      names it has. The first part is the realm, the rest kcadm's error.
+  loop: "{{ _keycloak_admin_name.stdout_lines | default([]) | select('match', '^refused: ') | list }}"
+  when: _keycloak_admin_name is not skipped
+
+# A sign-in through an external identity provider finishes in Keycloak's broker
+# flows and never returns to the application's sign-in flow, so its tier check
+# does not run (IdentityBrokerService). The post-broker-login flow
+# realm-vps.yaml.j2 declares runs it, and a provider runs that flow only when
+# it names it; the realm has no default for it. The extension's binding
+# listener names the flow on each provider that names none, one linked to an
+# organization included (provider/). This only reads: it stops the converge,
+# naming each provider that still names no flow, since such a provider would
+# let an account outside the tier through. A provider bound to another flow by
+# hand passes.
+- name: "Keycloak realm: every identity provider runs the tier check after a brokered sign-in"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    providers=$(kc get identity-provider/instances -r "$realm" -q type=USER_AUTHENTICATION -q max=100000 --fields alias,postBrokerLoginFlowAlias --format csv --noquotes)
+    unbound=0
+    while IFS=, read -r alias bound; do
+      if [ -z "$alias" ] || [ -n "$bound" ]; then
+        continue
+      fi
+      echo "identity provider $alias names no post-broker-login flow" >&2
+      unbound=1
+    done <<<"$providers"
+    exit "$unbound"
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+# The whole realm, for its switch and its sign-in page name. `--fields` would
+# print the attributes map with its values dropped.
+- name: "Keycloak realm: read the realm"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _keycloak_realm_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - "realms/{{ keycloak_realm }}"
+  register: _keycloak_realm_rep
+  changed_when: false
+
+# A realm an administrator switched off stays off: it may have been cut off
+# over a leaked password. Every step of this converge works on it, since kcadm
+# and keycloak-config-cli sign in to the master realm and the OIDC discovery
+# document and keys the sign-in gates are checked against answer for a realm
+# switched off; what stops is every sign-in through it.
+- name: "Keycloak realm: the realm is switched off, and stays off"
+  ansible.builtin.debug:
+    msg: >-
+      Realm {{ keycloak_realm }} is switched off in Keycloak, and this converge
+      leaves it off. Nobody signs in through it, to the applications or to the
+      panel at its public address, and its service accounts get no token:
+      dashboard-sync leaves the applications' own sign-in entries waiting and
+      the panel's People page cannot read the realm. To switch it back on, open
+      the Keycloak admin console, choose realm {{ keycloak_realm }} and turn
+      Enabled on in its Realm settings.
+  when: not ((_keycloak_realm_rep.stdout | from_json).enabled | bool)
+
+# The sign-in page follows the domain while it holds the name the seed or an
+# earlier converge wrote, and keeps a name a person gave it
+# (playbooks/filter_plugins/keycloak_signin_name.py). kcadm merges the
+# changes into the realm it reads, so the realm's other attributes stay.
+- name: "Keycloak realm: the sign-in page name follows the domain"
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'exec', _keycloak_realm_server_ct.stdout,
+          '/opt/keycloak/bin/kcadm.sh', 'update', 'realms/' ~ keycloak_realm]
+         + _keycloak_signin_name_sets }}
+  vars:
+    _keycloak_signin_name_sets: >-
+      {{ _keycloak_realm_rep.stdout | from_json
+         | keycloak_signin_name_sets(keycloak_realm_display_name,
+                                     keycloak_realm_display_name_attribute) }}
+  when: _keycloak_signin_name_sets | length > 0
+
+# The realm's mail settings changed in Keycloak's Email tab since Catena wrote
+# them are not written over; the converge says so.
+- name: "Keycloak realm: the mail settings were changed in Keycloak, and stay"
+  ansible.builtin.debug:
+    msg: >-
+      The mail settings of realm {{ keycloak_realm }} were changed in the Email
+      tab of Keycloak's admin console, and this converge leaves them as they
+      are: Settings > Outgoing mail no longer changes them. To hand them back
+      to Settings, set the Email tab to exactly the values Settings > Outgoing
+      mail shows, or empty them on the server with kcadm update
+      realms/{{ keycloak_realm }} -s 'smtpServer={}' (the role README,
+      "Handing the realm's mail settings back to Settings").
+  when: not (keycloak_smtp_write | bool)
+
+# Records the mail settings Catena wrote, once the realm holds them. kcadm
+# merges the change into the realm it reads, so the realm's other attributes
+# stay.
+- name: "Keycloak realm: record the mail settings Catena wrote"
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'exec', _keycloak_realm_server_ct.stdout,
+          '/opt/keycloak/bin/kcadm.sh', 'update', 'realms/' ~ keycloak_realm]
+         + _keycloak_mail_record_sets }}
+  vars:
+    _keycloak_mail_record_sets: >-
+      {{ _keycloak_realm_rep.stdout | from_json
+         | keycloak_mail_record_sets(keycloak_smtp_server, keycloak_realm_mail_attribute) }}
+  when: _keycloak_mail_record_sets | length > 0
+
+# The ids of the two sign-in flows realm-vps.yaml.j2 declares, for
+# dashboard-sync (reconcile/roles/infrastructure/templates/dashboard-sync.env.j2):
+# a client's flow binding takes an id, and the sync's service account manages
+# clients without reading the realm's flows. keycloak-config-cli rebuilds a
+# changed flow under the id it had, so the ids hold from one converge to the
+# next.
+- name: "Keycloak realm: read the sign-in flow ids"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _keycloak_realm_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - authentication/flows
+      - -r
+      - "{{ keycloak_realm }}"
+      - --fields
+      - id,alias
+  register: _keycloak_signin_flow_list
+  changed_when: false
+
+- name: "Keycloak realm: keep the sign-in flow ids for dashboard-sync"
+  ansible.builtin.set_fact:
+    keycloak_signin_flows:
+      admin: "{{ _flows['catena-signin-admin'] | default('') }}"
+      staff: "{{ _flows['catena-signin-staff'] | default('') }}"
+  vars:
+    _flows: "{{ _keycloak_signin_flow_list.stdout | from_json | items2dict(key_name='alias', value_name='id') }}"
+
+- name: "Keycloak realm: both sign-in flows exist"
+  ansible.builtin.assert:
+    that:
+      - keycloak_signin_flows.admin | length > 0
+      - keycloak_signin_flows.staff | length > 0
+    fail_msg: >-
+      The realm import succeeded but realm {{ keycloak_realm }} lacks the
+      sign-in flow catena-signin-admin or catena-signin-staff that
+      realm-vps.yaml.j2 declares. dashboard-sync makes no sign-in entry for an
+      application limited to staff or administrators without them. Compare
+      `kcadm.sh get authentication/flows -r {{ keycloak_realm }}` in the
+      Keycloak container with the file.

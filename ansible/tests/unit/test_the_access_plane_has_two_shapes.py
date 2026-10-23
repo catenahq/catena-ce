@@ -177,8 +177,7 @@ def test_the_lockdown_writes_nothing_on_a_controller():
     inventory to write, and the install does not run it."""
     tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
     assert not [t.get("name") for t in tasks if t.get("delegate_to") == "localhost"]
-    cli = (ANSIBLE / "catena_cli.py").read_text(encoding="utf-8")
-    assert '"lockdown"' not in cli, "the install runs the lockdown"
+    assert "lockdown.yml" not in _install_code(), "the install runs the lockdown"
 
 
 def test_validate_gates_inside_the_role_not_by_filtering_the_role_list():
@@ -282,9 +281,17 @@ def test_only_the_panels_lockdown_closes_the_port():
     assert "default('false'" in flag, (
         "the flag must default to false: a caller that forgets it joins and "
         "leaves 22 open, which is the safe side")
-    cli = (ANSIBLE / "catena_cli.py").read_text(encoding="utf-8")
-    assert "catena_lockdown_close_public_ssh" not in cli, (
+    assert "catena_lockdown_close_public_ssh" not in _install_code(), (
         "the installer asks for the close; installs never close public 22")
+
+
+def _install_code() -> str:
+    """What runs an install: the installer package and the tree's own
+    install-host.sh."""
+    package = ANSIBLE.parent / "installer" / "catena_installer"
+    sources = [ANSIBLE / "install-host.sh", *sorted(package.glob("*.py")),
+               package / "starter.sh"]
+    return "\n".join(p.read_text(encoding="utf-8") for p in sources)
 
 
 def test_the_tailnet_rules_and_address_do_not_wait_for_the_close():

@@ -11,29 +11,39 @@
   the converge built the service and there is no launch argv here to keep in
   step with the role. Services deployed by `docker stack deploy` are ordinary
   swarm services named <stack>_<compose service>, so they take the same path as
-  the two the converge creates directly.
+  the services the converge creates directly.
 
   A successful bump records an image pin in /etc/catena/config.json and the next
-  converge resolves max(floor, pin) -- see playbooks/filter_plugins/image_pin.py.
-  Adding a service here without its image resolving through that filter would
-  mean the lane bumps it and the next converge puts it back.
+  converge resolves max(floor, pin). Two readers apply that rule:
+  playbooks/filter_plugins/image_pin.py for every entry but cloudflared, and
+  catena-admin payload/cmd/catena-cloudflared-sync (imageOrPin) for cloudflared,
+  which the converge reconciles through that engine. Adding a service here
+  without its image resolving through one of them would mean the lane bumps it
+  and the next converge puts it back.
 
-  Client application stacks are bumped through the Portainer compose path and
-  are discovered from Portainer, not listed here. `compose_name` on a
-  stack-deployed entry is what keeps the two apart: the engine builds its
-  client-walk skip set from that key, so a stack Portainer can see is not also
-  bumped as if a client had chosen it.
+  Client application stacks are bumped through their folders
+  (catena-admin payload/engines/stackupdate) and are not listed here.
+  `compose_name` on a stack-deployed entry is what keeps the two apart: the
+  engine builds its client-walk skip set from that key, so a stack of Catena's
+  own is not also bumped as if a client had chosen it.
+
+  Every entry but cloudflared moves by itself at patch level only: a patch
+  release, or for catena-postgres, which numbers its releases major.minor, its
+  next minor (its patch release, policy "minor", which keeps the major). Minors
+  and majors of the others, and a new Postgres major (a migration: pg_upgrade or
+  a dump the restore path can replay), arrive with a catena-admin release. The
+  tag pattern of catena-postgres names the major and the trixie variant of the
+  tier-1 catalog's PostgresImage (catena-admin
+  payload/engines/tier1/catalog.go), and changes with it.
+
+  cloudflared moves to any newer release by itself, after the soak and the
+  vulnerability gate: it keeps no data, and an out-of-date tunnel is the larger
+  risk. The move and its rollback run on the server and need no tunnel; the
+  connector's own readiness, a registered connection to the edge, decides
+  whether the move stands.
 
   The services this manifest leaves out, each with its reason:
 
-    catena-postgres   A database version move is a migration: it needs
-                      pg_upgrade and a dump the restore path can replay. Its
-                      minor releases ship with a catena-admin release (the
-                      tier-1 catalog's PostgresImage).
-    cloudflared       Reconciled by catena-cloudflared-sync, and its bump stays
-                      manual by design: a broken image kills the public path AND
-                      the route to catena-admin, so there is no surface left to
-                      roll it back from. See catena-admin renovate.json.
     catena-admin      The panel cannot roll itself with a plain service update:
                       the payload has to be reinstalled from the new image in
                       the same operation, or the host runs new engines under an
@@ -43,20 +53,18 @@
                       therefore one pin, so a converge moves them together
                       after any one of them is bumped.
     beszel-hc-shim    Its image is a python base image, not a product release.
-    clamav            Deployed through the Portainer API (it needs a
-                      materialized second network) and consumer-gated, so it may
-                      not exist on a given host.
 #}
 [
   {
-    "name": "{{ portainer_service_name }}",
+    "name": "catena-postgres",
     "kind": "infra-swarm",
-    "swarm_service": "{{ portainer_service_name }}",
-    "policy": "patch+minor",
+    "swarm_service": "catena-postgres",
+    "policy": "minor",
     "upstream": {
       "source": "dockerhub",
-      "repo": "portainer/portainer-ce",
-      "tag_pattern": "^\\d+\\.\\d+\\.\\d+$"
+      "repo": "library/postgres",
+      "scheme": "partial_line",
+      "tag_pattern": "^18\\.\\d+-trixie$"
     }
   },
   {
@@ -75,7 +83,7 @@
     "kind": "infra-swarm",
     "compose_name": "{{ gatus_compose_name }}",
     "swarm_service": "{{ gatus_compose_name }}_app",
-    "policy": "patch+minor",
+    "policy": "patch",
     "upstream": {
       "source": "dockerhub",
       "repo": "twinproduction/gatus",
@@ -130,6 +138,18 @@
       "repo": "phasetwo/phasetwo-keycloak",
       "scheme": "build_suffix",
       "tag_pattern": "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
+    }
+  },
+  {
+    "name": "cloudflared",
+    "kind": "infra-swarm",
+    "swarm_service": "cloudflared",
+    "policy": "major",
+    "ready": ["cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"],
+    "upstream": {
+      "source": "dockerhub",
+      "repo": "cloudflare/cloudflared",
+      "tag_pattern": "^\\d{4}\\.\\d{1,2}\\.\\d+$"
     }
   }
 ]

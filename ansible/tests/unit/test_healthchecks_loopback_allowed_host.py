@@ -4,9 +4,8 @@ to be in ALLOWED_HOSTS.
 Django matches ALLOWED_HOSTS against the literal Host header. "localhost" does
 not cover a request to http://127.0.0.1:18000 -- verified against
 healthchecks/healthchecks:v4.3: Host 127.0.0.1 returned 400 DisallowedHost,
-Host localhost returned 401 (reached the app). gatus-sync, the clamav watchdog
-and the mail canary all use the IP form, so all three were failing in the shape
-that is hardest to notice: a monitor reporting nothing.
+Host localhost returned 401 (reached the app). A consumer on the IP form fails
+in the shape that is hardest to notice: a monitor reporting nothing.
 
 Run: uv run pytest tests/unit/test_healthchecks_loopback_allowed_host.py
 """
@@ -25,15 +24,13 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 # Files that build a Healthchecks URL from the loopback publish.
 LOOPBACK_CONSUMERS = [
     INFRA / "templates" / "gatus-sync.env.j2",
-    SCRIPTS / "run-clamav-watch.sh",
-    SCRIPTS / "run-mail-canary.sh",
 ]
 
 
 def _allowed_host_variants() -> list[list[str]]:
     """Every ALLOWED_HOSTS the template can render, one per branch.
 
-    There are two: a host with no domain yet cannot be given `heartbeat.` as
+    There are two: a host with no domain yet cannot be given `healthchecks.` as
     an allowed host, because Django compares the literal Host header and the
     trailing dot never matches anything -- see
     test_no_service_is_addressed_at_a_dangling_hostname.
@@ -108,7 +105,6 @@ def test_every_loopback_consumer_uses_a_host_the_container_admits():
                 f"{path.name} dials Healthchecks as {host!r}, which is not in "
                 f"ALLOWED_HOSTS ({sorted(hosts)})"
             )
-    assert seen >= 3, (
-        "expected to find the gatus-sync, clamav-watch and mail-canary "
-        f"loopback URLs; found {seen}"
+    assert seen >= 1, (
+        f"expected to find the gatus-sync loopback URL; found {seen}"
     )

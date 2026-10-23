@@ -9,7 +9,9 @@ from "nothing needed bumping".
 What matters per entry: it names a swarm service that actually exists, and its
 image resolves through the pin filter. An entry naming a service that is not
 there is a silent skip; an entry whose image the converge asserts is a bump the
-next converge undoes.
+next converge undoes. The image resolves through the pin filter
+(playbooks/filter_plugins/image_pin.py) or, for cloudflared, through the tunnel
+engine's own max(default, pin) (catena-admin payload/cmd/catena-cloudflared-sync).
 """
 from __future__ import annotations
 
@@ -30,8 +32,7 @@ def _role_vars() -> dict:
     """Every default and var the manifest can reference.
 
     Role defaults leak into the play scope for roles that run later, which is
-    how this template already reads portainer_service_name and
-    traefik_container_name. Collect them the same way."""
+    how this template already reads traefik_container_name. Collect them the same way."""
     out: dict = {}
     for path in sorted(ANSIBLE.glob("*/roles/*/defaults/main.yml")):
         out.update(yaml.safe_load(path.read_text()) or {})
@@ -56,7 +57,57 @@ def test_the_manifest_renders_and_is_a_list_of_specs(manifest):
     for spec in manifest:
         assert spec["kind"] == "infra-swarm"
         assert spec["swarm_service"], spec
-        assert spec["policy"] in ("patch", "patch+minor"), spec
+        assert spec["policy"] in ("patch", "minor", "major"), spec
+
+
+def test_every_service_moves_at_patch_level_only_but_cloudflared(manifest):
+    """Minors and majors arrive with a catena-admin release. catena-postgres
+    numbers its releases major.minor, so its patch release is its minor, and
+    "minor" is the policy that keeps its major. cloudflared keeps no data and an
+    out-of-date tunnel is the larger risk, so it takes any newer release."""
+    for spec in manifest:
+        want = {"catena-postgres": "minor", "cloudflared": "major"}.get(spec["name"], "patch")
+        assert spec["policy"] == want, spec
+
+
+def test_cloudflared_is_a_service_the_engine_creates_judged_by_its_edge_connection(manifest):
+    spec = next(s for s in manifest if s["name"] == "cloudflared")
+    assert spec["swarm_service"] == "cloudflared"
+    assert "compose_name" not in spec
+    assert spec["upstream"]["source"] == "dockerhub"
+    assert spec["upstream"]["repo"] == "cloudflare/cloudflared"
+    # The metrics address is the one the connector is started with (catena-admin
+    # payload/engines/cloudflared MetricsAddr).
+    assert spec["ready"] == ["cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+    assert [s["name"] for s in manifest if "ready" in s] == ["cloudflared"]
+
+
+def test_cloudflared_admits_only_release_tags(manifest):
+    pattern = next(s for s in manifest
+                   if s["name"] == "cloudflared")["upstream"]["tag_pattern"]
+    for tag in ("2026.9.1", "2026.10.3", "2027.1.12"):
+        assert re.fullmatch(pattern, tag), tag
+    for tag in ("2026.10.3-amd64", "1980-de6376c", "latest", "2026.10", "2026.10.3.1"):
+        assert not re.fullmatch(pattern, tag), tag
+
+
+def test_catena_postgres_is_created_by_the_tier1_catalog_not_a_stack(manifest):
+    spec = next(s for s in manifest if s["name"] == "catena-postgres")
+    assert spec["swarm_service"] == "catena-postgres"
+    assert "compose_name" not in spec
+    assert spec["upstream"]["source"] == "dockerhub"
+    assert spec["upstream"]["repo"] == "library/postgres"
+    assert spec["upstream"]["scheme"] == "partial_line"
+
+
+def test_catena_postgres_admits_only_trixie_minors_of_its_major(manifest):
+    pattern = next(s for s in manifest
+                   if s["name"] == "catena-postgres")["upstream"]["tag_pattern"]
+    for tag in ("18.6-trixie", "18.7-trixie", "18.10-trixie"):
+        assert re.fullmatch(pattern, tag), tag
+    for tag in ("19.0-trixie", "18.6", "18.6-alpine", "18.6-bookworm", "18",
+                "18.7.1-trixie", "18.6-trixie-slim", "latest"):
+        assert not re.fullmatch(pattern, tag), tag
 
 
 def test_every_swarm_service_name_is_fully_resolved(manifest):
@@ -84,7 +135,7 @@ def test_the_stack_deployed_services_use_the_swarm_naming_convention(manifest):
 
 
 def test_the_monitoring_plane_is_covered(manifest):
-    """The services that fell out of discovery when they left Portainer."""
+    """The services of the monitoring plane."""
     names = {s["name"] for s in manifest}
     for expected in ("gatus", "healthchecks", "beszel-hub", "beszel-agent",
                      "keycloak"):
@@ -108,6 +159,12 @@ def test_the_declared_tag_patterns_match_the_pins_the_converge_ships(manifest):
     candidate is filtered out and the bump silently never happens."""
     v = _role_vars()
     for name, tag in (
+        # The tier-1 catalog's PostgresImage (catena-admin
+        # payload/engines/tier1/catalog.go) is not a variable of this tree.
+        ("catena-postgres", "18.6-trixie"),
+        # cloudflared's default is the tunnel engine's defaultImage (catena-admin
+        # payload/cmd/catena-cloudflared-sync/main.go).
+        ("cloudflared", "2026.9.1"),
         ("gatus", v["gatus_image_tag"]),
         ("healthchecks", v["healthchecks_image_tag"]),
         ("beszel-hub", v["beszel_image_tag"]),
@@ -124,7 +181,7 @@ def test_the_declared_tag_patterns_match_the_pins_the_converge_ships(manifest):
 
 def test_stack_deployed_entries_declare_their_stack(manifest):
     """The engine builds its client-walk skip set from compose_name. Without
-    it, a stack Portainer can see would be bumped twice: once as infra and once
+    it, a stack of Catena's own would be bumped twice: once as infra and once
     as if a client had chosen it."""
     for spec in manifest:
         if "_" not in spec["swarm_service"]:
@@ -159,9 +216,7 @@ def test_nothing_carries_a_copy_of_how_the_service_was_built(manifest):
 def test_the_exclusions_are_written_down():
     """Each absent service is absent for a reason. An undocumented gap reads as
     an oversight and gets 'fixed' by adding a service that must not be there --
-    postgres, whose version move is a migration, or cloudflared, whose failure
-    removes the surface you would roll it back from."""
+    the panel, which cannot roll itself with a plain service update."""
     header = MANIFEST.read_text().split("#}")[0]
-    for name in ("catena-postgres", "cloudflared", "catena-admin",
-                 "oauth2-proxy", "clamav"):
+    for name in ("catena-admin", "oauth2-proxy", "beszel-hc-shim"):
         assert name in header, f"{name} is absent from the manifest silently"

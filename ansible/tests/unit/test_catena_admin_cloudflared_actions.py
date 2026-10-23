@@ -2,13 +2,23 @@
 side: the sshd AcceptEnv entry carrying the candidate token, a converge that
 declares no Cloudflare action (catena-admin payload/actions.d/20-catena.sh
 holds them), the host payload install in reconcile/roles/payload, and the
-ee-install-engines wording.
+ee-install-engines dispatch.
 
 Run: uv run pytest tests/unit/test_catena_admin_cloudflared_actions.py
 """
 from __future__ import annotations
 
-from ansible_tree import GROUP_VARS, PANEL_HOST_TASKS as HOST, panel_vars, role_dir
+import os
+import subprocess
+import sys
+
+import jinja2
+
+from ansible_tree import ANSIBLE, GROUP_VARS, panel_vars, role_dir
+
+sys.path.insert(0, str(ANSIBLE / "helpers"))
+
+import dispatch_path  # noqa: E402
 
 _ROLE = role_dir("catena-admin")
 DEFAULTS = _ROLE / "defaults" / "main.yml"
@@ -78,11 +88,13 @@ def test_sshd_acceptenv_lists_the_dispatch_env_vars():
 
     cloudflared-check reads the candidate token out of the SSH environment
     rather than argv, so it never reaches $SSH_ORIGINAL_COMMAND or any process
-    log. AcceptEnv and the sudoers env_keep list are converge-owned permanently:
-    a drop-in may use a name that is already on them and can never add one."""
-    text = HOST.read_text()
-    assert "CATENA_CF_CANDIDATE_TOKEN" in text
-    assert "X_FORWARDED_EMAIL" in text
+    log. AcceptEnv and the sudoers env_keep list are converge-owned permanently
+    (reconcile/roles/dispatch_path): a drop-in may use a name that is already on
+    them and can never add one."""
+    accept = dispatch_path.acceptenv_rule(
+        "runner", panel_vars()["catena_admin_dispatch_env_passthrough"])
+    assert "CATENA_CF_CANDIDATE_TOKEN" in accept
+    assert "X_FORWARDED_EMAIL" in accept
 
 
 def test_the_passthrough_list_still_carries_the_candidate_token():
@@ -94,38 +106,56 @@ def test_the_passthrough_list_still_carries_the_candidate_token():
 
 
 # --- unconditional host payload install -------------------------------------
-def test_ee_install_engines_dispatches_the_host_verb():
+def _press_ee_install_engines(tmp_path, systemd_run: str):
+    """Run the rendered ee-install-engines arm under the runner's strict mode,
+    with a systemd-run that records its argv and then runs `systemd_run`."""
     d = panel_vars()
-    ee = _by_name(d["catena_admin_ee_reserved_actions"])
-    assert "ee-install-engines" in ee
-    assert "catena_admin_stack_update_bin" in ee["ee-install-engines"]
-    assert "install-payload" in ee["ee-install-engines"]
+    shell = jinja2.Template(
+        _by_name(d["catena_admin_ee_reserved_actions"])["ee-install-engines"]
+    ).render(catena_admin_stack_update_bin=d["catena_admin_stack_update_bin"])
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_file = tmp_path / "argv"
+    stub = bindir / "systemd-run"
+    stub.write_text(f'#!/bin/bash\nprintf "%s\\n" "$@" > "{argv_file}"\n{systemd_run}\n')
+    stub.chmod(0o755)
+    r = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n" + shell],
+        capture_output=True, text=True, timeout=30,
+        env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
+    )
+    argv = argv_file.read_text().splitlines() if argv_file.exists() else []
+    return r, argv
 
 
-def test_no_root_dispatch_runs_out_of_the_container_writable_mirror():
-    """{{ catena_admin_ee_payload_dir }} is chowned to the container's uid so
-    the shell's startup mirror can write it. A root dispatch pointed at a
-    script inside it makes the panel -- built with no root and no docker socket
-    for exactly this reason -- the thing choosing what root executes.
-
-    The same property on the drop-in side is asserted by catena-admin
-    payload/actions.d/actions_test.go, against the files that carry those
-    commands now."""
-    d = panel_vars()
-    mirror = d["catena_admin_ee_payload_dir"]
-    for name, shell in _by_name(d["catena_admin_ee_reserved_actions"]).items():
-        assert "catena_admin_ee_payload_installer" not in shell, (
-            f"{name} runs the installer out of the mirror")
-        assert mirror not in shell, f"{name} reads root input from {mirror}"
+def test_ee_install_engines_runs_the_verb_detached_under_the_host_lock(tmp_path):
+    """The self-update and the host's own converge empty and refill the same
+    stage directory and rotate the payload manifest under /run/catena.lock.
+    flock sits inside the unit, around the verb: around systemd-run it would
+    let go of the lock as soon as the unit started."""
+    r, argv = _press_ee_install_engines(tmp_path, "exit 0")
+    assert r.returncode == 0, r.stderr
+    assert argv == [
+        "--unit", "catena-install-payload", "--collect",
+        "/usr/bin/flock", "-w", "3600", "/run/catena.lock",
+        panel_vars()["catena_admin_stack_update_bin"], "install-payload",
+    ]
+    assert "started in the background" in r.stdout
 
 
-def test_deploy_no_longer_owns_the_payload_install():
-    """The install moved to reconcile/roles/payload, four roles ahead of this one.
+def test_ee_install_engines_reports_no_start_when_systemd_run_refuses(tmp_path):
+    """A second press while the first unit runs is refused by systemd-run, the
+    unit name being in use. The button then fails rather than reporting an
+    install that never started."""
+    r, _ = _press_ee_install_engines(tmp_path, 'echo "unit exists" >&2; exit 1')
+    assert r.returncode != 0
+    assert "started" not in r.stdout
 
-    Leaving a second installer here would reinstall the engines from the
-    container's mirrored copy after reconcile/roles/payload already installed them from
-    the image -- two writers racing over /usr/local/bin, and the loser is
-    whichever image is staler.
+
+def test_deploy_does_not_own_the_payload_install():
+    """reconcile/roles/payload installs the engines, earlier in the converge,
+    out of the image. A second installer here would be two writers racing over
+    /usr/local/bin, and the loser is whichever image is staler.
     """
     text = DEPLOY.read_text()
     assert "install the host engine payload" not in text
@@ -136,9 +166,3 @@ def test_payload_role_owns_the_install():
     text = (PAYLOAD_ROLE / "tasks" / "main.yml").read_text()
     assert "install-ee-payload.sh" in text
     assert "catena_payload_marker" in text
-
-
-def test_defaults_expose_payload_paths():
-    d = panel_vars()
-    assert d["catena_admin_ee_payload_dir"].endswith("/ee-payload")
-    assert d["catena_admin_ee_payload_installer"].endswith("install-ee-payload.sh")

@@ -1,19 +1,19 @@
 ---
 # ops_user and ops_ssh_public_keys are NOT declared here.
-# playbooks/group_vars/all/main.yml declares each one from a dotenv lookup that
-# already carries its default inline, group_vars is playbook-adjacent so it
-# loads on every path this role runs on, and role defaults are Ansible's lowest
-# precedence, so a copy here could never apply.
+# playbooks/group_vars/all/main.yml declares both, group_vars is
+# playbook-adjacent so it loads on every path this role runs on, and role
+# defaults are Ansible's lowest precedence, so a copy here could never apply.
 
 # Every user that sshd is allowed to let in. OpenSSH's AllowUsers is
 # NOT additive across sshd_config.d drop-ins (first-match wins), so the
 # full list lives here and is rendered by templates/sshd_hardening.conf.j2
 # into a single `AllowUsers` line in /etc/ssh/sshd_config.d/10-catena.conf.
-# Infrastructure-owned accounts (catena-admin-runner) default into the
-# list here because they're effectively always present on catena hosts;
-# a site using common WITHOUT catena-admin still ends up with a
+# Infrastructure-owned accounts (catena-admin-runner, catena-migrate) default
+# into the list here because they're effectively always present on catena
+# hosts; a site using common WITHOUT catena-admin still ends up with a
 # harmless no-op entry (sshd allows the name, user doesn't exist).
 ssh_allowed_users:
   - "{{ ops_user }}"
   - "{{ catena_panel_user }}"
   - "{{ catena_admin_runner_user | default('catena-admin-runner') }}"
+  - "{{ catena_migrate_user }}"

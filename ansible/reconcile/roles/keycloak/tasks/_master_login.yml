@@ -1,0 +1,40 @@
+---
+# Signs kcadm in to the master realm as the automation client
+# (keycloak_automation_client_id) in the Keycloak container running now, for
+# the kcadm calls that follow, and registers _kc_master_login, whose stdout is
+# that container's name. Every master-realm sign-in the converge makes is this
+# one, or keycloak-config-cli's (_config_cli_import.yml) with the same client;
+# realm_bootstrap.yml creates the client.
+#
+# The secret reaches kcadm as KC_CLI_CLIENT_SECRET, read from stdin and
+# forwarded to the container by name, never an argv; kcadm reads it when it is
+# given a client and no secret (BaseConfigCredentialsCmd, Keycloak 26.6.7).
+#
+# Re-resolved per attempt: a swarm task id changes on every reschedule, and the
+# retries exist to span that window and a server still starting.
+#
+#   kc_master_login_optional  true leaves a failed sign-in to the caller
+- name: "Keycloak: kcadm signs in to the master realm as the automation client"
+  ansible.builtin.shell: |
+    set -o pipefail
+    IFS= read -r KC_CLI_CLIENT_SECRET
+    export KC_CLI_CLIENT_SECRET
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
+    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
+    docker exec -e KC_CLI_CLIENT_SECRET "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
+      --server "http://localhost:{{ keycloak_internal_port }}" \
+      --realm master \
+      --client {{ keycloak_automation_client_id | quote }} \
+      && echo "$ct"
+  args:
+    executable: /bin/bash
+    stdin: "{{ keycloak_automation_client_secret }}"
+  register: _kc_master_login
+  changed_when: false
+  # Retries that run out fail the task whatever failed_when says, so an
+  # optional sign-in ignores the error and the caller reads the rc.
+  ignore_errors: "{{ kc_master_login_optional | default(false) | bool }}"
+  retries: 15
+  delay: 4
+  until: _kc_master_login.rc == 0
+  no_log: true

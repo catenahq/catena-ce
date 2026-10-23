@@ -5,11 +5,13 @@ the whole security boundary of the forced command: the runner user's
 authorized_keys pins one command, and the only thing between
 $SSH_ORIGINAL_COMMAND and root is that case statement.
 
-It now offers the name to the payload's drop-in directory before refusing it,
+It offers the name to the payload's drop-in directory before refusing it,
 which is what lets an action ship with a panel image instead of waiting for the
-next converge. Everything below is about the edges of that: base-first
+next converge. Most of what follows is about the edges of that: base-first
 precedence, a failure that ran versus a name that does not exist, and the
-ownership rules on a file root is about to source.
+ownership rules on a file root is about to source. The rest is the request's
+payload, which rides CATENA_DISPATCH_PAYLOAD because sudo logs the command line
+it runs.
 
 Rendered with jinja2 and executed with bash, rather than asserted as text. The
 properties here are all runtime behaviour under `set -euo pipefail`, and a test
@@ -28,9 +30,19 @@ from pathlib import Path
 import jinja2
 import pytest
 
+from ansible_tree import panel_vars
+
 ANSIBLE = Path(__file__).resolve().parents[2]
 TEMPLATE = ANSIBLE / "reconcile" / "roles" / "catena-admin" / "templates" / "admin-actions.j2"
 RUNNER = ANSIBLE / "scripts" / "catena-admin-runner.sh"
+
+# The variable a request's payload rides: the panel's SSH runner sets it
+# (catena-admin shell/actions/dispatcher.go PayloadEnv) and the dispatcher reads
+# it.
+PAYLOAD_ENV = "CATENA_DISPATCH_PAYLOAD"
+
+# Where the runner sources its dispatch table; the environment cannot move it.
+FIXED_TABLE = "ACTIONS_FILE=/etc/catena/admin-actions"
 
 # One CE arm, enough to prove base-first precedence and that the table still
 # dispatches at all.
@@ -57,17 +69,25 @@ def dispatch(tmp_path):
     actions_file.write_text(rendered)
 
     runner = tmp_path / "catena-admin-runner"
-    runner.write_text(RUNNER.read_text())
+    # The runner reads its table from one fixed path; the copy under test points
+    # at the rendered one.
+    text = RUNNER.read_text()
+    assert text.count(FIXED_TABLE) == 1
+    runner.write_text(text.replace(FIXED_TABLE, f"ACTIONS_FILE={actions_file}"))
     runner.chmod(0o755)
 
-    def run(action: str) -> subprocess.CompletedProcess:
-        env = dict(os.environ, CATENA_ADMIN_ACTIONS_FILE=str(actions_file))
+    def run(*argv: str, payload: str | None = None) -> subprocess.CompletedProcess:
+        env = dict(os.environ, CATENA_ADMIN_ACTIONS_FILE="/nonexistent")
+        env.pop(PAYLOAD_ENV, None)
+        if payload is not None:
+            env[PAYLOAD_ENV] = payload
         return subprocess.run(
-            ["bash", str(runner), action],
+            ["bash", str(runner), *argv],
             capture_output=True, text=True, env=env, timeout=30,
         )
 
     run.overlay = overlay  # type: ignore[attr-defined]
+    run.runner = runner  # type: ignore[attr-defined]
     return run
 
 
@@ -84,6 +104,18 @@ def test_a_known_action_dispatches(dispatch):
     r = dispatch("tailscale-status")
     assert r.returncode == 0, r.stderr
     assert "CE-WON" in r.stdout
+
+
+def test_the_environment_cannot_move_the_dispatch_table(dispatch, tmp_path):
+    """The runner sources its table as root, so a variable sudo or sshd let
+    through must never name another file."""
+    hostile = tmp_path / "hostile"
+    hostile.write_text("catena_admin_dispatch() { echo HOSTILE; }\n")
+    env = dict(os.environ, CATENA_ADMIN_ACTIONS_FILE=str(hostile))
+    r = subprocess.run(["bash", str(dispatch.runner), "tailscale-status"],
+                       capture_output=True, text=True, env=env, timeout=30)
+    assert "HOSTILE" not in r.stdout
+    assert "CE-WON" in r.stdout, r.stderr
 
 
 def test_an_unknown_action_is_refused_with_the_allowed_list(dispatch):
@@ -235,20 +267,110 @@ def test_an_absent_overlay_directory_changes_nothing(dispatch, tmp_path):
     assert unknown.returncode != 0 and "unknown action" in unknown.stderr
 
 
-def test_the_payload_still_gets_the_payload_env_var(dispatch):
-    """$PAYLOAD is how every dispatched request carries its argument. A drop-in
-    that could not see it would be limited to actions with no input."""
-    _drop_in(dispatch.overlay, "10-echo.sh", """
+_ECHO_DROP_IN = """
 catena_admin_dispatch_payload() {
     case "$1" in
         panel-echo) printf 'GOT:%s\\n' "$PAYLOAD" ;;
         *) return 127 ;;
     esac
 }
-""")
-    out = dispatch("panel-echo hello")
+"""
+
+
+def test_the_payload_still_gets_the_payload_env_var(dispatch):
+    """$PAYLOAD is how every dispatched request carries its argument. A drop-in
+    that could not see it would be limited to actions with no input."""
+    _drop_in(dispatch.overlay, "10-echo.sh", _ECHO_DROP_IN)
+    out = dispatch("panel-echo", payload="aGVsbG8gd29ybGQ=")
     assert out.returncode == 0, out.stderr
-    assert "GOT:hello" in out.stdout
+    assert "GOT:aGVsbG8gd29ybGQ=" in out.stdout
+
+
+def test_an_action_with_no_payload_variable_reads_an_empty_payload(dispatch):
+    """A bare action arrives without the variable, and the runner runs under
+    `set -u`: reading it bare would kill the dispatch instead of running it."""
+    _drop_in(dispatch.overlay, "10-echo.sh", _ECHO_DROP_IN)
+    out = dispatch("panel-echo")
+    assert out.returncode == 0, out.stderr
+    assert "GOT:\n" in out.stdout
+
+
+# --- the payload stays off the command line ------------------------------------
+
+@pytest.mark.parametrize("argv", [
+    ("panel-echo c2VjcmV0LWtleQ==",),
+    ("panel-echo\tc2VjcmV0LWtleQ==",),
+    ("panel-echo\nc2VjcmV0LWtleQ==",),
+    ("panel-echo", "c2VjcmV0LWtleQ=="),
+], ids=["space", "tab", "newline", "second-argument"])
+def test_a_payload_on_the_command_line_is_refused_before_anything_runs(dispatch, argv):
+    """sudo logs the command line it runs and the process table shows it, so a
+    secret there is a secret in the journal. Refusing it is what keeps a panel
+    from ever putting one back: a request that tried would fail, not leak
+    quietly. The refusal names the action and never the payload."""
+    _drop_in(dispatch.overlay, "10-echo.sh", _ECHO_DROP_IN)
+    r = dispatch(*argv)
+    assert r.returncode == 2, (r.returncode, r.stderr)
+    assert r.stdout.strip() == "", "the arm ran with a payload off the command line"
+    assert "refusing 'panel-echo'" in r.stderr
+    assert PAYLOAD_ENV in r.stderr, "the refusal does not say where the payload goes"
+    assert "c2VjcmV0LWtleQ==" not in r.stderr, "the refusal echoed the payload"
+
+
+def test_a_refused_command_line_ignores_the_payload_variable(dispatch):
+    """The variable being set does not make a command-line payload acceptable."""
+    _drop_in(dispatch.overlay, "10-echo.sh", _ECHO_DROP_IN)
+    r = dispatch("panel-echo c2VjcmV0LWtleQ==", payload="aGVsbG8=")
+    assert r.returncode == 2, r.stderr
+    assert r.stdout.strip() == ""
+
+
+def test_the_payload_variable_crosses_both_hops():
+    """sshd's AcceptEnv and the sudoers env_keep both render from the
+    passthrough list (test_catena_admin_backup_endpoint_actions.py holds that),
+    so the name the dispatcher reads has to be on it, or every payload arrives
+    empty and every write reports a malformed request."""
+    assert PAYLOAD_ENV in panel_vars()["catena_admin_dispatch_env_passthrough"]
+    assert f'"${{{PAYLOAD_ENV}:-}}"' in RUNNER.read_text(), (
+        f"the dispatcher does not read $PAYLOAD from {PAYLOAD_ENV}")
+
+
+# --- the dispatch path's proof ------------------------------------------------
+
+def _proof(runner: Path, *argv: str, **env: str) -> subprocess.CompletedProcess:
+    full = {k: v for k, v in os.environ.items() if k not in (PAYLOAD_ENV, "X_FORWARDED_EMAIL")}
+    full.update(env)
+    return subprocess.run(["bash", str(runner), "dispatch-path-proof", *argv],
+                          capture_output=True, text=True, env=full, timeout=30)
+
+
+def test_the_proof_names_its_generation_and_what_arrived_never_a_value(dispatch):
+    """helpers/dispatch_path.py sets every passthrough variable to the
+    payload's value and reads back which arrived: the generation answering is
+    the directory the dispatcher lives in, and a variable is named only when it
+    holds that value."""
+    r = _proof(dispatch.runner, **{PAYLOAD_ENV: "f00dfeed", "X_FORWARDED_EMAIL": "f00dfeed",
+                                   "CATENA_CF_CANDIDATE_TOKEN": "another"})
+    assert r.returncode == 0, r.stderr
+    lines = r.stdout.splitlines()
+    assert lines[0] == f"dispatch-path-proof {dispatch.runner.parent.name}"
+    assert sorted(lines[1:]) == [f"arrived {PAYLOAD_ENV}", "arrived X_FORWARDED_EMAIL"]
+    assert "f00dfeed" not in r.stdout and "another" not in r.stdout
+
+
+def test_the_proof_answers_before_the_dispatch_table(dispatch):
+    """A first install proves its path before reconcile/roles/catena-admin has
+    written the dispatch table, so the proof cannot depend on it."""
+    (dispatch.runner.parent / "admin-actions").unlink()
+    r = _proof(dispatch.runner)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == [f"dispatch-path-proof {dispatch.runner.parent.name}"]
+
+
+def test_the_proof_with_a_payload_on_the_command_line_is_refused(dispatch):
+    r = _proof(dispatch.runner, "c2VjcmV0")
+    assert r.returncode == 2
+    assert r.stdout == "" and "c2VjcmV0" not in r.stderr
 
 
 def test_the_overlay_directory_is_created_root_owned_by_the_converge():

@@ -155,9 +155,9 @@
           Is tailscale connected?
 
     # ─── Step 2: ADD new rules (nothing is removed yet) ──────────────────
-    # The ufw CLI rather than community.general.ufw: the panel runs this file
-    # on the host, where ansible-core carries no collections. ufw skips a rule
-    # it already has ("Skipping adding existing rule"), so a rerun is a no-op.
+    # The ufw CLI: the panel runs this file on the host, where ansible-core
+    # carries no collections. ufw skips a rule it already has ("Skipping
+    # adding existing rule"), so a rerun is a no-op.
     - name: Allow SSH on tailscale0
       ansible.builtin.command:
         # "on" quoted: YAML 1.1 reads a bare on as the boolean true.

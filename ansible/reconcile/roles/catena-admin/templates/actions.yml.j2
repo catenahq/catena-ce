@@ -48,7 +48,8 @@ actions:
     # the command. Single source of truth for sourcing the env from
     # outside the systemd-launched backup scripts; see catena-admin
     # payload/lanes/catena-restic-env.sh and its restic_env_pattern_test.go.
-    shell: "catena-restic-env restic snapshots --latest 10"
+    # --no-lock: a listing writes nothing into the repository it reads.
+    shell: "catena-restic-env restic snapshots --no-lock --latest 10"
 
   - name: backup-coverage-check
     title: "Check backup coverage"
@@ -72,7 +73,7 @@ actions:
     shell: "journalctl -u catena-backup.service -n 100 --no-pager"
 
   # Per-app point-in-time recovery via FUSE. When in-app trash +
-  # soft-delete are exhausted (e.g. Nextcloud trash purged after 30
+  # soft-delete are exhausted (e.g. an application's trash purged after 30
   # days), the operator mounts the restic repo read-only at
   # /mnt/restic-browse, copies the single file or directory back out
   # to /srv/catena/docker/volumes/<service>/, and unmounts. Auto-unmount
@@ -102,82 +103,6 @@ actions:
     timeout: 10
     shell: "echo '=== mountpoint ==='; mountpoint /mnt/restic-browse 2>&1 || true; echo; echo '=== top-level entries ==='; ls /mnt/restic-browse 2>&1 | head -10 || true; echo; echo '=== service unit ==='; systemctl status catena-restic-browse.service --no-pager -n 5 2>&1 | head -10 || true; echo; echo '=== auto-unmount timer ==='; systemctl status catena-restic-browse-stop.timer --no-pager -n 5 2>&1 | head -10 || true"
 
-  # ─── Initial apps setup ──────────────────────────────────────────────
-  # One-shot wiring buttons that finish provisioning a Portainer-deployed
-  # template the first time it comes up. A deploy is not followed by a
-  # converge (that runs at install, from the panel, or on the scheduled
-  # converge lane), so these are the on-demand path after `Deploy` in the
-  # Portainer UI. All buttons in this section are idempotent: re-running
-  # after a secret rotation, image bump, or redeploy converges to the same
-  # state.
-
-  - name: wire-nextcloud-oidc
-    title: "Wire Nextcloud OIDC"
-    title_fr: "Câbler l'OIDC pour Nextcloud"
-    category: "Initial apps setup"
-    icon: "&#128273;" # 🔑
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-oidc"
-
-  - name: wire-nextcloud-talk-hpb
-    title: "Wire Nextcloud Talk + HPB"
-    title_fr: "Câbler Nextcloud Talk + HPB"
-    category: "Initial apps setup"
-    icon: "&#128222;" # 📞
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-talk-hpb"
-
-  # Office editors (Collabora / OnlyOffice): one script, one button per
-  # editor, mutually reversing (scripts/wire-nextcloud-office.sh).
-  - name: wire-nextcloud-collabora
-    title: "Wire Nextcloud Collabora (LibreOffice editor)"
-    title_fr: "Câbler Collabora pour Nextcloud (éditeur LibreOffice)"
-    category: "Initial apps setup"
-    icon: "&#128221;" # 📝
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-office collabora"
-
-  - name: wire-nextcloud-onlyoffice
-    title: "Wire Nextcloud OnlyOffice (MS Office editor)"
-    title_fr: "Câbler OnlyOffice pour Nextcloud (éditeur MS Office)"
-    category: "Initial apps setup"
-    icon: "&#128196;" # 📄
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-office onlyoffice"
-
-  # Nextcloud Mail app -- users configure their own IMAP/SMTP/CalDAV/
-  # CardDAV credentials in the Mail UI. Idempotent: re-running is a no-op.
-  - name: wire-nextcloud-mail
-    title: "Wire Nextcloud Mail"
-    title_fr: "Câbler Mail pour Nextcloud"
-    category: "Initial apps setup"
-    icon: "&#9993;&#65039;" # ✉️
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-mail"
-
-  # Nextcloud antivirus -> shared clamd. Points files_antivirus (Daemon
-  # mode) at the shared clamd on the catena-clamav network (the same
-  # scanner the mail server uses). Idempotent: every occ config:set is
-  # an upsert, safe to re-run after a Nextcloud redeploy.
-  - name: wire-nextcloud-antivirus
-    title: "Wire Nextcloud Antivirus (shared ClamAV)"
-    title_fr: "Câbler l'antivirus Nextcloud (ClamAV partagé)"
-    category: "Initial apps setup"
-    icon: "&#129516;" # 🧪
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-antivirus"
-
-  # Rocket.Chat -> bundled Jitsi conferencing wiring. Calls RC's
-  # settings REST API as the bootstrap admin to flip Jitsi_Enabled
-  # + Jitsi_Domain. Idempotent.
-  - name: wire-rocketchat-jitsi
-    title: "Wire Rocket.Chat Jitsi"
-    title_fr: "Câbler Jitsi pour Rocket.Chat"
-    category: "Initial apps setup"
-    icon: "&#127909;" # 🎥
-    timeout: 60
-    shell: "/usr/local/bin/catena-wire-rocketchat-jitsi"
-
   # ─── Ops ─────────────────────────────────────────────────────────────
   # Universal catch-all; always visible. Diagnostics + restart-button
   # primitives + status views that do not fit Backups / Initial apps setup.
@@ -188,14 +113,6 @@ actions:
     icon: "&#128260;" # 🔄
     timeout: 30
     shell: "docker service update --force cloudflared"
-
-  - name: portainer-restart
-    title: "Restart Portainer"
-    title_fr: "Redémarrer Portainer"
-    category: Ops
-    icon: "&#128260;" # 🔄
-    timeout: 60
-    shell: "docker service update --force catena-portainer"
 
   - name: disk-usage
     title: "Disk breakdown"
@@ -242,16 +159,28 @@ actions:
     title_fr: "Synchroniser tout (apps + moniteurs)"
     category: Ops
     icon: "&#128257;" # 🔁
-    timeout: 45
+    timeout: 90
     # Single button, non-destructive by design -- safe to spam.
     #
-    # Covers both sync paths operators actually need after a Portainer
-    # stack change:
+    # Covers both sync paths operators actually need after an application
+    # change:
     #   - dashboard-sync: Traefik routes + SSO-provider CRUD
     #     (groups/providers/apps/bindings). The Apps-tab tile grid is
-    #     rendered live from the Portainer API, so it does not need a
+    #     rendered live from the app intent, so it does not need a
     #     sync step.
-    #   - gatus-sync: Gatus endpoint catalog + restart Gatus if changed.
+    #   - gatus-sync: Gatus endpoint catalog, which Gatus reads again
+    #     within about 30 seconds.
+    #
+    # A run already in flight (systemd joins a start of an active oneshot)
+    # may have begun before the change this press is for, so each sync
+    # first waits for that run to end and then starts a fresh one; the log
+    # shown is the journal of that fresh run alone, selected by the
+    # invocation id of the unit after its start returns.
+    #
+    # Both syncs change the server, so the press holds /run/catena.lock (fd 9)
+    # for its whole run, as every job that changes the server does. While
+    # another job holds it, `flock -n -E 75` answers 75 at once and the log
+    # says the server is busy.
     #
     # Backgrounded + `wait` gives the union of runtimes (~10-15s), not
     # the sum. Dispatcher runs with `set -euo pipefail`, so capturing
@@ -259,11 +188,32 @@ actions:
     # `wait; RC=$?` aborts on errexit before the assignment.
     shell: |
       set +e
-      systemctl start --wait catena-dashboard-sync.service & PID_DASH=$!
-      systemctl start --wait gatus-sync.service & PID_GATUS=$!
+      exec 9>/run/catena.lock
+      /usr/bin/flock -n -E 75 9
+      if [ $? -eq 75 ]; then
+        echo "The server is busy with another job, such as a backup or an update. Nothing was synchronised; try again in a moment."
+        echo "Le serveur est occupé par une autre tâche, comme une sauvegarde ou une mise à jour. Rien n'a été synchronisé ; réessayez dans un instant."
+        exit 75
+      fi
+      LOGDIR=$(mktemp -d)
+      sync_fresh() {
+        while [ "$(systemctl is-active "$1")" = activating ]; do sleep 1; done
+        systemctl start --wait "$1"
+        rc=$?
+        id=$(systemctl show -p InvocationID --value "$1")
+        if [ -n "$id" ]; then
+          journalctl "_SYSTEMD_INVOCATION_ID=$id" --no-pager -n 80 > "$LOGDIR/$1" 2>&1
+        else
+          journalctl -u "$1" --no-pager -n 20 > "$LOGDIR/$1" 2>&1
+        fi
+        return $rc
+      }
+      sync_fresh catena-dashboard-sync.service & PID_DASH=$!
+      sync_fresh gatus-sync.service & PID_GATUS=$!
       wait "$PID_DASH"; RC_DASH=$?
       wait "$PID_GATUS"; RC_GATUS=$?
-      journalctl -u catena-dashboard-sync.service -u gatus-sync.service --since '60 seconds ago' --no-pager -n 80
+      cat "$LOGDIR/catena-dashboard-sync.service" "$LOGDIR/gatus-sync.service"
+      rm -rf "$LOGDIR"
       echo
       echo "exit codes: dashboard-sync=$RC_DASH gatus-sync=$RC_GATUS"
       [ "$RC_DASH" -eq 0 ] && [ "$RC_GATUS" -eq 0 ]

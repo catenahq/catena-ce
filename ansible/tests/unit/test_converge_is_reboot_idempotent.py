@@ -1,8 +1,8 @@
 """A second converge after a reboot must change nothing.
 
 Both defects here reported `changed` on a converge that had nothing to do,
-which is worse than noise: rerunning `catena-cli install` is the operation a self-hoster
-re-runs after an edit, and a converge that always reports work done is one
+which is worse than noise: rerunning `catena-installer install` is the operation a
+self-hoster re-runs after an edit, and a converge that always reports work done is one
 nobody can read for the work it actually did.
 
   - /etc/hosts. Provider images ship cloud-init `manage_etc_hosts: True`,
@@ -184,6 +184,5 @@ def test_the_pebble_host_mapping_regexp_matches_the_line_it_writes():
     assert not re.search(pattern, "10.0.0.1 pebble.example.test"), (
         f"{rel}: {pattern!r} is too loose"
     )
-    for cert in ("reconcile/roles/coturn/tasks/cert.yml",
-                 "reconcile/roles/infrastructure/tasks/mailserver_cert.yml"):
-        assert "tasks/acme_local_ca.yml" in (ANSIBLE / cert).read_text(encoding="utf-8"), cert
+    includer = "reconcile/roles/infrastructure/tasks/main.yml"
+    assert "tasks/acme_local_ca.yml" in (ANSIBLE / includer).read_text(encoding="utf-8"), includer

@@ -13,7 +13,7 @@ back. You need three ordinary programs: `restic` (reads the backup),
 | What | Where in the snapshot |
 | --- | --- |
 | Application data (files, uploads, mailboxes) | `{{ storage_mount_point }}/docker/volumes/<name>/_data/` |
-| Application definitions (the compose file for each app) | `{{ storage_mount_point }}/docker/volumes/{{ portainer_data_volume | default('catena-portainer-data') }}/_data/compose/<id>/` |
+| Application definitions (one folder per app: its compose file, its settings in `.env`, and where the file came from) | `{{ storage_mount_point }}/compose/<app-name>/` |
 | Database exports (one file per database, plain SQL) | `{{ storage_mount_point }}/backup-staging/pg/*.sql.gz` |
 | Files stored outside a volume | `{{ storage_mount_point }}/apps/` |
 | Your settings and passwords | `/etc/catena/config.json` |
@@ -28,7 +28,7 @@ format, and nothing requires our software to open.
   sources. Storing them would multiply the size of every backup for no
   benefit, since the exact versions are recorded in each compose file.
 - **Monitoring and antivirus history** (Gatus, Healthchecks, Beszel,
-  ClamAV signatures). These rebuild themselves within minutes and change
+  antivirus signatures). These rebuild themselves within minutes and change
   constantly, which would inflate every backup.
 - **The server's own SSH identity keys.** A rebuilt server generates its
   own. Carrying the old ones forward would be a security problem, not a
@@ -47,25 +47,42 @@ versions may expect a newer database format than your backup contains.
 
 ## 4. Restore one application by hand
 
-Extract just what that application needs:
+Extract just what that application needs: its folder and its data
+volumes. The folder is named after the application and holds its compose
+file (`docker-compose.yml`) and its settings (`.env`). Its volumes are
+named after it too (`<app-name>_<name>`).
 
 ```
 restic restore latest --target /recovered \
-    --include '{{ storage_mount_point }}/docker/volumes/<volume-name>' \
-    --include '{{ storage_mount_point }}/docker/volumes/{{ portainer_data_volume | default('catena-portainer-data') }}/_data/compose'
+    --include '{{ storage_mount_point }}/compose/<app-name>' \
+    --include '{{ storage_mount_point }}/docker/volumes/<volume-name>'
 ```
 
-Find the application's definition under the extracted `compose/`
-directory. Each subdirectory holds one application's compose file, and
-its settings alongside.
-
-Copy the data into place and start it:
+Copy the data into place:
 
 ```
 docker volume create <volume-name>
 cp -a /recovered{{ storage_mount_point }}/docker/volumes/<volume-name>/_data/. \
       /var/lib/docker/volumes/<volume-name>/_data/
-docker compose -f /recovered/.../docker-compose.yml up -d
+```
+
+On a machine that does not run Docker swarm yet, prepare it once. The
+applications run as swarm services on a network named `catena-network`,
+on a node labelled `catena.role=data`:
+
+```
+docker swarm init
+docker network create --driver overlay catena-network
+docker node update --label-add catena.role=data self
+```
+
+Start the application from its folder. The `.env` file holds its
+settings and passwords; the first line loads them for the next command:
+
+```
+cd /recovered{{ storage_mount_point }}/compose/<app-name>
+set -a; . ./.env; set +a
+docker stack deploy -c docker-compose.yml <app-name>
 ```
 
 The compose file names the exact image version that was running, so the

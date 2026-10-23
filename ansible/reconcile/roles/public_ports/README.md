@@ -4,7 +4,7 @@ Wires the declarative public-port registry into the host. The registry is the
 single applier for every port this server exposes outside the Cloudflare
 tunnel.
 
-Infra roles (coturn, portainer, infrastructure, catena-admin) drop a JSON
+Infra roles (infrastructure, catena-admin) drop a JSON
 fragment into `public_ports_fragment_dir` declaring their ports; app templates
 declare theirs through `vps.expose.*` compose labels, harvested live. The
 reconciler that merges both and applies ufw and DOCKER-USER rules ships in the

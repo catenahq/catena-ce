@@ -9,6 +9,8 @@ Run: uv run pytest tests/unit/test_beszel_oidc.py
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import re
 from pathlib import Path
 
@@ -250,14 +252,215 @@ def test_a_never_registering_agent_fails_the_converge():
         "the rules pass swallows its own failure")
 
 
-def test_both_passes_report_all_four_outcomes():
-    """changed_when counts ok-exists across the four steps. Counting three
-    would report a converge that newly created every alert rule as unchanged."""
+def test_both_passes_report_all_five_outcomes():
+    """changed_when counts the no-op outcomes across the five steps. Counting
+    fewer would report a converge that newly created every alert rule, or
+    wrote only a new mail password, as unchanged."""
     tasks = [t for t in yaml.safe_load(BESZEL_TASKS.read_text()) if isinstance(t, dict)]
     for fragment in ("seed the universal token", "default alert rules"):
         task = next(t for t in tasks if fragment in str(t.get("name", "")))
-        assert "ok-exists') < 4" in str(task["changed_when"]), (
+        assert "count('no-mail')) < 5" in str(task["changed_when"]), (
             f"{fragment}: changed_when is {task['changed_when']!r}")
+
+
+# ─── outgoing mail ─────────────────────────────────────────────────────────
+
+_MAIL = {"host": "smtp.resend.com", "port": "587", "user": "resend",
+         "password": "re_new", "sender": "no-reply@example.test"}
+
+
+def _hub_settings(enabled=True):
+    return {"smtp": {"enabled": enabled, "host": "smtp.resend.com", "port": 587,
+                     "username": "resend", "tls": False, "password": ""},
+            "meta": {"senderAddress": "no-reply@example.test", "senderName": "Catena"}}
+
+
+def _smtp_hub(settings):
+    writes = []
+
+    def fake_req(method, url, *, token=None, body=None):
+        if method == "GET":
+            return settings
+        writes.append(body)
+        return {}
+    return fake_req, writes
+
+
+def test_a_new_mail_password_alone_is_written(monkeypatch):
+    """PocketBase blanks the password in every read, so only the fingerprint
+    of the last write tells an unchanged password from a rotated one."""
+    fake, writes = _smtp_hub(_hub_settings())
+    monkeypatch.setattr(seed, "_req", fake)
+    state, fp = seed.configure_smtp("http://h", "tok", _MAIL, seed._fingerprint("re_old"))
+    assert state == "updated"
+    assert writes[0]["smtp"]["password"] == "re_new"
+    assert fp == seed._fingerprint("re_new")
+
+
+def test_an_unchanged_mail_password_writes_nothing(monkeypatch):
+    fake, writes = _smtp_hub(_hub_settings())
+    monkeypatch.setattr(seed, "_req", fake)
+    assert seed.configure_smtp("http://h", "tok", _MAIL, seed._fingerprint("re_new")) == (
+        "ok-exists", seed._fingerprint("re_new"))
+    assert writes == []
+
+
+def test_implicit_tls_follows_the_resolved_port(monkeypatch):
+    """PocketBase `tls: true` is implicit TLS; a hub on STARTTLS is moved over
+    when the relay becomes a port-465 one, and written once."""
+    assert seed._desired_smtp(_MAIL)["tls"] is False
+    assert seed._desired_smtp({**_MAIL, "port": "465", "implicit_tls": True})["tls"] is True
+
+    settings = _hub_settings()
+    writes = []
+
+    def fake(method, url, *, token=None, body=None):
+        if method == "PATCH":
+            writes.append(body)
+            settings["smtp"].update(body["smtp"])
+            settings["meta"].update(body.get("meta") or {})
+        return settings
+    monkeypatch.setattr(seed, "_req", fake)
+    mail = {**_MAIL, "port": "465", "implicit_tls": True}
+    state, fp = seed.configure_smtp("http://h", "tok", mail, seed._fingerprint("re_new"))
+    assert state == "updated"
+    assert writes[0]["smtp"]["tls"] is True and writes[0]["smtp"]["port"] == 465
+
+
+def test_mail_turned_off_turns_the_hubs_off(monkeypatch):
+    fake, writes = _smtp_hub(_hub_settings())
+    monkeypatch.setattr(seed, "_req", fake)
+    assert seed.configure_smtp("http://h", "tok", {"host": ""}, "x")[0] == "disabled"
+    assert writes == [{"smtp": {"enabled": False}}]
+
+    fake, writes = _smtp_hub(_hub_settings(enabled=False))
+    monkeypatch.setattr(seed, "_req", fake)
+    assert seed.configure_smtp("http://h", "tok", {"host": ""}, "")[0] == "no-mail"
+    assert writes == []
+
+
+# ─── an admin email change ──────────────────────────────────────────────────
+
+class _Hub:
+    """A hub whose superuser and users record hold `email` (None: a hub on an
+    empty volume, with the placeholder superuser and no user), and that
+    answers every other step as already seeded."""
+
+    def __init__(self, email):
+        self.superuser = email or "_@b.b"
+        self.user = email
+        self.claims = []
+
+    def req(self, method, url, *, token=None, body=None):
+        import urllib.error
+        import urllib.parse
+
+        if url.endswith("/api/beszel/first-run"):
+            return {"firstRun": self.user is None}
+        if url.endswith("/api/beszel/create-user"):
+            self.claims.append(body)
+            if self.user is not None or self.superuser != "_@b.b":
+                raise urllib.error.HTTPError(url, 403, "Forbidden", None, None)
+            self.superuser = self.user = body["email"]
+            return {"msg": "User created"}
+        if url.endswith("/_superusers/auth-with-password"):
+            if body["identity"] != self.superuser or body["password"] != "pw":
+                raise urllib.error.HTTPError(url, 400, "Failed to authenticate.", None, None)
+            return {"token": "su-token", "record": {"id": "su1"}}
+        if method == "PATCH" and "/_superusers/records/su1" in url:
+            self.superuser = body["email"]
+            return {}
+        if method == "PATCH" and "/users/records/u1" in url:
+            self.user = body["email"]
+            return {}
+        if "/users/records?" in url:
+            needle = urllib.parse.unquote(url).split("email~'", 1)[1].split("'")[0]
+            found = self.user is not None and needle.lower() in self.user.lower()
+            return {"items": [{"id": "u1", "email": self.user}] if found else []}
+        if "/universal_tokens/" in url:
+            return {"items": [{"id": "t1", "token": "tok"}]}
+        if url.endswith("/api/collections/users"):
+            return {"oauth2": {"enabled": True, "providers": [seed._desired_provider(_OIDC)]}}
+        if "/user_settings/" in url:
+            return {"items": [{"id": "s1", "settings": {"webhooks": ["hook"], "emails": []}}]}
+        if "/systems/" in url:
+            return {"items": [{"id": "sys1"}]}
+        if "/alerts/" in url:
+            return {"items": [{"name": r["name"]} for r in seed._DEFAULT_RULES]}
+        if url.endswith("/api/settings"):
+            return _hub_settings(enabled=False)
+        raise AssertionError(f"unexpected {method} {url}")
+
+
+_OIDC = {"client_id": "beszel", "client_secret": "s", "auth_url": "a",
+         "token_url": "t", "userinfo_url": "u", "display_name": "Catena"}
+
+
+def _run_main(monkeypatch, tmp_path, hub, email):
+    cfg = {
+        "hub_url": "http://h", "state_file": str(tmp_path / "state.json"),
+        "admin_email": email, "admin_password": "pw",
+        "universal_token": "tok", "oidc_client_id": "beszel",
+        "oidc_client_secret": "s", "oidc_auth_url": "a",
+        "oidc_token_url": "t", "oidc_userinfo_url": "u",
+        "oidc_display_name": "Catena", "alert_webhook": "hook",
+    }
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(cfg)))
+    monkeypatch.setattr(seed, "_req", hub.req)
+    return seed.main()
+
+
+def test_an_admin_email_change_moves_the_hubs_records(monkeypatch, tmp_path, capsys):
+    """The hub keeps the email it first started with; the seed signs in with
+    the one it recorded and moves both records to the new address."""
+    hub = _Hub("old@example.test")
+    assert _run_main(monkeypatch, tmp_path, hub, "old@example.test") == 0
+    assert _run_main(monkeypatch, tmp_path, hub, "new@example.test") == 0
+    assert hub.superuser == hub.user == "new@example.test"
+    out = capsys.readouterr().out.splitlines()[-1]
+    assert out.count("ok-exists") == 4 and "smtp: no-mail" in out
+    assert json.loads((tmp_path / "state.json").read_text())["admin_email"] == "new@example.test"
+    assert oct((tmp_path / "state.json").stat().st_mode & 0o777) == "0o600"
+
+
+def test_a_users_record_in_another_letter_case_is_moved_on_every_run(
+        monkeypatch, tmp_path):
+    """The superuser holds the lowercase address and the users record a
+    capitalised one: the run after the superuser moved still moves the
+    record."""
+    hub = _Hub("Admin@example.test")
+    hub.superuser = "admin@example.test"
+    assert _run_main(monkeypatch, tmp_path, hub, "admin@example.test") == 0
+    assert hub.superuser == hub.user == "admin@example.test"
+
+
+def test_an_unknown_admin_email_fails_loudly(monkeypatch, tmp_path):
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, tmp_path, _Hub("someone@example.test"), "new@example.test")
+
+
+def test_a_hub_with_no_user_is_claimed_as_the_admin(monkeypatch, tmp_path):
+    """The hub's spec carries no password: on an empty volume the seed makes
+    the admin its first user and superuser, then seeds it as usual."""
+    hub = _Hub(None)
+    assert _run_main(monkeypatch, tmp_path, hub, "admin@example.test") == 0
+    assert hub.claims == [{"email": "admin@example.test", "password": "pw"}]
+    assert hub.superuser == hub.user == "admin@example.test"
+
+
+def test_a_hub_that_has_a_user_is_not_claimed_again(monkeypatch, tmp_path):
+    hub = _Hub("admin@example.test")
+    assert _run_main(monkeypatch, tmp_path, hub, "admin@example.test") == 0
+    assert hub.claims == []
+
+
+def test_the_hub_spec_carries_no_credential():
+    """USER_EMAIL / USER_PASSWORD are what the hub's first boot would read; the
+    seed's claim replaces them, so neither is ever rendered."""
+    body = HUB_COMPOSE.read_text()
+    env_lines = [ln for ln in body.splitlines() if not ln.lstrip().startswith("#")]
+    assert not [ln for ln in env_lines if re.search(r"USER_(EMAIL|PASSWORD)\s*:", ln)]
+    assert "admin_password" not in "\n".join(env_lines)
 
 
 def test_an_operator_added_webhook_is_not_dropped():
@@ -278,7 +481,8 @@ def test_an_operator_added_webhook_is_not_dropped():
     import unittest.mock as _mock
     with _mock.patch.object(seed, "_req", fake_req):
         state = seed.configure_alert_delivery(
-            "http://h", "tok", "user1", "generic+http://shim:8080/notify")
+            "http://h", "tok", "user1", "generic+http://shim:8080/notify",
+            "admin@example.test")
     hooks = calls["body"]["settings"]["webhooks"]
     assert "ntfy://example.test/mine" in hooks, "a hand-added webhook was dropped"
     assert "generic+http://shim:8080/notify" in hooks
@@ -293,13 +497,61 @@ def test_an_already_present_webhook_is_not_rewritten():
     def fake_req(method, url, *, token=None, body=None):
         assert method == "GET", f"wrote on a no-op: {method} {url}"
         return {"items": [{"id": "us1", "settings": {
-            "webhooks": ["generic+http://shim:8080/notify"]}}]}
+            "webhooks": ["generic+http://shim:8080/notify"],
+            "emails": ["ops@example.test"]}}]}
 
     import unittest.mock as _mock
     with _mock.patch.object(seed, "_req", fake_req):
         assert seed.configure_alert_delivery(
             "http://h", "tok", "user1",
-            "generic+http://shim:8080/notify") == "ok-exists"
+            "generic+http://shim:8080/notify", "admin@example.test") == "ok-exists"
+
+
+def test_the_admin_gets_no_beszel_alert_mail():
+    """The admin's alerts reach them through Healthchecks; Beszel mailing the
+    same address would send two emails for one alert. Other addresses stay."""
+    calls = []
+
+    def fake_req(method, url, *, token=None, body=None):
+        if method == "GET":
+            return {"items": [{"id": "us1", "settings": {
+                "webhooks": ["generic+http://shim:8080/notify"],
+                "emails": ["Admin@Example.test", "ops@example.test"]}}]}
+        calls.append((method, body))
+        return {}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(seed, "_req", fake_req):
+        state = seed.configure_alert_delivery(
+            "http://h", "tok", "user1", "generic+http://shim:8080/notify",
+            "admin@example.test")
+    assert state == "updated"
+    [(method, body)] = calls
+    assert method == "PATCH"
+    assert body["settings"]["emails"] == ["ops@example.test"]
+    assert body["settings"]["webhooks"] == ["generic+http://shim:8080/notify"]
+
+
+def test_a_new_settings_record_is_written_again_after_beszel_creates_it():
+    """Beszel's create hook puts the account's own address into `emails`
+    whatever the POST carried, so the record is patched right after."""
+    calls = []
+
+    def fake_req(method, url, *, token=None, body=None):
+        if method == "GET":
+            return {"items": []}
+        calls.append((method, url, body))
+        return {"id": "us9"} if method == "POST" else {}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(seed, "_req", fake_req):
+        state = seed.configure_alert_delivery(
+            "http://h", "tok", "user1", "generic+http://shim:8080/notify",
+            "admin@example.test")
+    assert state == "configured"
+    assert [c[0] for c in calls] == ["POST", "PATCH"]
+    assert calls[1][1].endswith("/user_settings/records/us9")
+    assert calls[1][2]["settings"]["emails"] == []
 
 
 def test_the_default_rules_use_names_the_collection_accepts():

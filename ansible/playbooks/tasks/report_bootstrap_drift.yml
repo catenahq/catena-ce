@@ -5,7 +5,9 @@
 # modify anything that would remove your ability to run a reconcile", turned
 # into a list of literals. It is the right rule and this does not touch it:
 # nothing here writes, chmods or repairs. Repair is bootstrap's, which is
-# question one of the boundary.
+# question one of the boundary. The one reconcile-side writer of some of these
+# paths, the dispatch path's proven switch (reconcile/roles/dispatch_path),
+# reports what it wrote, and this leaves those paths out of what moved.
 #
 # What it removes is the silence. Without a reader, a change to the forced
 # command, the sudoers drop-in or the SSH trust path is invisible until an
@@ -96,7 +98,8 @@
   ansible.builtin.set_fact:
     _drift: >-
       {{ (_drift_previous.digests | default({}))
-         | bootstrap_drift(_drift_current) }}
+         | bootstrap_drift(_drift_current,
+                           (catena_dispatch_path | default({})).wrote | default([])) }}
 
 - name: "Bootstrap drift: first look at this host"
   ansible.builtin.debug:
@@ -124,8 +127,9 @@
   ansible.builtin.debug:
     msg: |
       Files boundary.yml puts on the operator's side of the line have changed
-      since the last converge. Nothing in a converge writes these, so a
-      converge did not do this.
+      since the last converge. This converge's dispatch path switch wrote none
+      of these and nothing else in a converge writes them, so a converge did
+      not do this.
 
         added:   {{ _drift.added | join(', ') | default('(none)', true) }}
         removed: {{ _drift.removed | join(', ') | default('(none)', true) }}

@@ -10,6 +10,9 @@ storage_mount_options: "defaults,noatime"
 # Subdirectory layout under storage_mount_point. Ownership + mode chosen for
 # the consumer:
 #   apps           -- per-app compose files, logs, bind-mounted app data.
+#   compose        -- one folder per catalog app, which catena-apps writes;
+#                    root-only, the mode catena-apps gives it. In the backup
+#                    set, so it exists before the first app does.
 #   backup-staging -- pg_dumpall output + restic scratch. Ops-owned.
 #   docker         -- Docker daemon data-root. Named volumes live under
 #                    docker/volumes/ and are backed up; image layers under
@@ -19,6 +22,7 @@ storage_mount_options: "defaults,noatime"
 #                    daemon fights the other on re-runs.
 storage_data_subdirs:
   - { name: apps, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0755" }
+  - { name: compose, owner: root, group: root, mode: "0700" }
   - { name: backup-staging, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0750" }
   - { name: docker, owner: root, group: root, mode: "0710" }
 

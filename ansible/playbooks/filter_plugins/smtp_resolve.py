@@ -6,21 +6,25 @@ supply their own host and port, and Resend also supplies its username, which is
 the literal string `resend` for every account. Everything else reads the fields
 as given.
 
-WHY A FILTER. Three consumers need this resolution -- reconcile/roles/keycloak
-defaults, reconcile/roles/infrastructure wordpress_plugins.yml, and beszel.yml --
-and all three call here, so Keycloak's password-reset mail and WordPress's
-contact form land on the same relay from the same stored config.
+WHY A FILTER. Two places resolve it -- reconcile/roles/keycloak defaults and
+reconcile/roles/infrastructure defaults (infrastructure_smtp, read by Beszel
+and Healthchecks) -- and both call here, so Keycloak's password-reset mail and
+the monitoring alerts land on the same relay, from the same sender, from the
+same stored config.
 test_smtp_resolution.py holds each consumer to it. Project rule: a non-trivial
 transform gets a filter plugin and a unit test, not a copy of an expression.
 
-The connection is always STARTTLS on the port given, never implicit TLS. That
-is what realm-vps.yaml.j2 renders (starttls true, ssl false), what PocketBase
-means by `tls: false` ("leaving the server to decide whether to upgrade"), and
-what both known providers expect on 587. A SMTP_USE_TLS key was collected and
-read by nothing for as long as it existed.
+The port decides the connection security. Port 465 is implicit TLS (TLS from
+the first byte, the submissions port of RFC 8314); every other port is
+STARTTLS. `implicit_tls` carries the answer to every consumer: Keycloak's
+`ssl`/`starttls`, Healthchecks' EMAIL_USE_SSL/EMAIL_USE_TLS, PocketBase's
+`tls` (true is implicit TLS, false leaves the server to decide whether to
+upgrade). Both known providers use 587.
 """
 
 from __future__ import annotations
+
+_IMPLICIT_TLS_PORT = 465
 
 # The providers whose host and port are constants. Anything outside this set,
 # `server` included, reads the stored host/port instead.
@@ -39,7 +43,8 @@ _ROUTED = frozenset(_KNOWN) | {"server"}
 
 def catena_smtp_resolve(provider, host="", port="", user="", sender="",
                         fallback_sender=""):
-    """Return {enabled, host, port, user, sender} for one stored config.
+    """Return {enabled, host, port, implicit_tls, user, sender} for one stored
+    config.
 
     `provider` is the piped value so the call reads as
     `cfg_smtp_provider | catena_smtp_resolve(...)`.
@@ -52,6 +57,7 @@ def catena_smtp_resolve(provider, host="", port="", user="", sender="",
             "enabled": False,
             "host": "",
             "port": 587,
+            "implicit_tls": False,
             "user": "",
             "sender": resolved_sender,
         }
@@ -62,6 +68,7 @@ def catena_smtp_resolve(provider, host="", port="", user="", sender="",
             "enabled": True,
             "host": known["host"],
             "port": known["port"],
+            "implicit_tls": known["port"] == _IMPLICIT_TLS_PORT,
             # None means "this provider does not supply one", not "blank".
             "user": known["user"] if known["user"] is not None
             else str(user or "").strip(),
@@ -79,6 +86,7 @@ def catena_smtp_resolve(provider, host="", port="", user="", sender="",
         "enabled": True,
         "host": str(host or "").strip(),
         "port": resolved_port,
+        "implicit_tls": resolved_port == _IMPLICIT_TLS_PORT,
         "user": str(user or "").strip(),
         "sender": resolved_sender,
     }

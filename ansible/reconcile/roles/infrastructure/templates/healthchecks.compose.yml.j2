@@ -8,6 +8,17 @@
 # SQLite lives under a named Docker volume -> gets backed up by restic
 # as part of /srv/catena/docker/volumes. Check definitions + ping history
 # survive a restore.
+#
+# x-catena declares the SQLite volume: a newer Healthchecks migrates it on its
+# first start, so the data is copied before the image moves and put back with
+# the previous image when the move rolls back.
+x-catena:
+  schema: 2
+  data:
+    app:
+      volume: healthchecks-data
+      upgrade: in_place
+
 services:
   app:
     image: {{ healthchecks_image }}
@@ -24,12 +35,11 @@ services:
     environment:
       # A host with no domain yet has no public name to be reached at, and
       # `<sub>.` with the zone empty is not a degraded name -- it is one Django
-      # rejects. SITE_ROOT https://heartbeat. normalises to host "heartbeat"
-      # while ALLOWED_HOSTS carried "heartbeat.", so every request raised
-      # hc.api.E002, the migrate step exited 1, the FATAL hook stopped the
-      # container on 137 and the converge returned rc=2: healthchecks could not
-      # start at all before a domain was entered. Deferred, it addresses itself
-      # by the network alias every on-box consumer already dials.
+      # rejects. SITE_ROOT https://<sub>. normalises to host "<sub>", which
+      # ALLOWED_HOSTS' "<sub>." does not match, and Healthchecks refuses to
+      # start (hc.api.E002) when SITE_ROOT's host is not an allowed one.
+      # Deferred, it addresses itself by the network alias every on-box
+      # consumer already dials.
 {% if catena_public_surface_deferred | default(false) | bool %}
       SITE_ROOT: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}"
       SITE_NAME: "heartbeats"
@@ -39,72 +49,66 @@ services:
 {% endif %}
       # 127.0.0.1 is not decoration. Django matches ALLOWED_HOSTS against the
       # literal Host header, and every host-side consumer dials the loopback
-      # publish below BY IP: gatus-sync (HEALTHCHECKS_API_URL), the clamav
-      # watchdog and the mail canary (HEALTHCHECKS_LOOPBACK_PORT). With only
-      # "localhost" in this list all three got 400 DisallowedHost -- verified
-      # against healthchecks/healthchecks:v4.3 directly: Host 127.0.0.1 -> 400,
-      # Host localhost -> 401 (reached the app). Two watchdogs and the panel's
-      # check summary were failing in a way that looks exactly like "nothing to
-      # report".
+      # publish below BY IP: gatus-sync (HEALTHCHECKS_API_URL) and the other
+      # host-side pingers (HEALTHCHECKS_LOOPBACK_PORT). With only "localhost"
+      # in this list they get 400 DisallowedHost, which looks exactly like
+      # "nothing to report" -- verified against healthchecks/healthchecks:v4.3
+      # directly: Host 127.0.0.1 -> 400, Host localhost -> 401 (reached the app).
 {% if catena_public_surface_deferred | default(false) | bool %}
       ALLOWED_HOSTS: "{{ healthchecks_network_alias }},localhost,127.0.0.1"
 {% else %}
       ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost,127.0.0.1"
 {% endif %}
-      SECRET_KEY: "{{ healthchecks_secret_key }}"
+      # SECRET_KEY and the mail password are swarm secrets
+      # (healthchecks_swarm_secrets in ../defaults/main.yml), read from the
+      # file each <NAME>_FILE names, so `docker service inspect` shows a path.
+{% for _secret in _healthchecks_secrets %}
+      {{ _secret.target }}_FILE: "/run/secrets/{{ _secret.target }}"
+{% endfor %}
       DEBUG: "False"
-      # Closed registration -- oauth2-proxy + Keycloak gate the UI, and our seed
-      # task (healthchecks-seed.py.j2, step 0) creates the operator
-      # superuser + default Project on first converge. SUPERUSER_EMAIL
-      # and SUPERUSER_PASSWORD below are INERT to this image's
-      # entrypoint (upstream runs migrations only, no auto-bootstrap);
-      # they're kept here for visibility/parity so the expected
-      # superuser credentials are discoverable on the running container.
+      # Closed registration: oauth2-proxy + Keycloak gate the UI, and
+      # scripts/healthchecks-seed.py creates the superuser and its Project.
       REGISTRATION_OPEN: "False"
-      SUPERUSER_EMAIL: "{{ admin_email }}"
-      SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
-      # PING_KEY is set here for convention/visibility, but Healthchecks
-      # actually routes auto-provisioning against Project.ping_key in the
-      # DB -- not this env var. The seed task in healthchecks.yml writes
-      # the same value into Project.ping_key. Keep this line so future
-      # tooling that expects PING_KEY to be present sees it.
-      # Auto-provision URL: /ping/<ping_key>/<slug>?create=1 (the ?create=1
-      # is required -- without it, unknown slugs 404).
-      PING_KEY: "{{ healthchecks_ping_key }}"
       DB: "sqlite"
       DB_NAME: "/data/hc.sqlite"
-      # Alerts route out via ntfy (seeded automatically by the bootstrap
-      # task in healthchecks.yml). No SMTP needed.
+      # Mail goes out through the outgoing mail chosen in Settings > Mail
+      # (infrastructure_smtp), to the admin email channel healthchecks-seed.py
+      # keeps. Port 465 is implicit TLS, any other port STARTTLS, as every
+      # sender on the host.
+      # Mail turned off leaves EMAIL_HOST empty, which gives Healthchecks no
+      # mailer, and the seed removes the email channel.
+{% if infrastructure_smtp.enabled | bool %}
+      EMAIL_HOST: "{{ infrastructure_smtp.host }}"
+      EMAIL_PORT: "{{ infrastructure_smtp.port }}"
+      EMAIL_HOST_USER: "{{ infrastructure_smtp.user }}"
+      EMAIL_USE_TLS: "{{ not infrastructure_smtp.implicit_tls }}"
+      EMAIL_USE_SSL: "{{ infrastructure_smtp.implicit_tls }}"
+{% else %}
       EMAIL_HOST: ""
-      # localhost rather than `heartbeat@` with the zone empty: alerts route
-      # over ntfy, so this address is never dialled, but it still has to parse.
-      DEFAULT_FROM_EMAIL: "heartbeat@{{ cloudflare_zone | default('', true) | trim or 'localhost' }}"
+{% endif %}
+      DEFAULT_FROM_EMAIL: "{{ infrastructure_smtp.sender }}"
       # ─── SSO passthrough via oauth2-proxy reverse-proxy ────────────
       # The per-app oauth2-proxy container in front of healthchecks
       # injects X-Forwarded-Email on every authenticated request
-      # (--pass-user-headers=true in oauth2_proxy.compose.yml.j2).
-      # Django WSGI-env-ifies headers as HTTP_X_FORWARDED_EMAIL.
-      # REMOTE_USER_HEADER tells Healthchecks to trust it as identity:
-      # if a User with that email exists, log them in automatically;
-      # otherwise deny. Our SUPERUSER_EMAIL already equals
-      # ADMIN_EMAIL, so the operator skips the Healthchecks login
-      # page entirely.
+      # (--pass-user-headers=true in reconcile/roles/oauth2_proxy
+      # templates/oauth2-proxy.compose.yml.j2), replacing any copy the
+      # browser sent. Django WSGI-env-ifies headers as
+      # HTTP_X_FORWARDED_EMAIL. REMOTE_USER_HEADER makes Healthchecks take
+      # it as the signed-in user, on every request, from whoever sends it:
+      # it logs in the account with that email and creates one when none
+      # exists. The seeded superuser carries the admin email, so the admin
+      # lands in it and skips the Healthchecks login page.
       #
-      # This is only safe because oauth2-proxy STRIPS any
-      # client-supplied X-Forwarded-* header on the request before
-      # injecting its own values -- the header cannot be spoofed in
-      # an authenticated path. The unauthenticated /ping/* paths
-      # never reach a session check (oauth2-proxy let them through
-      # via --skip-auth-route, NOT yet wired -- TODO if /ping/*
-      # auto-provision needs anonymous access; today the cron client
-      # uses /ping/<ping_key>/<slug> which doesn't need session
-      # context anyway).
+      # Healthchecks cannot tell the gate from any other caller, so the
+      # network decides who may call it: it is on healthchecks_network
+      # alone, which its gate and the services that read or ping it join
+      # and no client app does (playbooks/group_vars/all/main.yml).
       REMOTE_USER_HEADER: "HTTP_X_FORWARDED_EMAIL"
     volumes:
       - healthchecks-data:/data
     # Host-mode publish so the host-side consumers can reach /api/v3/checks/
-    # on {{ healthchecks_host_localhost_port }}: gatus-sync, the clamav
-    # watchdog and the mail canary all dial it by IP, which is why
+    # on {{ healthchecks_host_localhost_port }}: gatus-sync and the other
+    # host-side pingers dial it by IP, which is why
     # ALLOWED_HOSTS above carries 127.0.0.1.
     #
     # Long syntax with mode: host is mandatory -- the short form deploys as
@@ -119,19 +123,27 @@ services:
         protocol: tcp
         mode: host
     networks:
-      catena-network:
+      {{ healthchecks_network }}:
         aliases:
           - {{ healthchecks_network_alias }}
-    labels:
-      # FALSE on purpose -- see the note in gatus.compose.yml.j2.
-      - traefik.enable=false
-      # Auth posture, pinned as in gatus.compose.yml.j2.
-      - vps.auth.mode=private
-      - vps.auth.groups=staff
+    secrets:
+{% for _secret in _healthchecks_secrets %}
+      - source: {{ _secret.name }}
+        target: {{ _secret.target }}
+{% endfor %}
 
 volumes:
   healthchecks-data:
 
 networks:
-  catena-network:
+  # Created by reconcile/roles/swarm before this deploys.
+  {{ healthchecks_network }}:
     external: true
+
+# Created by playbooks/tasks/swarm_secrets.yml before this deploys, each named
+# after its value, so a new value is a new secret and redeploys the service.
+secrets:
+{% for _secret in _healthchecks_secrets %}
+  {{ _secret.name }}:
+    external: true
+{% endfor %}

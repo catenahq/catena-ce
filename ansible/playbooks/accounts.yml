@@ -1,0 +1,15 @@
+---
+# The first leg of an install, run on the server by install-host.sh through
+# the provider's login: the ops account and the panel's forward-only account,
+# each with the installer's public key, and ops' passwordless sudo. Nothing
+# else changes, so the provider's login keeps working until the next leg has
+# logged in as ops with that key and proved it (helpers/session_proof.py).
+- name: The accounts the rest of the install logs in with
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "Accounts: ops and panel, with the installer's key"
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: accounts

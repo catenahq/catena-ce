@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""On-box config store for Catena (0b client-owned config).
+"""On-box config store for Catena.
 
 Single plaintext source of truth at ``/etc/catena/config.json`` (0600 root).
-Three top-level sections belong to this helper:
+Two top-level sections belong to this helper:
 
     {
       "secrets": {            # external + internal-minted + role-minted
@@ -12,10 +12,6 @@ Three top-level sections belong to this helper:
       },
       "config": {             # non-secret
         "CLOUDFLARE_ZONE": "...",
-        ...
-      },
-      "client_app_secrets": { # per-deploy credentials of the client's apps
-        "nextcloud-s3-oidc/DB_PASSWORD": "...",
         ...
       }
     }
@@ -37,9 +33,6 @@ Design constraints:
   - INTERNAL secrets are minted here; EXTERNAL secrets (vendor creds the
     client supplies) are only ever *stored*, never generated -- they arrive
     via the two-phase bootstrap or the catena-admin settings API.
-  - ROLE_MINTED secrets are minted by the service itself and captured by the
-    role that provisioned it. This module neither generates nor accepts them;
-    it only names them, so "belongs to no category" is not a valid state.
   - USER_HELD secrets (the admin, restic + console-recovery passwords) are
     minted on-box IF ABSENT (like internal), but are the DR / break-glass /
     first-login keyset the user must hold
@@ -60,7 +53,6 @@ import json
 import os
 import re
 import secrets as _secrets
-import string
 import sys
 from pathlib import Path
 from typing import Callable
@@ -153,77 +145,8 @@ def mint_oauth2_proxy_cookie_secret() -> str:
 
 
 def mint_admin_password() -> str:
-    """token_urlsafe(15) -> 20 url-safe chars. Portainer + Keycloak both
-    accept it."""
+    """token_urlsafe(15) -> 20 url-safe chars, which Keycloak accepts."""
     return _secrets.token_urlsafe(15)
-
-
-# --- client-app env secrets (the marketplace's per-deploy values) -----------
-#
-# A catalog template declares some of its env defaults as
-# ``{{ lookup('password', '/dev/null length=N chars=...') }}``. Those are the
-# app's OWN credentials -- its database password, its admin password, its
-# session key -- and they are per-deploy, not per-product: nothing outside the
-# app reads them, and two clients must not share one.
-#
-# They are minted HERE, on the box, for the same reason every other secret is:
-# the box is the source of truth, /etc rides the restic snapshot, and a restore
-# returns the value with the data. The panel asks for them by name and gets
-# back what is stored, minting only what is missing -- so asking twice returns
-# the same value and a re-render of the catalog cannot re-key a running app.
-#
-# They live in their OWN top-level block rather than under ``secrets`` because
-# they are not product secrets: nothing in the converge reads them, they are
-# not classified in any registry here, and the count of them grows with what
-# the client deploys rather than with what the product ships.
-CLIENT_APP_SECRETS_KEY = "client_app_secrets"
-
-# Alphabets the catalog actually asks for. ``chars=hexdigits`` is always piped
-# through ``| lower`` in the catalog, so the lowercase alphabet IS the rendered
-# one -- minting from it directly is the same character set, drawn uniformly.
-APP_SECRET_CHARSETS: dict[str, str] = {
-    "alnum": string.ascii_letters + string.digits,
-    "hex": string.digits + "abcdef",
-}
-
-# Bounds on a requested length. The floor is a strength floor; the ceiling
-# stops a malformed request from writing an unbounded value into the store.
-APP_SECRET_MIN_LENGTH = 16
-APP_SECRET_MAX_LENGTH = 256
-
-# ``<template-id>/<ENV_KEY>``. Constrained because this is the one write the
-# admin CONTAINER can ask for by name: the pattern keeps a forged request
-# inside this block, where the worst it can do is add an entry no app reads.
-_APP_SECRET_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}/[A-Z][A-Z0-9_]{0,63}$")
-
-
-def app_secret_key(template_id: str, env_key: str) -> str:
-    """The store key one template's env value is remembered under."""
-    return f"{template_id}/{env_key}"
-
-
-def mint_app_secret(length: int, charset: str) -> str:
-    """Mint one client-app env secret of `length` chars from `charset`."""
-    alphabet = APP_SECRET_CHARSETS[charset]
-    return "".join(_secrets.choice(alphabet) for _ in range(length))
-
-
-def client_app_secrets(path: str | Path = DEFAULT_STORE_PATH) -> dict:
-    """What has been minted for client apps, as {key: value}.
-
-    Read-only and total, the same posture as ``image_pins``: an absent store,
-    an absent key and a key holding something else all read as "nothing minted
-    yet", which on a host that has deployed no app is the truth."""
-    p = Path(path)
-    if not p.exists():
-        return {}
-    raw = json.loads(p.read_text())
-    if not isinstance(raw, dict):
-        raise ValueError(f"{p}: top level is not an object")
-    minted = raw.get(CLIENT_APP_SECRETS_KEY)
-    if not isinstance(minted, dict):
-        return {}
-    return {str(k): str(v) for k, v in minted.items() if v}
 
 
 # --- per-zone (multi-domain SSO island) helpers -----------------------------
@@ -267,21 +190,35 @@ def configured_zone_names(zones: object) -> list[str]:
 # once for the user's password manager (see USER_HELD_SECRETS).
 INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "catena_postgres_password": mint_strong_password,
-    "turn_static_auth_secret": mint_strong_password,
     # Signs the catena-admin native-login session cookie (the host-published
     # tailnet listener). Minted once, stable across converges, rides the backup.
     "catena_admin_session_key": mint_strong_password,
-    # The path segment in the catalog URL Portainer fetches its App Templates
-    # from. That catalog carries this host's real client-app credentials, and
-    # the route is unauthenticated because Portainer's SERVER reads it and
-    # carries no session -- so the unguessable path is what stops another
-    # container on catena-network reading the lot off a well-known URL. It must
-    # survive a restore with the apps it describes, which is why it is here
-    # rather than regenerated per converge. URL-safe: it goes in a path.
+    # The password the panel's sign-in gate sends with every request it
+    # forwards, and the only proof the panel accepts that a request came
+    # through the gate: its listener is reachable from every container on
+    # catena-network, which can set any identity header it likes.
+    "catena_admin_gate_secret": mint_strong_password,
+    # The token the host's dashboard-sync lane sends in a header to the panel's
+    # Keycloak forward on the host's loopback, and the only proof the forward
+    # accepts that a call came from the lane. Minted once, stable across
+    # converges, rides the backup.
     "catena_marketplace_token": mint_url_safe,
     # SSO service credentials.
     "keycloak_db_password": mint_strong_password,
+    # The master realm's automation client (reconcile/roles/keycloak): every
+    # realm import and kcadm session the converge makes signs in with it, so
+    # the master admin's own password can carry a second factor.
+    "keycloak_automation_client_secret": mint_strong_password,
+    # The primary domain's secret each client app's gate derives its own cookie
+    # secret from (catena-admin payload/lib/clients_provisioner.py).
     "oauth2_proxy_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    # One per admin tool's gate, each signing a cookie for that tool's host
+    # alone (reconcile/roles/oauth2_proxy oauth2_proxy_apps cookie_secret_var),
+    # so a session cookie a client app or another tool sees opens none of them.
+    "catena_admin_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    "healthchecks_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    "gatus_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    "beszel_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "oauth2_proxy_client_secret": mint_strong_password,
     "dashboard_sync_client_secret": mint_strong_password,
     # The admin panel's own realm service account: users, groups and
@@ -295,29 +232,12 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # the panel has. A supervision credential that could change what it
     # supervises could hide a drift by correcting it.
     "catena_identity_probe_client_secret": mint_strong_password,
-    "nextcloud_oidc_client_secret": mint_strong_password,
-    "element_oidc_client_secret": mint_strong_password,
-    "mailserver_oidc_client_secret": mint_strong_password,
-    "mailserver_introspect_client_secret": mint_strong_password,
     # Healthchecks (self-hosted heartbeat instance).
     "healthchecks_secret_key": mint_strong_password,
     "healthchecks_superuser_password": mint_strong_password,
     "healthchecks_ping_key": mint_url_safe,
     "healthchecks_api_key_readonly": mint_hc_api_key,
     "healthchecks_api_key_readwrite": mint_hc_api_key,
-    # Nextcloud Talk + HPB bearer secrets.
-    "nextcloud_talk_signaling_secret": mint_strong_password,
-    "nextcloud_talk_internal_secret": mint_strong_password,
-    # Rocket.Chat-bundled Jitsi component secrets.
-    "jitsi_prosody_password": mint_strong_password,
-    "jitsi_jicofo_auth_password": mint_strong_password,
-    "jitsi_jicofo_component_secret": mint_strong_password,
-    "jitsi_jvb_auth_password": mint_strong_password,
-    # Element-bundled Jitsi + jigasi secrets.
-    "element_jitsi_jicofo_auth_password": mint_strong_password,
-    "element_jitsi_jicofo_component_secret": mint_strong_password,
-    "element_jitsi_jvb_auth_password": mint_strong_password,
-    "element_jigasi_xmpp_password": mint_strong_password,
     # Beszel resource-monitor token. Beszel is always deployed, so this is
     # always in use. The hub LOGIN is deliberately NOT minted here: it is the
     # shared admin_password (USER_HELD, surfaced once at install). A login
@@ -336,7 +256,7 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 # USER_HELD: the DR keyset + first-login credential, generated on-box and shown
 # ONCE so the user keeps an off-box copy in their password manager. NOT in
 # EXTERNAL_SECRETS, so the config-write API (settings save) cannot set them:
-#   - admin_password    -- first-login credential (Portainer + Keycloak).
+#   - admin_password    -- first-login credential (Keycloak + the panel).
 #     Minted right after bootstrap by playbooks/show-keyset.yml, which shows
 #     it then, or by any converge that finds it absent.
 #   - console_recovery_password -- the ops account's break-glass password
@@ -378,23 +298,32 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset(
     entry["key"] for entry in _KNOBS["secrets"]
 )
 
-# ROLE_MINTED: minted by the SERVICE, captured by the role that provisioned it.
-# Neither internal-minted (this module never generates them) nor client-supplied
-# (no human ever sees one), so they belong to no set above -- but "belongs to no
-# set" has to be a category with members, not a sentence in a comment, or the
-# provenance gate has nothing to check them against and the next one to appear
-# is invisible.
-#
-# Value is the role that writes it into the store, so a failure names the owner.
-#   - portainer_api_key -- Portainer's own token API mints it
-#     (helpers/bootstrap_portainer_admin.py); reconcile/roles/portainer adopts it, with
-#     --overwrite, because a /data restore invalidates the stored one.
-#
-# NOT minted here and NOT adoptable through apply_inputs: a role-minted secret
-# has exactly one writer, and that writer is the role.
-ROLE_MINTED_SECRETS: dict[str, str] = {
-    "portainer_api_key": "portainer",
-}
+# PANEL: the secrets the settings API's `read` hands catena-admin, beside the
+# whole non-secret `config` (panel_view). The panel is the most exposed
+# component on the host, and a credential it never reads is one a compromised
+# panel cannot take: the master realm's automation client, Keycloak's database
+# password and the console break-glass password stay on the host. A settings write merges into the whole file (dump), so a key
+# outside this set survives every write the panel makes.
+#   - each client-supplied secret the Settings page offers (a knob with a
+#     `panel`): the page reports which are set, and the tailnet and backup
+#     checks send the stored ones;
+#   - backup_restic_password: the disaster-recovery keyset the page reveals;
+#   - admin_password: the panel's native sign-in and the Beszel hub's superuser
+#     sign-in.
+PANEL_SECRETS: frozenset[str] = frozenset(
+    entry["key"] for entry in _KNOBS["secrets"] if "panel" in entry
+) | {"backup_restic_password", "admin_password"}
+
+# The repositories a client application may be added from, and their tokens.
+# Both are top-level store blocks owned by catena-admin's catena-apps, like
+# ``offsite_copies``: a settings write merges past them (dump) and the panel's
+# read never carries them, so a compromised panel reads no token. The panel
+# lists and edits the repositories through the host's apps-repositories action.
+#   - app_repositories: [{"url", "trusted"}]; absent means Catena's catalog
+#     alone, trusted.
+#   - app_repository_tokens: {url: token} for private repositories, root only.
+APP_REPOSITORIES_KEY = "app_repositories"
+APP_REPOSITORY_TOKENS_KEY = "app_repository_tokens"
 
 
 # --- non-secret config: who owns which key (SECRETS.md category 4) ----------
@@ -478,15 +407,16 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset(
 # holds, so the two rules are declared in one place.
 STORE_MAY_NOT_DECIDE: dict[str, str] = {
     # The env allow-list gates both sshd's AcceptEnv and the sudoers env_keep.
-    # It is the one thing the image can never own either (see the payload
+    # The payload's drop-ins can never add to it either (see the payload
     # overlay note in reconcile/roles/catena-admin/templates/admin-actions.j2): the set of
     # inputs root will accept is not an input.
     "catena_admin_dispatch_env_passthrough":
         "the set of environment values root accepts from a dispatch",
-    # What the forced command actually executes. A store key here would let the
-    # panel choose the program root runs for every action at once.
+    # The dispatcher root lanes run directly, linked to the one the forced
+    # command runs. A store key here would let the panel choose the program
+    # root runs for every action at once.
     "catena_admin_dispatcher_path":
-        "the program the SSH forced command runs",
+        "the dispatcher root runs for every action",
     # Where root sources action drop-ins from. The dispatcher already refuses a
     # group- or world-writable file; pointing it at another directory would
     # route around that check rather than fail it.
@@ -500,9 +430,21 @@ STORE_MAY_NOT_DECIDE: dict[str, str] = {
         "the account the dispatch authenticates as",
     "catena_admin_runner_home":
         "the home directory holding the forced command's authorized_keys",
+    # Whose key the forced command is authorized for, and the host key a
+    # dispatch is checked against.
+    "catena_admin_host_ssh_dir":
+        "the directory holding the key the dispatch path authorizes",
     # Who may open an SSH session at all.
     "ssh_allowed_users":
         "who may sign in to this host over SSH",
+    # What a server taking this one over signs in as, where sshd reads its
+    # key, and what it runs.
+    "catena_migrate_user":
+        "the account a server taking this one over authenticates as",
+    "catena_migrate_grant_file":
+        "the only file sshd reads the migration account's key from",
+    "catena_migrate_connect":
+        "the program the migration account's forced command runs",
 }
 
 
@@ -528,7 +470,7 @@ def secret_names() -> list[str]:
 
     This is the converge loader's discriminator: it selects which in-scope
     Ansible variables get captured into the store. Naming secrets here, by
-    declared name rather than by a spelling convention, means the four
+    declared name rather than by a spelling convention, means the three
     category tables above are the single declaration, and a key that belongs
     to no category is already impossible by construction.
 
@@ -538,8 +480,18 @@ def secret_names() -> list[str]:
     """
     return sorted(
         set(INTERNAL_SECRETS) | set(USER_HELD_SECRETS)
-        | set(EXTERNAL_SECRETS) | set(ROLE_MINTED_SECRETS)
+        | set(EXTERNAL_SECRETS)
     )
+
+
+def panel_view(store: dict) -> dict:
+    """What the settings API's `read` returns: the store's `config`, and its
+    secrets named in PANEL_SECRETS."""
+    return {
+        "secrets": {k: v for k, v in (store.get("secrets") or {}).items()
+                    if k in PANEL_SECRETS},
+        "config": dict(store.get("config") or {}),
+    }
 
 
 # --- store I/O --------------------------------------------------------------
@@ -549,14 +501,13 @@ def load(path: str | Path = DEFAULT_STORE_PATH) -> dict:
     must never silently start minting fresh secrets over a corrupt store."""
     p = Path(path)
     if not p.exists():
-        return {"secrets": {}, "config": {}, CLIENT_APP_SECRETS_KEY: {}}
+        return {"secrets": {}, "config": {}}
     raw = json.loads(p.read_text())
     if not isinstance(raw, dict):
         raise ValueError(f"{p}: top level is not an object")
     return {
         "secrets": dict(raw.get("secrets") or {}),
         "config": dict(raw.get("config") or {}),
-        CLIENT_APP_SECRETS_KEY: dict(raw.get(CLIENT_APP_SECRETS_KEY) or {}),
     }
 
 
@@ -584,20 +535,14 @@ def dump(store: dict, path: str | Path = DEFAULT_STORE_PATH) -> None:
     """Atomically write the store 0600 root. Write to a temp sibling then
     rename so a crash mid-write can't leave a half-written store.
 
-    This helper owns `secrets`, `config` and `client_app_secrets`, and MERGES
+    This helper owns `secrets` and `config`, and MERGES
     them into whatever else the file holds. Two other writers share it:
     catena-schedule owns `schedules` and `backup_retention`, and the
     managed-update lane owns `image_pins`. Serialising just the keys this
     helper knows about deletes the others on every converge -- and `image_pins`
     exists precisely so the converge can ask what the on-host lane applied, so a
     converge that wiped it on the way past would answer its own question with
-    nothing, every time.
-
-    `client_app_secrets` is written only when the caller's store CARRIES it.
-    `load()` always supplies it, so a load-modify-dump round trip preserves it;
-    a caller that builds a store dict by hand (the converge loader passes
-    `{"secrets": ..., "config": ...}`) has no opinion about the block and must
-    not blank it -- which is the same trap the paragraph above describes."""
+    nothing, every time."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     doc: dict = {}
@@ -608,8 +553,6 @@ def dump(store: dict, path: str | Path = DEFAULT_STORE_PATH) -> None:
         doc = raw
     doc["secrets"] = store.get("secrets", {})
     doc["config"] = store.get("config", {})
-    if CLIENT_APP_SECRETS_KEY in store:
-        doc[CLIENT_APP_SECRETS_KEY] = store[CLIENT_APP_SECRETS_KEY]
     payload = json.dumps(doc, indent=2, sort_keys=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     # 0600 from creation: never let the store exist group/other-readable even
@@ -647,58 +590,6 @@ def ensure_internal_secrets(store: dict) -> list[str]:
             secrets_map[key] = mint_oauth2_proxy_cookie_secret()
             minted.append(key)
     return minted
-
-
-def ensure_app_secrets(store: dict, wanted: object) -> dict:
-    """Resolve the client-app env secrets in `wanted`, minting what is absent.
-
-    `wanted` is ``{"<template-id>/<ENV_KEY>": {"length": N, "charset": name}}``
-    -- the shape the marketplace renderer reads off the catalog's
-    ``lookup('password', ...)`` expressions. Returns ``{key: value}`` for
-    EVERY requested key, so the caller renders from the return value and never
-    has to decide whether a value was new.
-
-    Reconcile-not-overwrite, and that is the load-bearing property: the catalog
-    is re-rendered on every marketplace fetch, and a mint on each one would hand
-    the client's Portainer a different database password every time they opened
-    the page -- while an app already deployed keeps the first.
-
-    Every request is validated before anything is written. This is the one
-    store write the unprivileged admin container can ask for by name, so a
-    forged request must not be able to name a key outside this block or store a
-    value of its own choosing: the key shape is fixed, the length is bounded,
-    the charset is a closed set, and the VALUE is always minted here -- the
-    request never carries one."""
-    if wanted is None:
-        return {}
-    if not isinstance(wanted, dict):
-        raise ValueError("app secrets request: expected an object")
-    minted_map = store.setdefault(CLIENT_APP_SECRETS_KEY, {})
-    out: dict = {}
-    for key, spec in wanted.items():
-        if not isinstance(key, str) or not _APP_SECRET_KEY_RE.match(key):
-            raise ValueError(f"app secrets request: bad key {key!r}")
-        if not isinstance(spec, dict):
-            raise ValueError(f"app secrets request: {key} spec is not an object")
-        charset = spec.get("charset", "alnum")
-        if charset not in APP_SECRET_CHARSETS:
-            raise ValueError(
-                f"app secrets request: {key} charset {charset!r} is not one of "
-                f"{sorted(APP_SECRET_CHARSETS)}"
-            )
-        length = spec.get("length")
-        if not isinstance(length, int) or isinstance(length, bool):
-            raise ValueError(f"app secrets request: {key} length is not an integer")
-        if not APP_SECRET_MIN_LENGTH <= length <= APP_SECRET_MAX_LENGTH:
-            raise ValueError(
-                f"app secrets request: {key} length {length} outside "
-                f"{APP_SECRET_MIN_LENGTH}..{APP_SECRET_MAX_LENGTH}"
-            )
-        cur = minted_map.get(key)
-        if cur is None or (isinstance(cur, str) and not cur.strip()):
-            minted_map[key] = mint_app_secret(length, charset)
-        out[key] = minted_map[key]
-    return out
 
 
 def ensure_user_held_secrets(store: dict) -> list[str]:
@@ -756,14 +647,10 @@ def adopt(store: dict, mapping: dict | None, *, overwrite: bool = False) -> list
     """Capture secret values into the store. Fill-only by default: the
     converge loader passes every declared secret in scope, and a value already
     in the store is the source of truth. Never stores a blank. Accepts ANY key
-    -- the caller pre-filters against secret_names() -- so the
-    ROLE_MINTED_SECRETS are captured too, which is why this is separate from
-    apply_inputs and its EXTERNAL_SECRETS allowlist.
+    -- the caller pre-filters against secret_names() -- which is why this is
+    separate from apply_inputs and its EXTERNAL_SECRETS allowlist.
 
-    ``overwrite=True`` replaces an existing value. Used by reconcile/roles/portainer
-    when Portainer REJECTS the stored API key (the admin was recreated, or a
-    /data restore replaced the BoltDB the token lived in): the freshly minted
-    key has to win, and fill-only would keep serving the dead one.
+    ``overwrite=True`` replaces an existing value.
 
     Returns the keys written."""
     secrets_map = store.setdefault("secrets", {})
@@ -930,13 +817,12 @@ def main(argv: list[str] | None = None) -> int:
                          "without touching the store.")
     ap.add_argument("--dispatch-stdin", action="store_true",
                     help="serve the catena-admin settings API: read a JSON "
-                         "request {op: read|write|mint-app-secrets, secrets, "
-                         "config, app_secrets} from stdin. read -> print the "
-                         "full store; write -> apply the external creds/config "
+                         "request {op: read|write, secrets, config} from "
+                         "stdin. read -> print the panel's view of the store "
+                         "(the config and PANEL_SECRETS); write -> apply the "
+                         "external creds/config "
                          '(overwrite, no mint) and print {"ok": true}, '
-                         "rejecting internal-secret keys; mint-app-secrets -> "
-                         "resolve the marketplace's per-deploy client-app env "
-                         "values, minting only what is absent, and print them.")
+                         "rejecting internal-secret keys.")
     args = ap.parse_args(argv)
 
     # A pure query, answered before any store I/O: the converge loader asks
@@ -971,22 +857,13 @@ def main(argv: list[str] | None = None) -> int:
         store = load(args.path)
         op = req.get("op")
         if op == "read":
-            print(json.dumps(store))
+            print(json.dumps(panel_view(store)))
             return 0
         if op == "write":
             apply_inputs(store, secrets_in=req.get("secrets"),
                          config_in=req.get("config"), overwrite=True)
             dump(store, args.path)
             print(json.dumps({"ok": True}))
-            return 0
-        if op == "mint-app-secrets":
-            # The marketplace renderer asking for one template's per-deploy
-            # values. Unlike `write` this DOES mint -- that is its whole job --
-            # but only inside client_app_secrets, only values it generates
-            # itself, and only for keys that are absent. See ensure_app_secrets.
-            values = ensure_app_secrets(store, req.get("app_secrets"))
-            dump(store, args.path)
-            print(json.dumps({"ok": True, "values": values}))
             return 0
         raise SystemExit(f"--dispatch-stdin: unknown op {op!r}")
 

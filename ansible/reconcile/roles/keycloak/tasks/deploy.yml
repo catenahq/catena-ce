@@ -8,37 +8,96 @@
 # resolves once cloudflared + Traefik route this host AND Keycloak's
 # /health/ready returns 200. cloudflared is up by now (roles/
 # cloudflare_tunnel runs before this role), but the
-# Traefik route for auth.<zone> is the keycloak compose itself --
-# which we are deploying RIGHT NOW. Skip the public probe and let
+# Traefik route for auth.<zone> is the route file swarm_stack.yml writes
+# in this same include, after the deploy. Skip the public probe and let
 # the in-container healthcheck (defined in keycloak.compose.yml.j2)
 # gate readiness; the post-deploy probe in tasks/validate.yml handles
-# the cross-check once Traefik picks up the new compose.
+# the cross-check once Traefik picks up the route file.
 
-# Multi-domain: which domains this host serves. Read from the projection the
-# tunnel engine writes after a SUCCESSFUL converge (reconcile/roles/cloudflare_tunnel runs
-# before this role), rather than from a fact computed here -- so an
-# auth.<zone> route can never be written for a domain the edge is not serving.
-#
-# Every failure mode collapses to the same safe answer, primary-only: a missing
-# file (single-domain host, or a converge that has not reached the tunnel yet), a
-# malformed one, an unknown schema, or a stamp older than the staleness bound. A
-# host whose subscription lapsed publishes only its primary domain, so the routes
-# follow the entitlement without this repo knowing anything about licences.
-- name: "Keycloak: read the served-domain projection"
-  ansible.builtin.slurp:
-    src: "{{ keycloak_zone_projection_path }}"
-  register: _kc_zones_raw
-  become: true
+# Multi-domain: the domains this host serves after its primary,
+# catena_secondary_zones, which the compose and the route below both read.
+- name: "Keycloak: the served domains"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/served_zones.yml"
+
+# The compose mounts its credentials file (templates/keycloak.conf.j2) by this
+# name; swarm holds the value.
+- name: "Keycloak: name the credentials file's swarm secret after its content"
+  ansible.builtin.set_fact:
+    _keycloak_secrets: >-
+      {{ [{'base': keycloak_config_secret_base, 'target': keycloak_config_target,
+           'value': lookup('template', 'keycloak.conf.j2')}] | swarm_secret_entries }}
+  no_log: true
+
+- name: "Keycloak: create the missing swarm secret"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+  vars:
+    swarm_secrets: "{{ _keycloak_secrets }}"
+
+# The Catena extension JAR reaches Keycloak's providers directory from a swarm
+# config named after the JAR's content, so a changed JAR is a new config and
+# redeploys Keycloak. Only a tree taken out of a catena-admin image carries it.
+# Checked on the controller, where the copy below reads it.
+- name: "Keycloak: the extension JAR in this tree"
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/{{ keycloak_providers_jar }}"
+  delegate_to: localhost
+  become: false
+  register: _keycloak_providers_source
+
+- name: "Keycloak: the extension JAR is there and of a plausible size"
+  ansible.builtin.assert:
+    that:
+      - _keycloak_providers_source.stat.exists
+      - _keycloak_providers_source.stat.size < keycloak_providers_jar_max_bytes
+    fail_msg: >-
+      {{ keycloak_providers_jar }} is not in reconcile/roles/keycloak/files, or
+      is larger than {{ keycloak_providers_jar_max_bytes }} bytes. Only the tree
+      of a catena-admin image carries it (the image build compiles it from
+      reconcile/roles/keycloak/provider); converge from an image's tree.
+
+- name: "Keycloak: the host directory of the extension JAR"
+  ansible.builtin.file:
+    path: "{{ keycloak_providers_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Keycloak: copy the extension JAR to the host"
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/{{ keycloak_providers_jar }}"
+    dest: "{{ keycloak_providers_dir }}/{{ keycloak_providers_jar }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Keycloak: read the copied JAR's checksum"
+  ansible.builtin.stat:
+    path: "{{ keycloak_providers_dir }}/{{ keycloak_providers_jar }}"
+    checksum_algorithm: sha256
+  register: _keycloak_providers_copy
+
+- name: "Keycloak: name the extension JAR's swarm config after its content"
+  ansible.builtin.set_fact:
+    _keycloak_providers_config: "{{ keycloak_providers_config_base }}-{{ _keycloak_providers_copy.stat.checksum[:8] }}"
+
+- name: "Keycloak: which extension swarm config exists"
+  ansible.builtin.command:
+    argv: [docker, config, inspect, "{{ _keycloak_providers_config }}"]
+  register: _keycloak_providers_exists
+  changed_when: false
   failed_when: false
 
-- name: "Keycloak: resolve the secondary auth domains"
-  ansible.builtin.set_fact:
-    _kc_secondary_zones: >-
-      {{ (_kc_zones_raw.content | default('') | b64decode)
-         | catena_served_zones(
-             schema=keycloak_zone_projection_schema,
-             now=ansible_date_time.iso8601 | default(''),
-             max_age_hours=keycloak_zone_projection_max_age_hours) }}
+# The JAR is binary, so it goes in by path, not on stdin.
+- name: "Keycloak: create the missing extension swarm config"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - config
+      - create
+      - "{{ _keycloak_providers_config }}"
+      - "{{ keycloak_providers_dir }}/{{ keycloak_providers_jar }}"
+  when: _keycloak_providers_exists.rc != 0
 
 - name: "Keycloak: deploy as a swarm stack"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/swarm_stack.yml
@@ -46,11 +105,11 @@
     svc_name: "{{ keycloak_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'keycloak.compose.yml.j2') }}"
     svc_domain_host: "{{ keycloak_hostname }}"
-    # Multi-domain (EE, keycloak.compose.yml.j2): route every secondary zone's
-    # auth host to Keycloak too (the primary is svc_domain_host above). Empty
-    # on single-domain -> the route rule stays a single Host() (byte-identical).
+    # Multi-domain: route every served secondary domain's auth host to Keycloak
+    # too (the primary is svc_domain_host above). Empty on a single-domain
+    # host, whose route rule is a single Host().
     svc_domain_extra_hosts: >-
-      {{ _kc_secondary_zones
+      {{ catena_secondary_zones
          | map('regex_replace', '^', keycloak_subdomain ~ '.')
          | list }}
     svc_domain_service: "{{ keycloak_server_service }}"
@@ -60,3 +119,14 @@
       renders the cloudflared ingress + Traefik route. Verified by
       tasks/validate.yml's /health/ready probe + the aggregate post-
       role probe in reconcile/roles/infrastructure.
+
+- name: "Keycloak: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: ["{{ keycloak_config_secret_base }}"]
+
+- name: "Keycloak: remove the swarm configs no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_kind: config
+    swarm_secret_bases: ["{{ keycloak_providers_config_base }}"]

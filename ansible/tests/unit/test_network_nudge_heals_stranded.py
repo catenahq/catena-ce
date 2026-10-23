@@ -5,8 +5,8 @@ dockerd restores restart-policy containers during "Loading containers",
 which runs BEFORE the swarm node re-materializes the overlay -- and the
 boot-time restore gets exactly ONE attempt per container, so whatever loses
 that race stays Exited with RestartCount=0 forever. Swarm services
-re-dispatch themselves; the Portainer compose containers (keycloak-server-1,
-nextcloud-talk-hpb-1, ...) have nothing to heal them, so a plain VPS reboot
+re-dispatch themselves; the compose containers (keycloak-server-1,
+app-signaling-1, ...) have nothing to heal them, so a plain VPS reboot
 can strand Keycloak until the next converge. Observed live: an overlay that
 appeared 2.5s after "Loading containers: done".
 
@@ -27,6 +27,8 @@ Run: uv run pytest tests/unit/test_network_nudge_heals_stranded.py
 """
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -105,6 +107,35 @@ def test_the_traefik_role_ships_no_nudge():
     assert "catena-network-nudge.service.j2" not in traefik_tasks
     assert not (ROOT / "reconcile" / "roles" / "traefik" / "templates"
                 / "catena-network-nudge.service.j2").exists()
+
+
+_FAKE_IP = """#!/bin/sh
+if [ "$1" = -o ]; then
+    cat <<'EOF'
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT
+2: enp5s0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP mode DEFAULT
+14: vx-001006-g4a8f: <BROADCAST,MULTICAST> mtu 1450 qdisc noop state DOWN mode DEFAULT
+15: vx-001001-yc4mr: <BROADCAST,MULTICAST> mtu 1450 qdisc noop state DOWN mode DEFAULT
+16: vx-own: <BROADCAST,MULTICAST> mtu 1450 qdisc noop state DOWN mode DEFAULT
+EOF
+    exit 0
+fi
+echo "$*" >> "$IP_LOG"
+"""
+
+
+def test_the_sweep_removes_the_overlay_interfaces_left_in_the_host_namespace(tmp_path):
+    """A daemon that stopped mid-setup leaves vx-<vni>-<network> in the host
+    namespace; the sweep docker.service runs before dockerd removes exactly
+    those, and the drop-in runs it before the daemon starts."""
+    (tmp_path / "ip").write_text(_FAKE_IP)
+    (tmp_path / "ip").chmod(0o755)
+    log = tmp_path / "ip.log"
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "IP_LOG": str(log)}
+    r = subprocess.run(["sh", str(SCRIPT), "sweep"], env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert log.read_text().splitlines() == ["link delete vx-001006-g4a8f", "link delete vx-001001-yc4mr"]
+    assert "ExecStartPre=-/usr/local/bin/catena-network-nudge sweep" in DROPIN.read_text()
 
 
 def test_timeout_reaches_the_script_on_both_paths():

@@ -7,14 +7,12 @@
 # reconcile/roles/host_maintenance added, so both run on Debian's defaults, and
 # releases apt's hold on the container engine bootstrap/roles/docker pinned.
 #
-# The apps, the data, Portainer and the VPS's Tailscale and Cloudflare
+# The apps, the data and the VPS's Tailscale and Cloudflare
 # registrations stay in place. Those are the client's to tear down
 # deliberately; the printed guidance at the end lists them.
 #
-# Usage (via the installer):
-#   uv run catena-cli uninstall --inventory <name>
-# Or directly:
-#   ansible-playbook -i inventory/<name> playbooks/uninstall.yml
+# `catena-installer uninstall --inventory <name>` runs it on the server
+# (ansible/install-host.sh --leg uninstall).
 - name: "Uninstall -- hand unattended-upgrades back to Debian"
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true
@@ -52,7 +50,7 @@
         msg:
           - "Done: apt-daily-upgrade.timer is unmasked + active -- the OS keeps patching itself."
           - "Catena did NOT remove your apps, data, or accounts. You still own these steps:"
-          - "  - Portainer + app containers: remove from the Portainer UI, or with docker directly."
+          - "  - App stacks and containers: remove them with docker directly (`docker stack rm <stack>`)."
           - "  - Cloudflare tunnel + DNS records: delete in the Cloudflare dashboard."
           - "  - Tailscale node: remove in the Tailscale admin console."
           - "  - Backups: your restic repo on your own S3 stays until you delete it (your data, your call)."

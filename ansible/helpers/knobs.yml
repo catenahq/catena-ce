@@ -8,7 +8,8 @@
 #   seed.py                   what the installer asks for, and the inventory
 #                             `.env` it writes (render_knobs.render_env)
 #   catena-admin settings     which fields the panel renders
-#   gui/                      which fields each installer step shows
+#   catena-ce installer/      which fields each section of the installer page
+#                             shows
 #
 # An inventory `.env` is rendered from this file: `env_header` is its preamble,
 # `env_sections` the ordered headings it groups keys under, and each knob's
@@ -100,19 +101,19 @@ version: 1
 env_header: |-
   catena: client-editable, non-secret configuration of one server.
 
-  Written by `catena-cli init` or the graphical installer, every key at its
-  default. Edit the values here; `catena-cli install` reads them. One
-  inventory directory per server, so several coexist in one checkout.
+  Written by `catena-installer init` or the installer page, every key at its
+  default. Edit the values here; `catena-installer install` reads them. One
+  inventory directory per server, so several coexist.
 
   No secret belongs in here, or anywhere else in an inventory. Every secret
   lives on the server at /etc/catena/config.json, minted there or entered in
   catena-admin > Settings. See catena-ce/ansible/SECRETS.md.
 
-# The graphical installer's sections, in order, all on one page. Each knob that
+# The installer page's sections, in order, all on one page. Each knob that
 # names one appears in it; a knob that names none is never asked for. `doc` is
 # shown above the section's fields and `note`, when present, below them. A
-# section with a probe in gui/catena_gui/steps.py is verified before the
-# install starts.
+# section with a probe in installer/catena_installer/steps.py is verified
+# before the install starts.
 gui_steps:
   - name: target
     title:
@@ -185,7 +186,7 @@ env_sections:
     doc: |-
       Leave every key in this section at its default on a client install.
       They point certificate issuance at a local Pebble or at Let's Encrypt
-      staging, whose certificates browsers, TURN clients and sending MTAs all
+      staging, whose certificates browsers, relay clients and sending MTAs all
       reject. The test bench sets them to its own host-side ACME server.
 
 # --- vendor credentials the client HOLDS ------------------------------------
@@ -243,13 +244,6 @@ secrets:
     panel: {group: mail, section: secrets, kind: secret, optional: true}
     depends: {choice: SMTP_PROVIDER, values: [resend, brevo, server]}
 
-  # The mailserver APPLICATION's relay credential and Spamhaus subscription.
-  # They configure that template, not the host's shared outbound path, so they
-  # are not in the mail group on the settings page.
-  - key: mailserver_relay_password
-
-  - key: mailserver_spamhaus_dqs_key
-
   # CIFS credentials for the optional bulk mount. Client-held: the share is
   # the client's NAS. NFS authenticates by source IP and supplies neither. The
   # storage role's bulk.yml names both on the settings page when it asks for
@@ -260,9 +254,10 @@ secrets:
   - key: storage_bulk_password
     panel: {group: share, section: secrets, kind: secret, optional: true}
 
-  # A signed claim rather than a shared secret: this repo neither mints nor
-  # verifies it, it only stores it. Optional -- Community is the default and an
-  # empty field must stay empty rather than reading as "not set yet".
+  # The Polar subscription key the client saves in Settings: this repo only
+  # stores it, and the host checks it with Polar (catena-admin catena-license).
+  # Optional -- Community is the default and an empty field must stay empty
+  # rather than reading as "not set yet".
   - key: catena_license
     panel: {group: license, section: secrets, kind: secret, optional: true}
 
@@ -281,11 +276,10 @@ config:
     residence: host
     env: {section: host, default: "", example: "203.0.113.10"}
 
-  # Written into hosts.yml as the bootstrap entry's ansible_host: the address
-  # every install leg dials. Empty means HOST_PUBLIC_IP, which stays the
-  # host's public address either way (coturn, the external checks). The
-  # launcher asks for it behind its public/private choice, labelled by
-  # gui_choice; `catena-cli install --address` overrides it for one run.
+  # The address every leg of the install dials. Empty means HOST_PUBLIC_IP,
+  # which stays the host's public address either way (the external checks). The installer page asks for it behind its public/private choice,
+  # labelled by gui_choice; `catena-installer install --address` overrides it
+  # for one run.
   - key: HOST_SSH_ADDRESS
     step: target
     label:
@@ -313,9 +307,8 @@ config:
     residence: host
     env: {section: host, default: ""}
 
-  # Written into hosts.yml as ansible_port: the port the controller connects
-  # on. The firewall rules name 22 literally, so this moves what the controller
-  # dials and not what the host opens.
+  # The port the installer connects on. The firewall rules name 22 literally,
+  # so this moves what the installer dials and not what the host opens.
   - key: HOST_SSH_PORT
     step: target
     label:
@@ -347,7 +340,7 @@ config:
 
   # ---- the administrator, whose email is the panel's login ----
   #
-  # One address for the Portainer admin and the initial realm admin. A host
+  # The initial realm admin's address. A host
   # fact by any reading: the `.env` only seeds the store with it.
   - key: ADMIN_EMAIL
     step: configuration
@@ -367,11 +360,44 @@ config:
     var: cfg_admin_email
     env: {section: admin, default: "", example: "you@example.com"}
 
-  # ---- controller-resident ----
+  # The administrator's name, written into the sign-in service accounts while
+  # their names are empty. Seeded once from the `.env`, no panel field.
+  - key: ADMIN_FIRST_NAME
+    step: configuration
+    label:
+      en: Admin first name
+      fr: Prénom de l'administrateur
+    help:
+      en: >-
+        The administrator's first name, shown in the sign-in service.
+      fr: >-
+        Le prénom de l'administrateur, affiché dans le service de connexion.
+    required: true
+    residence: store
+    var: cfg_admin_first_name
+    env: {section: admin, default: "", example: "Alex"}
+
+  - key: ADMIN_LAST_NAME
+    step: configuration
+    label:
+      en: Admin last name
+      fr: Nom de l'administrateur
+    help:
+      en: >-
+        The administrator's last name, shown in the sign-in service.
+      fr: >-
+        Le nom de famille de l'administrateur, affiché dans le service de
+        connexion.
+    required: true
+    residence: store
+    var: cfg_admin_last_name
+    env: {section: admin, default: "", example: "Tremblay"}
+
+  # ---- resident on the installer's machine ----
   #
-  # A dedicated pair per project makes revocation one file delete. catena-cli
-  # install offers to generate a missing pair; the graphical installer suggests
-  # the pairs already in ~/.ssh.
+  # A dedicated pair per project makes revocation one file delete. The
+  # installer offers to create a missing pair, and its page suggests the pairs
+  # already in ~/.ssh.
   - key: SSH_PRIVATE_KEY
     step: configuration
     label:
@@ -474,12 +500,6 @@ config:
   # Each is a single DNS label, never an FQDN: the zone is appended by the
   # converge, so "auth.example.com" here would render auth.example.com.example.com.
   # Blank means the product's own default, which `panel.default` names.
-  - key: PORTAINER_SUBDOMAIN
-    residence: store
-    var: cfg_portainer_admin_subdomain
-    panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: portainer}
-
   - key: KEYCLOAK_SUBDOMAIN
     residence: store
     var: cfg_keycloak_subdomain
@@ -496,19 +516,19 @@ config:
     residence: store
     var: cfg_gatus_subdomain
     panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: monitor}
+            default: gatus}
 
   - key: HEALTHCHECKS_SUBDOMAIN
     residence: store
     var: cfg_healthchecks_subdomain
     panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: heartbeat}
+            default: healthchecks}
 
   - key: BESZEL_SUBDOMAIN
     residence: store
     var: cfg_beszel_subdomain
     panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: hub}
+            default: beszel}
 
   # Prefixes the name of the tunnel a host creates. Blank leaves each host
   # owning one tunnel named after its inventory hostname; a prefix of "corp-"
@@ -580,40 +600,6 @@ config:
     var: cfg_backup_extra_paths
     panel: {group: backup, section: config, kind: text, optional: true}
 
-  # Dead-man endpoints. The first pair overrides the locally provisioned pings;
-  # the second is off-host only and has no default, which is the one case a
-  # whole-host outage can still be reported.
-  - key: BACKUP_HEALTHCHECK_URL
-    residence: store
-    var: cfg_backup_healthcheck_url
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  - key: BACKUP_HEALTHCHECK_ATTEMPTED_URL
-    residence: store
-    var: cfg_backup_healthcheck_attempted_url
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  - key: BACKUP_HEALTHCHECK_URL_CLIENT
-    residence: store
-    var: cfg_backup_healthcheck_url_client
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  - key: BACKUP_HEALTHCHECK_URL_OPERATOR
-    residence: store
-    var: cfg_backup_healthcheck_url_operator
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  # The offsite-copy lane's dead-man endpoints. WHICH buckets it copies is not
-  # a knob: that is the store's offsite_copies list, read straight off disk so
-  # adding a copy takes effect with no converge in between.
-  - key: OFFSITE_HEALTHCHECK_URL
-    residence: store
-    var: cfg_offsite_healthcheck_url
-
-  - key: OFFSITE_HEALTHCHECK_ATTEMPTED_URL
-    residence: store
-    var: cfg_offsite_healthcheck_attempted_url
-
   # ---- outbound mail ----
   #
   # One choice, one address, one credential. The provider routes it and the
@@ -661,24 +647,56 @@ config:
     depends: {choice: SMTP_PROVIDER, values: [brevo, server]}
 
   # ---- alert delivery ----
-  - key: NTFY_SERVER
+  #
+  # The check at an outside monitoring service the heartbeat lane calls, which
+  # reports a host that is gone. No `var`: catena-admin's catena-heartbeat
+  # reads it off the store on every run.
+  - key: OFFSITE_HEARTBEAT_URL
     residence: store
-    var: cfg_ntfy_server
     panel: {group: alerts, section: config, kind: text, optional: true}
 
-  # Must be hard to guess: anyone who knows it can post to it.
-  - key: NTFY_TOPIC
+  # ---- error reports to Catena support (Catena Pro) ----
+  #
+  # Whether this server sends Catena support a report when one of Catena's own
+  # checks fails or recovers: "on", and anything else, absent included, is off.
+  # No `var`: catena-admin's catena-error-report reads it off the store on
+  # every run. No `panel`: the settings page's error reports section writes it
+  # through its own form, which asks for consent first.
+  - key: ERROR_REPORTS_TO_SUPPORT
     residence: store
-    var: cfg_ntfy_topic
-    panel: {group: alerts, section: config, kind: text, optional: true}
+
+  # ---- recommendation notices ----
+  #
+  # "true" once an administrator dismissed the notice recommending a second
+  # factor for administrators. No `var`: catena-admin reads it off the store on
+  # every page. No `panel`: the notice's own Dismiss button writes it.
+  - key: MFA_NOTICE_DISMISSED
+    residence: store
+
+  # ---- vulnerabilities (Catena Pro) ----
+  #
+  # Whether the CVE watch starts the emergency patch by itself for a
+  # vulnerability CISA lists as exploited that an application's service
+  # carries. No `var`: catena-admin's CVE watch reads it off the store on each
+  # run, and reads any value but "kev" as off. The field shows its first
+  # option, "off", while the store holds nothing.
+  - key: CVE_AUTO_PATCH
+    residence: store
+    panel:
+      group: vulnerabilities
+      section: config
+      kind: choice
+      optional: true
+      options: ["off", kev]
 
   # ---- who may sign in ----
   #
-  # Whether every account must enrol a second factor. A choice rather than free
-  # text because the converge renders it straight into the realm's
-  # required-action config, where a value it cannot read as a boolean would
-  # either fail the import or silently mean off. The identity probe reads the
-  # resulting posture back and reports drift.
+  # Whether every account must enrol a second factor, the top-level (master
+  # realm) administrators included. A choice rather than free text because the
+  # converge renders it straight into the realm's required-action config and
+  # reads it for the master realm's administrators, where a value it cannot read
+  # as a boolean would either fail the import or silently mean off. The identity
+  # probe reads the resulting posture back and reports drift.
   - key: IDENTITY_ENFORCE_MFA
     residence: store
     var: cfg_identity_enforce_mfa
@@ -719,21 +737,15 @@ config:
   # from the inventory reseeds them: a bench host follows its Pebble when the
   # address moves.
 
-  # Staging has no rate limit, and coturn only validates presence and expiry.
-  - key: COTURN_CERTBOT_STAGING
+  # Staging has no rate limit.
+  - key: CATENA_ACME_STAGING
     residence: store
-    var: cfg_coturn_certbot_staging
-    help:
-      en: Issue the TURN server's certificate from Let's Encrypt's staging CA.
-    env: {section: development, default: "false", reseed: true}
-
-  - key: MAILSERVER_CERTBOT_STAGING
-    residence: store
-    var: cfg_mailserver_certbot_staging
+    var: cfg_acme_staging
     help:
       en: >-
-        Issue the self-hosted mailserver's mail.<zone> certificate from Let's
-        Encrypt's staging CA.
+        Issue the certificates of the applications from
+        Let's Encrypt's staging CA. A local ACME server's directory URL takes
+        precedence.
     env: {section: development, default: "false", reseed: true}
 
   - key: CATENA_ACME_DIRECTORY_URL

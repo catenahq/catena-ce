@@ -1,9 +1,9 @@
 """The catena-admin swarm-service argv, its env and its secrets.
 
-The panel is created with `docker service create` rather than through
-Portainer's stack API, so the shape of that argv IS the deployment. Two
+The panel is created with `docker service create` rather than through a
+stack deploy, so the shape of that argv IS the deployment. Two
 consumers render it -- the converge and the test bench -- which is why the
-mounts and labels live in the plugin and not in either caller.
+mounts live in the plugin and not in either caller.
 
 Run: uv run pytest tests/unit/test_catena_admin_service.py
 """
@@ -31,7 +31,7 @@ def _spec(**over):
     base = {
         "name": "catena-admin",
         "image": "ghcr.io/catenahq/catena-admin:latest",
-        "network": "catena-network",
+        "networks": ["catena-network", "catena-healthchecks"],
         "ui_port": "9010",
         "direct_port": "8001",
         "group": "1000",
@@ -76,21 +76,28 @@ def test_the_host_gateway_alias_is_set():
     assert "--host=host.docker.internal:host-gateway" in argv
 
 
-def test_labels_are_container_labels_not_service_labels():
-    # gatus-sync reads `docker ps`, which reports the TASK container's
-    # labels. As --label these land on the service object, where nothing
-    # looks, and the panel drops off the monitored set silently.
+def test_the_panel_carries_no_labels():
+    # The vps.* labels are read from client-app stacks alone (catena-admin
+    # payload/lib/app_intent.py). The panel's gate is its entry in
+    # reconcile/roles/oauth2_proxy/defaults/main.yml oauth2_proxy_apps.
     argv = _plugin().catena_admin_service_argv(_spec())
-    assert "--container-label=vps.auth.mode=private" in argv
-    assert not any(a.startswith("--label=") for a in argv)
+    assert not any(a.startswith(("--container-label=", "--label=")) for a in argv)
 
 
-def test_the_payload_mount_stays_writable_inside_the_read_only_parent():
+def test_the_panel_writes_only_its_state_and_the_journal():
+    """The panel is built with no root and no docker socket so that a
+    compromise of it does not become host root, which holds only while root
+    reads nothing back from a place the panel can write. So that place stays
+    two paths: its own state directory and the journal socket it sends its
+    audit entries to. Everything else under /var/lib/catena, the trees root
+    installs and converges from included, it sees read-only."""
     argv = _plugin().catena_admin_service_argv(_spec())
-    assert ("--mount=type=bind,source=/var/lib/catena/ee-payload,"
-            "destination=/var/lib/catena/ee-payload") in argv
-    assert ("--mount=type=bind,source=/var/lib/catena,"
-            "destination=/var/lib/catena,readonly") in argv
+    mounts = [a.removeprefix("--mount=") for a in argv if a.startswith("--mount=")]
+    writable = sorted(m.split("source=", 1)[1].split(",", 1)[0]
+                      for m in mounts if not m.endswith(",readonly"))
+    assert writable == ["/run/systemd/journal/socket", "/var/lib/catena/admin"]
+    assert ("type=bind,source=/var/lib/catena,"
+            "destination=/var/lib/catena,readonly") in mounts
 
 
 def test_the_ssh_key_mount_is_read_only():
@@ -102,6 +109,21 @@ def test_the_ssh_key_mount_is_read_only():
 def test_a_missing_required_field_is_refused():
     with pytest.raises(ValueError):
         _plugin().catena_admin_service_argv(_spec(image=""))
+
+
+def test_the_service_joins_every_network_it_names():
+    # catena-network carries its gate and everything it calls but
+    # Healthchecks, which is on its own network and nowhere else.
+    argv = _plugin().catena_admin_service_argv(_spec())
+    assert "--network=catena-network" in argv
+    assert "--network=catena-healthchecks" in argv
+
+
+@pytest.mark.parametrize("networks", [[], "catena-network"])
+def test_networks_must_be_a_non_empty_list(networks):
+    # A string would be walked character by character into --network=c ...
+    with pytest.raises(ValueError):
+        _plugin().catena_admin_service_argv(_spec(networks=networks))
 
 
 # ─── secrets ─────────────────────────────────────────────────────────────
@@ -155,11 +177,14 @@ def test_the_secret_value_never_reaches_the_argv():
 # ─── drift ───────────────────────────────────────────────────────────────
 
 
-def _live(env=None, secrets=None):
-    return [{"Spec": {"TaskTemplate": {"ContainerSpec": {
-        "Env": env or [],
-        "Secrets": secrets or [],
-    }}}}]
+def _live(env=None, secrets=None, networks=None):
+    return [{"Spec": {"TaskTemplate": {
+        "ContainerSpec": {
+            "Env": env or [],
+            "Secrets": secrets or [],
+        },
+        "Networks": [{"Target": n} for n in (networks or [])],
+    }}}]
 
 
 def test_a_converged_service_reports_no_env_drift():
@@ -201,6 +226,36 @@ def test_an_unchanged_secret_reports_no_drift():
     ) == []
 
 
+_NETWORK_IDS = {"catena-network": "id-catena", "catena-healthchecks": "id-hc"}
+
+
+def test_attached_networks_report_no_drift():
+    # The live spec names networks by id, the converge by name.
+    assert _plugin().catena_admin_network_drift(
+        _live(networks=["id-hc", "id-catena"]), _NETWORK_IDS) == []
+
+
+def test_a_panel_created_before_its_healthchecks_network_joins_it():
+    assert _plugin().catena_admin_network_drift(
+        _live(networks=["id-catena"]), _NETWORK_IDS,
+    ) == ["--network-add", "catena-healthchecks"]
+
+
+def test_a_network_the_spec_no_longer_names_is_detached():
+    assert _plugin().catena_admin_network_drift(
+        _live(networks=["id-catena", "id-hc", "id-old"]), _NETWORK_IDS,
+    ) == ["--network-rm", "id-old"]
+
+
+def test_a_network_with_no_id_is_refused_rather_than_detached():
+    # Read as absent, it would detach the live network of that name: for
+    # catena-network, the panel's gate.
+    with pytest.raises(ValueError):
+        _plugin().catena_admin_network_drift(
+            _live(networks=["id-catena"]),
+            {"catena-network": "", "catena-healthchecks": "id-hc"})
+
+
 # ─── the host facts the panel's own links are built from ──────────────────
 
 DEPLOY = (
@@ -226,16 +281,13 @@ def _converge_env() -> dict:
     "INFRA_GATUS_HOSTNAME",
     "INFRA_HEARTBEAT_HOSTNAME",
     "INFRA_BESZEL_HOSTNAME",
-    "INFRA_PORTAINER_HOSTNAME",
 ])
 def test_the_converge_names_every_public_hostname_the_panel_links_to(name):
     """Each of these is a per-host name the panel cannot derive: it builds the
-    "open in <service>" links and the Portainer console tile out of them, and an
-    empty one makes the panel drop the link rather than render a dead one. So a
-    name silently stopping being passed removes a working link with no error
-    anywhere -- which is what INFRA_PORTAINER_HOSTNAME's absence did to the Apps
-    tab, where Portainer can never appear on its own because it is not one of
-    its own stacks."""
+    "open in <service>" links and the console tiles out of them, and an empty
+    one makes the panel drop the link rather than render a dead one. So a name
+    silently stopping being passed removes a working link with no error
+    anywhere."""
     env = _converge_env()
     assert name in env, f"{name} is no longer passed to the panel"
     assert env[name].strip(), f"{name} is passed empty"
@@ -268,6 +320,51 @@ def test_the_reconcile_checks_that_it_settled():
         next(n for n in names if "reconcile the service spec" in n)), (
         "the re-inspect runs before the update it is supposed to check"
     )
+
+
+def test_the_converge_joins_the_private_networks():
+    """Healthchecks is on its own network and nowhere else, so a panel left off
+    it reads no checks. Beszel's hub is not read by the panel."""
+    spec = next(
+        t["ansible.builtin.set_fact"]["_ca_spec"]
+        for t in _deploy_tasks()
+        if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {})
+    )
+    assert "{{ healthchecks_network }}" in spec["networks"]
+    assert "{{ beszel_network }}" not in spec["networks"]
+
+
+def test_the_secrets_are_created_by_the_shared_task():
+    """One task creates every swarm secret the converge mounts, the panel's
+    and Healthchecks', with the value on stdin."""
+    create = next(t for t in _deploy_tasks() if "create the missing" in t.get("name", ""))
+    assert create["ansible.builtin.include_tasks"].endswith("/tasks/swarm_secrets.yml")
+    import yaml
+
+    shared = yaml.safe_load(
+        (DEPLOY.parents[4] / "playbooks" / "tasks" / "swarm_secrets.yml").read_text())
+    cmd = next(t for t in shared if "create" in t["name"])["ansible.builtin.command"]
+    assert cmd["argv"][-1] == "-"
+    assert cmd["stdin"] == "{{ item.item.value }}"
+    assert cmd["stdin_add_newline"] is False
+    assert not any("value" in str(a) for a in cmd["argv"])
+
+
+def test_networks_are_reconciled_and_settled_like_env_and_secrets():
+    # Once in the drift the update applies, once in the check that it settled.
+    assert DEPLOY.read_text().count(
+        "catena_admin_network_drift(_ca_network_ids)") == 2
+
+
+def test_the_gate_secret_reaches_the_panel_as_a_swarm_secret():
+    """Without it the panel serves every request through its gate as nobody,
+    which is the safe failure, and a dead dash.<zone>."""
+    import yaml
+
+    defaults = yaml.safe_load(
+        (DEPLOY.parents[1] / "defaults" / "main.yml").read_text())
+    specs = {s["target"]: s for s in defaults["catena_admin_secret_specs"]}
+    assert "catena_admin_gate_secret" in specs["CATENA_ADMIN_GATE_SECRET"]["value"]
 
 
 def test_the_settle_check_is_not_a_retry():

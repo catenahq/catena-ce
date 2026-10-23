@@ -1,14 +1,10 @@
 ---
 # The full converge: bring a bootstrapped host to the desired state, every role
-# in dependency order. Safe to re-run. `catena-cli install` runs it after
-# bootstrap.yml and show-keyset.yml, then validate.yml; run again, the install
-# re-applies it to an installed server, the bootstrap roles the host's own
-# converge (reconcile.yml) leaves out included. `--tags` scopes it to some
-# roles, each tagged with its own name.
-#
-# It reaches the host at the address the install dials: `--address` for one run
-# (the tailnet address once the panel's Lockdown has closed public SSH), else
-# the SSH address bootstrap.yml recorded.
+# in dependency order. Safe to re-run. ansible/install-host.sh runs it on the
+# server after bootstrap.yml and show-keyset.yml, then validate.yml; run again,
+# the install re-applies it to an installed server, the bootstrap roles the
+# host's own converge (reconcile.yml) leaves out included. `--tags` scopes it
+# to some roles, each tagged with its own name.
 
 - name: Converge VPS to desired state
   # `stage_hosts` narrows the target; the default is the `vps:` group.
@@ -16,29 +12,21 @@
   become: true
   gather_facts: true
 
-  vars:
-    # Converge-time disk gate. Refuse to converge onto a filesystem at or
-    # above crit_pct full, ABORTING before any role writes. Live disk
-    # alerting is Beszel's; this is the install-time refusal, which Beszel
-    # cannot provide because it reports rather than blocks.
-    converge_disk_preflight_paths: ["/", "/srv/catena"]
-    converge_disk_preflight_crit_pct: 90
-
   # --- Fail-fast external-service reachability -----------------------------
   # Probe every configured external backend the converge depends on BEFORE
   # any heavy role runs, so a dead / unreachable / misconfigured endpoint
   # fails the converge in ~10s with a clear message rather than 10-30 min in,
-  # when the backup role first writes. Probes run ON the host (where the
-  # backup / mail traffic originates), so they catch host-side network blocks
-  # a controller-side check would miss. Values come from the store's cfg_*
+  # when the backup role first writes. Probes run ON the host, where the
+  # backup / mail traffic originates, so they catch host-side network blocks.
+  # Values come from the store's cfg_*
   # facts, published by the loader below. skip_external_preflight=true
   # bypasses them.
   pre_tasks:
     # Load the on-box config store (/etc/catena/config.json). Runs FIRST so
     # every role below reads the store's facts. tasks/load_onbox_config.yml
-    # adopts a secret the install passes in (an admin password install.yaml
-    # pins), MINTS every missing internal service secret on the host, and
-    # publishes the store as facts.
+    # adopts a secret the install passes in (an admin password the install's
+    # input file pins), MINTS every missing internal service secret on the
+    # host, and publishes the store as facts.
     - name: "Load on-box config store"
       # apply: propagate [always] to every task INSIDE the include. Without
       # it, include_tasks fires the include (it is `always`) but the inner
@@ -53,40 +41,13 @@
           tags: [always, onbox]
       tags: [always, onbox]
 
-    # Hard disk-space preflight. A converge onto a critically full
-    # filesystem fails deep inside a role (image pull ENOSPC, container
-    # write failure) 10-30 min in; refuse up front instead. Complements the
-    # backup's own free-bytes abort (catena-disk-preflight, in the catena-admin
-    # payload) and Beszel's threshold alerting -- this is the converge-time
-    # gate. gather_facts already populated ansible_mounts;
-    # /srv/catena may be absent on a fresh target (storage role mounts it
-    # later), so the selectattr filter checks only mounts that exist now.
-    # Bypass for dev with -e skip_disk_preflight=true.
-    - name: "Preflight (disk): refuse to converge on a critically full filesystem"
-      ansible.builtin.assert:
-        that:
-          - >-
-            ((mnt.size_total - mnt.size_available) / mnt.size_total * 100)
-            < (converge_disk_preflight_crit_pct | int)
-        fail_msg: >-
-          Disk preflight: {{ mnt.mount }} is
-          {{ ((mnt.size_total - mnt.size_available) / mnt.size_total * 100)
-             | round(1) }}% full
-          ({{ (mnt.size_available / 1073741824) | round(2) }} GiB free),
-          at or above the {{ converge_disk_preflight_crit_pct }}% converge
-          ceiling. Free space before re-running -- a converge onto a full
-          disk fails mid-role with no space left on device. Bypass (NOT
-          recommended): -e skip_disk_preflight=true
-        quiet: true
-      loop: >-
-        {{ ansible_mounts
-           | selectattr('mount', 'in', converge_disk_preflight_paths)
-           | selectattr('size_total', 'gt', 0)
-           | list }}
-      loop_control:
-        loop_var: mnt
-        label: "{{ mnt.mount }}"
-      when: not (skip_disk_preflight | default(false) | bool)
+    # Refuse to converge onto a critically full filesystem; the same file
+    # reconcile.yml includes.
+    - name: "Preflight (disk): the install's converge checks its filesystems"
+      ansible.builtin.include_tasks:
+        file: tasks/disk_preflight.yml
+        apply:
+          tags: [always, disk_preflight]
       tags: [always, disk_preflight]
 
     - name: "Preflight (external): probe configured S3 backends (HEAD, 10s)"
@@ -184,6 +145,16 @@
     - { role: host_hardening, tags: [host_hardening, hardening] }
     - { role: storage, tags: [storage] } # mount block volume at /srv/catena (+ optional bulk)
     - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
+    # The panel's runner account, its SSH key pair and the host key it trusts,
+    # and the bind-mount sources its service needs. Bootstrap-side (boundary.yml
+    # says why), right before the role that pins the key to the forced command.
+    - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
+    # The path a panel dispatch crosses: the forced command, the sudo and sshd
+    # rules, the dispatcher. Moved to this tree's generation beside the running
+    # one and proven before the switch; first of the roles the host also runs
+    # against itself, so a failed proof stops the converge before any of them
+    # changes the host.
+    - { role: dispatch_path, tags: [dispatch_path] }
     # Host engine payload (catena-cloudflared-sync, catena-recovery,
     # catena-schedule, catena-daily, the lanes + units), extracted from the
     # public catena-admin image. Needs docker and nothing else, and every role
@@ -213,10 +184,6 @@
     # hosting the Keycloak DB. Runs after traefik (needs catena-network) and
     # BEFORE keycloak (which provisions its DB inside it).
     - { role: postgres, tags: [postgres] } # infra Postgres (Keycloak DB)
-    # Portainer CE -- the container control plane, whose stack API the client
-    # apps deploy through. Runs after postgres (both are swarm services on
-    # catena-network).
-    - { role: portainer, tags: [portainer] } # container control plane
     # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
     # keycloak + oauth2_proxy so the public auth.<zone> URL answers by the
     # time oauth2_proxy waits for Keycloak's OIDC discovery doc; in the other
@@ -232,44 +199,18 @@
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
     - { role: infrastructure, tags: [infrastructure] } # gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
-    # The panel's trust path: the runner account, the sudoers drop-in, the
-    # forced command and its authorized_keys. Bootstrap-side (boundary.yml says
-    # why), and immediately before the role it prepares for.
-    - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
     # catena-admin: the host lanes' configuration, the action catalog, AND the
-    # Go shell container, created directly against the local swarm. It holds the API key
-    # that drives Portainer, so it cannot depend on Portainer to run: the one
-    # tool that can repair a Portainer that will not start must not be deployed
-    # by it.
+    # Go shell container, created directly against the local swarm.
     - { role: catena-admin, tags: [catena_admin] }
-    - { role: coturn, tags: [coturn] } # shared TURN/STUN for Nextcloud Talk HPB + the Jitsi bridges (UDP media plane, direct on the public IP)
     - { role: backup, tags: [backup] } # backup configuration + the first snapshot
 
   post_tasks:
-    # Render the control plane and the app companions as compose files and
-    # prove they load. Applies nothing: the services were already created and
-    # reconciled by the catena-tier1 engine, role by role, as each contributed
-    # its spec. This is the oracle -- `docker stack config` type-checking the
-    # same dicts against the docker actually installed.
-    #
-    # In post_tasks rather than the roles list, so it renders the specs every
-    # role above contributed.
-    #
-    # `apply:` carries the tag inward for the same reason the includes above
-    # do: without it, `--tags tier1_stack` fires the include and then filters
-    # out every task inside it.
-    - name: "Tier 1: render + validate the swarm-service oracle files"
-      ansible.builtin.include_role:
-        name: tier1_stack
-        apply:
-          tags: [tier1_stack]
-      tags: [tier1_stack]
-
-    # Ports, drift report, prune and release manifest: the tail both converge
-    # playbooks share (its header says how its tags work).
-    - name: "Converge tail: ports, drift, prune, release"
+    # The tier-1 oracle render, ports, drift report, prune and release
+    # manifest: the tail both converge playbooks share (its header says how its
+    # tags work).
+    - name: "Converge tail: tier-1 render, ports, versions, drift, prune, release"
       ansible.builtin.include_tasks:
         file: tasks/converge_tail.yml
       vars:
         catena_converge_path: converge
-      tags: [public_ports, bootstrap_drift, prune, release_manifest]
+      tags: [tier1_stack, public_ports, version_check, bootstrap_drift, prune, release_manifest]

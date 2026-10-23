@@ -1,36 +1,34 @@
 """Ansible filters: the catena-admin panel as a tier-1 swarm service, not a
-Portainer stack.
+stack.
 
-The panel holds the API key that drives Portainer, so deploying it VIA
-Portainer would make it a dependent of the thing it exists to drive -- a
-Portainer that will not start would take down the only tool that could
-repair it. The converge creates the service directly instead, the same way
-reconcile/roles/traefik, reconcile/roles/postgres and reconcile/roles/portainer do.
+The panel is the tool that repairs the host, so it does not depend on a
+stack deploy of its own. The converge creates the service directly, the same
+way reconcile/roles/traefik and reconcile/roles/postgres do.
 
-Three filters over one spec dict:
+Four filters over one spec dict:
 
-    catena_admin_service_argv(spec)         -> `docker service create` argv
-    catena_admin_env_drift(inspect, env)    -> --env-add / --env-rm flags
-    catena_admin_secret_drift(inspect, ss)  -> --secret-add / --secret-rm flags
+    catena_admin_service_argv(spec)          -> `docker service create` argv
+    catena_admin_env_drift(inspect, env)     -> --env-add / --env-rm flags
+    catena_admin_secret_drift(inspect, ss)   -> --secret-add / --secret-rm flags
+    catena_admin_network_drift(inspect, ids) -> --network-add / --network-rm flags
 
 WHY A SHARED RENDERER. Two consumers deploy this container and must agree
-on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml) with the
-published GHCR image, and the test bench (ops
-automation/test_bench/orchestrator/catena_admin_deploy.py) with an image it
-built on the VPS. Both create the service directly against the local swarm,
+on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml), and
+the test bench (ops automation/test_bench/orchestrator/catena_admin_deploy.py),
+which recreates the panel from its run's image on a host a scenario left
+without it. Both create the service directly against the local swarm,
 with no stack API between them to hold a shared compose file, so the only thing
 that can keep their argv identical is a renderer they both call. What MUST NOT
-drift is exactly what nobody reads: eight mounts and six labels. So the mounts,
-the labels, the publish mode and the host-gateway alias live HERE as product
-facts, and the spec carries only what is
-genuinely per-host.
+drift is exactly what nobody reads: the seven mounts. So the mounts, the
+publish mode and the host-gateway alias live HERE as product facts, and the
+spec carries only what is genuinely per-host.
 
 The bench imports this module by path, the way it already reads role files
 out of the catena-ce tree.
 
 SECRETS, NOT --env. `docker service create` has no --env-file, so every
 value passed with --env sits in the host's process table for the duration of
-the create -- readable there by any local user, not just root. Three of the
+the create -- readable there by any local user, not just root. Several of the
 panel's values are credentials. They arrive as swarm secrets mounted at
 /run/secrets/<name>, and only the PATH travels in the environment, as
 <KEY>_FILE. The reader is catena-admin shell/cmd/catena-admin/secretenv.go.
@@ -38,33 +36,39 @@ panel's values are credentials. They arrive as swarm secrets mounted at
 Swarm secrets are IMMUTABLE: a name, once created, is bound to its bytes
 forever. So a rotated credential must arrive under a NEW name or it never
 reaches the container, which is why secret_name() hashes the VALUE into the
-name. A fixed name would make rotation a silent no-op.
+name. A fixed name would make rotation a silent no-op. secret_entries, the
+swarm_secret_entries filter, names every swarm secret the converge creates
+(playbooks/tasks/swarm_secrets.yml), Healthchecks' too, and secrets_unmounted,
+the swarm_secrets_unmounted filter, picks the ones a rotation left behind
+(playbooks/tasks/swarm_secrets_prune.yml).
 
 End-to-end coverage:
     catena-ce ansible/tests/unit/test_catena_admin_service.py
-    bench     ce_install_suite (stage-2.6 deploys through the same argv)
+    bench     every install (the converge's deploy), and the bench's recreate
+              of a missing panel through the same argv
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 
 
 # Bind mounts, in the order the compose declared them. `readonly` is the
 # whole security story of this list: the panel WRITES its audit hash chain
-# and the synced host payload, and reads everything else.
+# and journald entries, and reads everything else.
 #
-# TWO nested rw binds inside the read-only /var/lib/catena, which is one
+# ONE nested rw bind inside the read-only /var/lib/catena, which is one
 # directory for one tier of state with the panel's write scope carved out of
-# it. ee-payload is where the shell mirrors its embedded host payload at
-# startup, for the installer to read back from the host side; admin/ is the
-# panel's own state, chiefly its audit hash chain. Everything else under the
-# parent belongs to the host lanes and the panel only reads it.
+# it: admin/, the panel's own state, chiefly its audit hash chain. Everything
+# else under the parent belongs to the host lanes and the panel only reads it.
+# The trees root runs from are there too, where the panel cannot write them:
+# the payload's stage (reconcile/roles/payload catena_payload_stage_dir) and
+# the reconcile tree's (catena-admin payload/cmd/catena-converge).
 #
 # Docker sorts mounts by destination depth, so a nested rw bind shadows the ro
 # parent regardless of the order here.
 _MOUNTS = (
-    ("/var/lib/catena/ee-payload", "/var/lib/catena/ee-payload", False),
     ("/var/lib/catena/admin", "/var/lib/catena/admin", False),
     ("/etc/catena/admin-ssh", "/etc/catena/admin-ssh", True),
     ("/var/backups/catena-export", "/var/backups/catena-export", True),
@@ -77,20 +81,6 @@ _MOUNTS = (
     # audit entry is silently dropped. Send-only: the socket lets the
     # container WRITE journald entries, not read other services' logs.
     ("/run/systemd/journal/socket", "/run/systemd/journal/socket", False),
-)
-
-# CONTAINER labels, not service labels. gatus-sync reads `docker ps`, which
-# reports the labels on the task container; `--label` would put these on the
-# service object where it never looks, and the panel would quietly drop off
-# the monitored set.
-_LABELS = (
-    ("vps.auth.mode", "private"),
-    ("vps.auth.groups", "staff,admin"),
-    ("vps.auto-update", "patch"),
-    ("vps.homepage.name", "Catena Admin"),
-    ("vps.homepage.icon", "mdi-shield-account"),
-    ("vps.homepage.description",
-     "Operator panel: apps, system, actions, recovery"),
 )
 
 # Where a swarm secret lands inside the container. The env var the shell
@@ -136,6 +126,27 @@ def secret_entries(specs):
     return out
 
 
+def secrets_unmounted(names, services, bases, kind="secret"):
+    """The secrets of `names` that secret_name made for one of `bases` and
+    that no service of `services` (`docker service inspect` output) mounts:
+    what a rotation left behind, for playbooks/tasks/swarm_secrets_prune.yml.
+    A name is matched whole, base and 8-hex suffix, so a secret of another
+    base sharing a prefix is not touched. `kind` "config" does the same for
+    swarm configs named the same way."""
+    if not bases:
+        return []
+    pattern = re.compile(
+        "^(?:" + "|".join(re.escape(str(b)) for b in bases) + ")-[0-9a-f]{8}$")
+    label = "Config" if kind == "config" else "Secret"
+    mounted = {
+        str(entry.get(f"{label}Name") or "")
+        for service in services or []
+        for entry in _container_spec(service).get(f"{label}s") or []
+        if isinstance(entry, dict)
+    }
+    return sorted(n for n in names if pattern.match(str(n)) and n not in mounted)
+
+
 def catena_admin_full_env(spec):
     """The complete environment the service is created with: the plain
     values, plus one <KEY>_FILE per mounted secret.
@@ -165,7 +176,7 @@ def catena_admin_service_argv(spec):
         name        service name (also its DNS name on catena-network --
                     oauth2_proxy upstreams to it by that name)
         image       image ref
-        network     overlay network to attach
+        networks    overlay networks to attach
         ui_port     host port published for the native-login listener
         direct_port the listener's port inside the container
         group       supplementary gid the container joins
@@ -178,10 +189,12 @@ def catena_admin_service_argv(spec):
     """
     if not isinstance(spec, dict):
         raise ValueError("catena_admin_service_argv: spec must be a dict")
-    for key in ("name", "image", "network", "ui_port", "direct_port"):
-        if not str(spec.get(key) or "").strip():
+    for key in ("name", "image", "networks", "ui_port", "direct_port"):
+        if not spec.get(key) or not str(spec.get(key)).strip():
             raise ValueError(
                 f"catena_admin_service_argv: spec.{key} is required")
+    if not isinstance(spec["networks"], (list, tuple)):
+        raise ValueError("catena_admin_service_argv: spec.networks is a list")
 
     argv = [
         "docker", "service", "create",
@@ -192,7 +205,7 @@ def catena_admin_service_argv(spec):
         # wait belongs in the play, where a failure can name the task error.
         "--detach",
         f"--name={spec['name']}",
-        f"--network={spec['network']}",
+        *(f"--network={n}" for n in spec["networks"]),
         # A panel that stays down after one bad exit is a panel nobody can
         # use to find out why it exited.
         "--restart-condition=any",
@@ -218,9 +231,6 @@ def catena_admin_service_argv(spec):
     for source, destination, readonly in _MOUNTS:
         argv.append("--mount=" + _mount_arg(source, destination, readonly))
 
-    for key, value in _LABELS:
-        argv.append(f"--container-label={key}={value}")
-
     for secret in spec.get("secrets") or []:
         argv.append(
             f"--secret=source={secret['name']},target={secret['target']}")
@@ -234,15 +244,18 @@ def catena_admin_service_argv(spec):
     return argv
 
 
-def _container_spec(inspect):
+def _task_template(inspect):
     """`docker service inspect` returns a one-element list; accept either
     that or an already-unwrapped dict so a caller can pipe from_json in."""
     if isinstance(inspect, list):
         inspect = inspect[0] if inspect else {}
     if not isinstance(inspect, dict):
         return {}
-    return (inspect.get("Spec", {}) or {}).get(
-        "TaskTemplate", {}).get("ContainerSpec", {}) or {}
+    return (inspect.get("Spec", {}) or {}).get("TaskTemplate", {}) or {}
+
+
+def _container_spec(inspect):
+    return _task_template(inspect).get("ContainerSpec", {}) or {}
 
 
 def catena_admin_env_drift(inspect, env):
@@ -302,12 +315,45 @@ def catena_admin_secret_drift(inspect, secrets):
     return args
 
 
+def catena_admin_network_drift(inspect, network_ids):
+    """`docker service update` flags that make the attached networks match.
+
+    `network_ids` maps each network the service joins to its id, as `docker
+    network inspect` reports it: the live spec names a network by id, while
+    the converge declares it by name. A blank id raises rather than reading
+    as absent, because absent means --network-rm, and removing catena-network
+    takes the panel off its gate.
+    """
+    if not isinstance(network_ids, dict):
+        raise ValueError("catena_admin_network_drift: network_ids must be a dict")
+    want = {}
+    for name, net_id in network_ids.items():
+        if not str(net_id or "").strip():
+            raise ValueError(
+                f"catena_admin_network_drift: no id for network {name}")
+        want[str(net_id).strip()] = str(name)
+    live = {
+        str(entry.get("Target") or "")
+        for entry in _task_template(inspect).get("Networks") or []
+        if isinstance(entry, dict)
+    }
+
+    args = []
+    for target in sorted(live - set(want)):
+        args += ["--network-rm", target]
+    for net_id in sorted(set(want) - live):
+        args += ["--network-add", want[net_id]]
+    return args
+
+
 class FilterModule:
     def filters(self):
         return {
-            "catena_admin_secret_entries": secret_entries,
+            "swarm_secret_entries": secret_entries,
+            "swarm_secrets_unmounted": secrets_unmounted,
             "catena_admin_full_env": catena_admin_full_env,
             "catena_admin_service_argv": catena_admin_service_argv,
             "catena_admin_env_drift": catena_admin_env_drift,
             "catena_admin_secret_drift": catena_admin_secret_drift,
+            "catena_admin_network_drift": catena_admin_network_drift,
         }

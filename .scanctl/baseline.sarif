@@ -1,0 +1,1566 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "trivy"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2025-47273/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: setuptools\nInstalled Version: 70.3.0\nVulnerability CVE-2025-47273\nSeverity: HIGH\nFixed Version: 78.1.1\nLink: [CVE-2025-47273](https://avd.aquasec.com/nvd/cve-2025-47273)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2025-47273/python",
+          "level": "error",
+          "message": {
+            "text": "Package: setuptools\nInstalled Version: 70.3.0\nVulnerability CVE-2025-47273\nSeverity: HIGH\nFixed Version: 78.1.1\nLink: [CVE-2025-47273](https://avd.aquasec.com/nvd/cve-2025-47273)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "python:3.14.7-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2025-59250/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.microsoft.sqlserver:mssql-jdbc\nInstalled Version: 13.2.1\nVulnerability CVE-2025-59250\nSeverity: HIGH\nFixed Version: 10.2.4.jre11, 11.2.4.jre11, 12.2.1.jre11, 12.6.5.jre11, 12.8.2.jre11, 12.10.2.jre11, 13.2.1.jre11\nLink: [CVE-2025-59250](https://avd.aquasec.com/nvd/cve-2025-59250)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-102266/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: PyJWT\nInstalled Version: 2.13.0\nVulnerability CVE-2026-102266\nSeverity: HIGH\nFixed Version: 2.14.0\nLink: [CVE-2026-102266](https://avd.aquasec.com/nvd/cve-2026-102266)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-102267/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: PyJWT\nInstalled Version: 2.13.0\nVulnerability CVE-2026-102267\nSeverity: HIGH\nFixed Version: 2.14.0\nLink: [CVE-2026-102267](https://avd.aquasec.com/nvd/cve-2026-102267)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-102268/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: PyJWT\nInstalled Version: 2.13.0\nVulnerability CVE-2026-102268\nSeverity: CRITICAL\nFixed Version: 2.14.0\nLink: [CVE-2026-102268](https://avd.aquasec.com/nvd/cve-2026-102268)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-102271/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: PyJWT\nInstalled Version: 2.13.0\nVulnerability CVE-2026-102271\nSeverity: HIGH\nFixed Version: 2.14.0\nLink: [CVE-2026-102271](https://avd.aquasec.com/nvd/cve-2026-102271)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-102272/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: PyJWT\nInstalled Version: 2.13.0\nVulnerability CVE-2026-102272\nSeverity: HIGH\nFixed Version: 2.14.0\nLink: [CVE-2026-102272](https://avd.aquasec.com/nvd/cve-2026-102272)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-102273/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: PyJWT\nInstalled Version: 2.13.0\nVulnerability CVE-2026-102273\nSeverity: HIGH\nFixed Version: 2.14.0\nLink: [CVE-2026-102273](https://avd.aquasec.com/nvd/cve-2026-102273)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-103111/clamav/clamav",
+          "level": "error",
+          "message": {
+            "text": "Package: pcre2\nInstalled Version: 10.47-r1\nVulnerability CVE-2026-103111\nSeverity: HIGH\nFixed Version: 10.49-r0\nLink: [CVE-2026-103111](https://avd.aquasec.com/nvd/cve-2026-103111)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "clamav/clamav:1.5.3_base"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-103111/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libpcre2-8-0\nInstalled Version: 10.46-1~deb13u1\nVulnerability CVE-2026-103111\nSeverity: HIGH\nFixed Version: 10.46-1~deb13u3\nLink: [CVE-2026-103111](https://avd.aquasec.com/nvd/cve-2026-103111)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-11822/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libsqlite3-0\nInstalled Version: 3.46.1-7+deb13u1\nVulnerability CVE-2026-11822\nSeverity: HIGH\nFixed Version: 3.46.1-7+deb13u2\nLink: [CVE-2026-11822](https://avd.aquasec.com/nvd/cve-2026-11822)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-11824/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libsqlite3-0\nInstalled Version: 3.46.1-7+deb13u1\nVulnerability CVE-2026-11824\nSeverity: HIGH\nFixed Version: 3.46.1-7+deb13u2\nLink: [CVE-2026-11824](https://avd.aquasec.com/nvd/cve-2026-11824)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-13221/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: perl-base\nInstalled Version: 5.40.1-6\nVulnerability CVE-2026-13221\nSeverity: CRITICAL\nFixed Version: 5.40.1-6+deb13u1\nLink: [CVE-2026-13221](https://avd.aquasec.com/nvd/cve-2026-13221)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-13506/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: org.bouncycastle:bcprov-jdk18on\nInstalled Version: 1.84\nVulnerability CVE-2026-13506\nSeverity: HIGH\nFixed Version: 1.85\nLink: [CVE-2026-13506](https://avd.aquasec.com/nvd/cve-2026-13506)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-13506/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: org.bouncycastle:bcprov-jdk18on\nInstalled Version: 1.84\nVulnerability CVE-2026-13506\nSeverity: HIGH\nFixed Version: 1.85\nLink: [CVE-2026-13506](https://avd.aquasec.com/nvd/cve-2026-13506)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-14456/clamav/clamav",
+          "level": "error",
+          "message": {
+            "text": "Package: libcrypto3\nInstalled Version: 3.5.7-r0\nVulnerability CVE-2026-14456\nSeverity: HIGH\nFixed Version: 3.5.8-r0\nLink: [CVE-2026-14456](https://avd.aquasec.com/nvd/cve-2026-14456)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "clamav/clamav:1.5.3_base"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-14456/clamav/clamav",
+          "level": "error",
+          "message": {
+            "text": "Package: libssl3\nInstalled Version: 3.5.7-r0\nVulnerability CVE-2026-14456\nSeverity: HIGH\nFixed Version: 3.5.8-r0\nLink: [CVE-2026-14456](https://avd.aquasec.com/nvd/cve-2026-14456)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "clamav/clamav:1.5.3_base"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-14456/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libssl3t64\nInstalled Version: 3.5.6-1~deb13u2\nVulnerability CVE-2026-14456\nSeverity: HIGH\nFixed Version: 3.5.7-1~deb13u2\nLink: [CVE-2026-14456](https://avd.aquasec.com/nvd/cve-2026-14456)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-14456/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: openssl\nInstalled Version: 3.5.6-1~deb13u2\nVulnerability CVE-2026-14456\nSeverity: HIGH\nFixed Version: 3.5.7-1~deb13u2\nLink: [CVE-2026-14456](https://avd.aquasec.com/nvd/cve-2026-14456)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-14456/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: openssl-provider-legacy\nInstalled Version: 3.5.6-1~deb13u2\nVulnerability CVE-2026-14456\nSeverity: HIGH\nFixed Version: 3.5.7-1~deb13u2\nLink: [CVE-2026-14456](https://avd.aquasec.com/nvd/cve-2026-14456)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-14456/quay.io/oauth2-proxy/oauth2-proxy",
+          "level": "error",
+          "message": {
+            "text": "Package: libcrypto3\nInstalled Version: 3.5.7-r0\nVulnerability CVE-2026-14456\nSeverity: HIGH\nFixed Version: 3.5.8-r0\nLink: [CVE-2026-14456](https://avd.aquasec.com/nvd/cve-2026-14456)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-14456/quay.io/oauth2-proxy/oauth2-proxy",
+          "level": "error",
+          "message": {
+            "text": "Package: libssl3\nInstalled Version: 3.5.7-r0\nVulnerability CVE-2026-14456\nSeverity: HIGH\nFixed Version: 3.5.8-r0\nLink: [CVE-2026-14456](https://avd.aquasec.com/nvd/cve-2026-14456)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-25681/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.40.0\nVulnerability CVE-2026-25681\nSeverity: HIGH\nFixed Version: 0.55.0\nLink: [CVE-2026-25681](https://avd.aquasec.com/nvd/cve-2026-25681)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-27136/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.40.0\nVulnerability CVE-2026-27136\nSeverity: HIGH\nFixed Version: 0.55.0\nLink: [CVE-2026-27136](https://avd.aquasec.com/nvd/cve-2026-27136)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-27145/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-27145\nSeverity: HIGH\nFixed Version: 1.25.11, 1.26.4\nLink: [CVE-2026-27145](https://avd.aquasec.com/nvd/cve-2026-27145)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-29062/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-core\nInstalled Version: 3.0.1\nVulnerability CVE-2026-29062\nSeverity: HIGH\nFixed Version: 3.1.0\nLink: [CVE-2026-29062](https://avd.aquasec.com/nvd/cve-2026-29062)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-33811/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-33811\nSeverity: HIGH\nFixed Version: 1.25.10, 1.26.3\nLink: [CVE-2026-33811](https://avd.aquasec.com/nvd/cve-2026-33811)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-33814/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.40.0\nVulnerability CVE-2026-33814\nSeverity: HIGH\nFixed Version: 0.53.0\nLink: [CVE-2026-33814](https://avd.aquasec.com/nvd/cve-2026-33814)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-33814/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-33814\nSeverity: HIGH\nFixed Version: 1.25.10, 1.26.3\nLink: [CVE-2026-33814](https://avd.aquasec.com/nvd/cve-2026-33814)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-33818/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-33818\nSeverity: HIGH\nFixed Version: 1.25.13, 1.26.6, 1.27.0-rc.3\nLink: [CVE-2026-33818](https://avd.aquasec.com/nvd/cve-2026-33818)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-39820/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-39820\nSeverity: HIGH\nFixed Version: 1.25.10, 1.26.3\nLink: [CVE-2026-39820](https://avd.aquasec.com/nvd/cve-2026-39820)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-39821/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.40.0\nVulnerability CVE-2026-39821\nSeverity: HIGH\nFixed Version: 0.55.0\nLink: [CVE-2026-39821](https://avd.aquasec.com/nvd/cve-2026-39821)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-39821/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-39821\nSeverity: HIGH\nFixed Version: 1.25.13, 1.26.6, 1.27.0-rc.3\nLink: [CVE-2026-39821](https://avd.aquasec.com/nvd/cve-2026-39821)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-39822/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-39822\nSeverity: HIGH\nFixed Version: 1.25.12, 1.26.5, 1.27.0-rc.2\nLink: [CVE-2026-39822](https://avd.aquasec.com/nvd/cve-2026-39822)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-39836/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-39836\nSeverity: HIGH\nFixed Version: 1.25.10, 1.26.3\nLink: [CVE-2026-39836](https://avd.aquasec.com/nvd/cve-2026-39836)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-40973/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: org.springframework.boot:spring-boot\nInstalled Version: 3.4.5\nVulnerability CVE-2026-40973\nSeverity: HIGH\nFixed Version: 4.0.6, 3.5.14\nLink: [CVE-2026-40973](https://avd.aquasec.com/nvd/cve-2026-40973)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-41850/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: org.springframework:spring-expression\nInstalled Version: 6.2.11\nVulnerability CVE-2026-41850\nSeverity: HIGH\nFixed Version: 7.0.8, 6.2.19\nLink: [CVE-2026-41850](https://avd.aquasec.com/nvd/cve-2026-41850)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-41992/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: gzip\nInstalled Version: 1.13-1\nVulnerability CVE-2026-41992\nSeverity: HIGH\nFixed Version: 1.13-1+deb13u1\nLink: [CVE-2026-41992](https://avd.aquasec.com/nvd/cve-2026-41992)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-42496/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: perl-base\nInstalled Version: 5.40.1-6\nVulnerability CVE-2026-42496\nSeverity: CRITICAL\nFixed Version: 5.40.1-6+deb13u1\nLink: [CVE-2026-42496](https://avd.aquasec.com/nvd/cve-2026-42496)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-42497/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: perl-base\nInstalled Version: 5.40.1-6\nVulnerability CVE-2026-42497\nSeverity: HIGH\nFixed Version: 5.40.1-6+deb13u1\nLink: [CVE-2026-42497](https://avd.aquasec.com/nvd/cve-2026-42497)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-42499/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-42499\nSeverity: HIGH\nFixed Version: 1.25.10, 1.26.3\nLink: [CVE-2026-42499](https://avd.aquasec.com/nvd/cve-2026-42499)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-42504/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-42504\nSeverity: HIGH\nFixed Version: 1.25.11, 1.26.4\nLink: [CVE-2026-42504](https://avd.aquasec.com/nvd/cve-2026-42504)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-45447/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: libssl3t64\nInstalled Version: 3.5.5-1ubuntu3\nVulnerability CVE-2026-45447\nSeverity: HIGH\nFixed Version: 3.5.5-1ubuntu3.2\nLink: [CVE-2026-45447](https://avd.aquasec.com/nvd/cve-2026-45447)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-45447/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: openssl\nInstalled Version: 3.5.5-1ubuntu3\nVulnerability CVE-2026-45447\nSeverity: HIGH\nFixed Version: 3.5.5-1ubuntu3.2\nLink: [CVE-2026-45447](https://avd.aquasec.com/nvd/cve-2026-45447)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-45447/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: openssl-provider-legacy\nInstalled Version: 3.5.5-1ubuntu3\nVulnerability CVE-2026-45447\nSeverity: HIGH\nFixed Version: 3.5.5-1ubuntu3.2\nLink: [CVE-2026-45447](https://avd.aquasec.com/nvd/cve-2026-45447)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-46600/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.40.0\nVulnerability CVE-2026-46600\nSeverity: HIGH\nFixed Version: 0.56.0\nLink: [CVE-2026-46600](https://avd.aquasec.com/nvd/cve-2026-46600)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-46600/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-46600\nSeverity: HIGH\nFixed Version: 1.26.6, 1.27.0-rc.3\nLink: [CVE-2026-46600](https://avd.aquasec.com/nvd/cve-2026-46600)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-46602/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/image\nInstalled Version: v0.40.0\nVulnerability CVE-2026-46602\nSeverity: HIGH\nFixed Version: 0.43.0\nLink: [CVE-2026-46602](https://avd.aquasec.com/nvd/cve-2026-46602)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-46603/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/image\nInstalled Version: v0.40.0\nVulnerability CVE-2026-46603\nSeverity: HIGH\nFixed Version: 0.45.0\nLink: [CVE-2026-46603](https://avd.aquasec.com/nvd/cve-2026-46603)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-48962/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: perl-base\nInstalled Version: 5.40.1-6\nVulnerability CVE-2026-48962\nSeverity: HIGH\nFixed Version: 5.40.1-6+deb13u1\nLink: [CVE-2026-48962](https://avd.aquasec.com/nvd/cve-2026-48962)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-54512/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.1\nVulnerability CVE-2026-54512\nSeverity: HIGH\nFixed Version: 2.18.8, 3.1.4, 2.21.4\nLink: [CVE-2026-54512](https://avd.aquasec.com/nvd/cve-2026-54512)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-54512/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-databind\nInstalled Version: 3.0.1\nVulnerability CVE-2026-54512\nSeverity: HIGH\nFixed Version: 3.1.4\nLink: [CVE-2026-54512](https://avd.aquasec.com/nvd/cve-2026-54512)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-54513/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.1\nVulnerability CVE-2026-54513\nSeverity: HIGH\nFixed Version: 2.18.8, 2.21.4, 3.1.4\nLink: [CVE-2026-54513](https://avd.aquasec.com/nvd/cve-2026-54513)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-54513/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-databind\nInstalled Version: 3.0.1\nVulnerability CVE-2026-54513\nSeverity: HIGH\nFixed Version: 3.1.4\nLink: [CVE-2026-54513](https://avd.aquasec.com/nvd/cve-2026-54513)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-56853/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-56853\nSeverity: HIGH\nFixed Version: 1.25.13, 1.26.6, 1.27.0-rc.3\nLink: [CVE-2026-56853](https://avd.aquasec.com/nvd/cve-2026-56853)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-56858/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-56858\nSeverity: HIGH\nFixed Version: 1.25.13, 1.26.6, 1.27.0-rc.3\nLink: [CVE-2026-56858](https://avd.aquasec.com/nvd/cve-2026-56858)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-56859/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-56859\nSeverity: HIGH\nFixed Version: 1.25.13, 1.26.6, 1.27.0-rc.3\nLink: [CVE-2026-56859](https://avd.aquasec.com/nvd/cve-2026-56859)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-56860/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-56860\nSeverity: HIGH\nFixed Version: 1.25.13, 1.26.6, 1.27.0-rc.3\nLink: [CVE-2026-56860](https://avd.aquasec.com/nvd/cve-2026-56860)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-56862/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-56862\nSeverity: HIGH\nFixed Version: 1.25.13, 1.26.6, 1.27.0-rc.3\nLink: [CVE-2026-56862](https://avd.aquasec.com/nvd/cve-2026-56862)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-57432/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: perl-base\nInstalled Version: 5.40.1-6\nVulnerability CVE-2026-57432\nSeverity: HIGH\nFixed Version: 5.40.1-6+deb13u1\nLink: [CVE-2026-57432](https://avd.aquasec.com/nvd/cve-2026-57432)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-57433/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: perl-base\nInstalled Version: 5.40.1-6\nVulnerability CVE-2026-57433\nSeverity: HIGH\nFixed Version: 5.40.1-6+deb13u1\nLink: [CVE-2026-57433](https://avd.aquasec.com/nvd/cve-2026-57433)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-58050/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libssh2-1t64\nInstalled Version: 1.11.1-1+deb13u1\nVulnerability CVE-2026-58050\nSeverity: HIGH\nFixed Version: 1.11.1-1+deb13u2\nLink: [CVE-2026-58050](https://avd.aquasec.com/nvd/cve-2026-58050)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-68494/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.21.1\nVulnerability CVE-2026-68494\nSeverity: HIGH\nFixed Version: 2.18.8, 2.21.4\nLink: [CVE-2026-68494](https://avd.aquasec.com/nvd/cve-2026-68494)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-68494/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-core\nInstalled Version: 3.0.1\nVulnerability CVE-2026-68494\nSeverity: HIGH\nFixed Version: 3.1.4\nLink: [CVE-2026-68494](https://avd.aquasec.com/nvd/cve-2026-68494)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-68497/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.1\nVulnerability CVE-2026-68497\nSeverity: HIGH\nFixed Version: 2.18.10, 2.21.6, 2.22.2\nLink: [CVE-2026-68497](https://avd.aquasec.com/nvd/cve-2026-68497)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-68497/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-databind\nInstalled Version: 3.0.1\nVulnerability CVE-2026-68497\nSeverity: HIGH\nFixed Version: 3.2.2, 3.1.6\nLink: [CVE-2026-68497](https://avd.aquasec.com/nvd/cve-2026-68497)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-68497/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.5\nVulnerability CVE-2026-68497\nSeverity: HIGH\nFixed Version: 2.18.10, 2.21.6, 2.22.2\nLink: [CVE-2026-68497](https://avd.aquasec.com/nvd/cve-2026-68497)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-68497/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.5\nVulnerability CVE-2026-68497\nSeverity: HIGH\nFixed Version: 2.18.10, 2.21.6, 2.22.2\nLink: [CVE-2026-68497](https://avd.aquasec.com/nvd/cve-2026-68497)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-75595/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: io.netty:netty-handler\nInstalled Version: 4.1.136.Final\nVulnerability CVE-2026-75595\nSeverity: CRITICAL\nFixed Version: 4.2.17.Final, 4.1.137.Final\nLink: [CVE-2026-75595](https://avd.aquasec.com/nvd/cve-2026-75595)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78667/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-78667\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78667](https://avd.aquasec.com/nvd/cve-2026-78667)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78667/henrygd/beszel",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-78667\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78667](https://avd.aquasec.com/nvd/cve-2026-78667)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "henrygd/beszel:0.20.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78667/henrygd/beszel-agent",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-78667\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78667](https://avd.aquasec.com/nvd/cve-2026-78667)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "henrygd/beszel-agent:0.20.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78667/quay.io/oauth2-proxy/oauth2-proxy",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.7\nVulnerability CVE-2026-78667\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78667](https://avd.aquasec.com/nvd/cve-2026-78667)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78667/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-78667\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78667](https://avd.aquasec.com/nvd/cve-2026-78667)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.40.0\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 0.60.0\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/henrygd/beszel",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.59.0\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 0.60.0\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "henrygd/beszel:0.20.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/henrygd/beszel",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "henrygd/beszel:0.20.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/henrygd/beszel-agent",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.59.0\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 0.60.0\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "henrygd/beszel-agent:0.20.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/henrygd/beszel-agent",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "henrygd/beszel-agent:0.20.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/quay.io/oauth2-proxy/oauth2-proxy",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.58.0\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 0.60.0\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/quay.io/oauth2-proxy/oauth2-proxy",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.7\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: golang.org/x/net\nInstalled Version: v0.58.0\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 0.60.0\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-78669/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-78669\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-78669](https://avd.aquasec.com/nvd/cve-2026-78669)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-8286/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libcurl4t64\nInstalled Version: 8.14.1-2+deb13u4\nVulnerability CVE-2026-8286\nSeverity: HIGH\nFixed Version: 8.14.1-2+deb13u7\nLink: [CVE-2026-8286](https://avd.aquasec.com/nvd/cve-2026-8286)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-8376/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: perl-base\nInstalled Version: 5.40.1-6\nVulnerability CVE-2026-8376\nSeverity: CRITICAL\nFixed Version: 5.40.1-6+deb13u1\nLink: [CVE-2026-8376](https://avd.aquasec.com/nvd/cve-2026-8376)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84304/quay.io/oauth2-proxy/oauth2-proxy",
+          "level": "error",
+          "message": {
+            "text": "Package: google.golang.org/grpc\nInstalled Version: v1.83.0\nVulnerability CVE-2026-84304\nSeverity: HIGH\nFixed Version: 1.83.1\nLink: [CVE-2026-84304](https://avd.aquasec.com/nvd/cve-2026-84304)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84304/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: google.golang.org/grpc\nInstalled Version: v1.81.1\nVulnerability CVE-2026-84304\nSeverity: HIGH\nFixed Version: 1.83.1\nLink: [CVE-2026-84304](https://avd.aquasec.com/nvd/cve-2026-84304)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84445/quay.io/oauth2-proxy/oauth2-proxy",
+          "level": "error",
+          "message": {
+            "text": "Package: google.golang.org/grpc\nInstalled Version: v1.83.0\nVulnerability CVE-2026-84445\nSeverity: HIGH\nFixed Version: 1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e\nLink: [CVE-2026-84445](https://avd.aquasec.com/nvd/cve-2026-84445)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84445/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: google.golang.org/grpc\nInstalled Version: v1.81.1\nVulnerability CVE-2026-84445\nSeverity: HIGH\nFixed Version: 1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e\nLink: [CVE-2026-84445](https://avd.aquasec.com/nvd/cve-2026-84445)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84782/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: libssl3t64\nInstalled Version: 3.5.5-1ubuntu3\nVulnerability CVE-2026-84782\nSeverity: HIGH\nFixed Version: 3.5.5-1ubuntu3.6\nLink: [CVE-2026-84782](https://avd.aquasec.com/nvd/cve-2026-84782)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84782/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: openssl\nInstalled Version: 3.5.5-1ubuntu3\nVulnerability CVE-2026-84782\nSeverity: HIGH\nFixed Version: 3.5.5-1ubuntu3.6\nLink: [CVE-2026-84782](https://avd.aquasec.com/nvd/cve-2026-84782)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84782/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: openssl-provider-legacy\nInstalled Version: 3.5.5-1ubuntu3\nVulnerability CVE-2026-84782\nSeverity: HIGH\nFixed Version: 3.5.5-1ubuntu3.6\nLink: [CVE-2026-84782](https://avd.aquasec.com/nvd/cve-2026-84782)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84782/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libssl3t64\nInstalled Version: 3.5.6-1~deb13u2\nVulnerability CVE-2026-84782\nSeverity: HIGH\nFixed Version: 3.5.7-1~deb13u3\nLink: [CVE-2026-84782](https://avd.aquasec.com/nvd/cve-2026-84782)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84782/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: openssl\nInstalled Version: 3.5.6-1~deb13u2\nVulnerability CVE-2026-84782\nSeverity: HIGH\nFixed Version: 3.5.7-1~deb13u3\nLink: [CVE-2026-84782](https://avd.aquasec.com/nvd/cve-2026-84782)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84782/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: openssl-provider-legacy\nInstalled Version: 3.5.6-1~deb13u2\nVulnerability CVE-2026-84782\nSeverity: HIGH\nFixed Version: 3.5.7-1~deb13u3\nLink: [CVE-2026-84782](https://avd.aquasec.com/nvd/cve-2026-84782)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-84939/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: org.freemarker:freemarker\nInstalled Version: 2.3.32\nVulnerability CVE-2026-84939\nSeverity: CRITICAL\nFixed Version: 2.3.35\nLink: [CVE-2026-84939](https://avd.aquasec.com/nvd/cve-2026-84939)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-86145/clamav/clamav",
+          "level": "error",
+          "message": {
+            "text": "Package: pcre2\nInstalled Version: 10.47-r1\nVulnerability CVE-2026-86145\nSeverity: HIGH\nFixed Version: 10.48-r0\nLink: [CVE-2026-86145](https://avd.aquasec.com/nvd/cve-2026-86145)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "clamav/clamav:1.5.3_base"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-86145/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libpcre2-8-0\nInstalled Version: 10.46-1~deb13u1\nVulnerability CVE-2026-86145\nSeverity: HIGH\nFixed Version: 10.46-1~deb13u2\nLink: [CVE-2026-86145](https://avd.aquasec.com/nvd/cve-2026-86145)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-8763/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: org.bouncycastle:bcprov-jdk18on\nInstalled Version: 1.84\nVulnerability CVE-2026-8763\nSeverity: CRITICAL\nFixed Version: 1.85\nLink: [CVE-2026-8763](https://avd.aquasec.com/nvd/cve-2026-8763)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-8763/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: org.bouncycastle:bcprov-jdk18on\nInstalled Version: 1.84\nVulnerability CVE-2026-8763\nSeverity: CRITICAL\nFixed Version: 1.85\nLink: [CVE-2026-8763](https://avd.aquasec.com/nvd/cve-2026-8763)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89157/clamav/clamav",
+          "level": "error",
+          "message": {
+            "text": "Package: pcre2\nInstalled Version: 10.47-r1\nVulnerability CVE-2026-89157\nSeverity: HIGH\nFixed Version: 10.48-r0\nLink: [CVE-2026-89157](https://avd.aquasec.com/nvd/cve-2026-89157)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "clamav/clamav:1.5.3_base"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89157/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libpcre2-8-0\nInstalled Version: 10.46-1~deb13u1\nVulnerability CVE-2026-89157\nSeverity: HIGH\nFixed Version: 10.46-1~deb13u2\nLink: [CVE-2026-89157](https://avd.aquasec.com/nvd/cve-2026-89157)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89161/clamav/clamav",
+          "level": "error",
+          "message": {
+            "text": "Package: pcre2\nInstalled Version: 10.47-r1\nVulnerability CVE-2026-89161\nSeverity: HIGH\nFixed Version: 10.48-r0\nLink: [CVE-2026-89161](https://avd.aquasec.com/nvd/cve-2026-89161)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "clamav/clamav:1.5.3_base"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89161/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libpcre2-8-0\nInstalled Version: 10.46-1~deb13u1\nVulnerability CVE-2026-89161\nSeverity: HIGH\nFixed Version: 10.46-1~deb13u2\nLink: [CVE-2026-89161](https://avd.aquasec.com/nvd/cve-2026-89161)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-8927/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libcurl4t64\nInstalled Version: 8.14.1-2+deb13u4\nVulnerability CVE-2026-8927\nSeverity: HIGH\nFixed Version: 8.14.1-2+deb13u7\nLink: [CVE-2026-8927](https://avd.aquasec.com/nvd/cve-2026-8927)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89407/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.21.1\nVulnerability CVE-2026-89407\nSeverity: HIGH\nFixed Version: 2.18.11, 2.21.7, 2.22.3\nLink: [CVE-2026-89407](https://avd.aquasec.com/nvd/cve-2026-89407)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89407/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-core\nInstalled Version: 3.0.1\nVulnerability CVE-2026-89407\nSeverity: HIGH\nFixed Version: 3.1.7, 3.2.2\nLink: [CVE-2026-89407](https://avd.aquasec.com/nvd/cve-2026-89407)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89407/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.21.5\nVulnerability CVE-2026-89407\nSeverity: HIGH\nFixed Version: 2.18.11, 2.21.7, 2.22.3\nLink: [CVE-2026-89407](https://avd.aquasec.com/nvd/cve-2026-89407)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89407/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.21.5\nVulnerability CVE-2026-89407\nSeverity: HIGH\nFixed Version: 2.18.11, 2.21.7, 2.22.3\nLink: [CVE-2026-89407](https://avd.aquasec.com/nvd/cve-2026-89407)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89425/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.21.1\nVulnerability CVE-2026-89425\nSeverity: HIGH\nFixed Version: 2.21.7, 2.22.3, 2.18.11\nLink: [CVE-2026-89425](https://avd.aquasec.com/nvd/cve-2026-89425)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89425/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-core\nInstalled Version: 3.0.1\nVulnerability CVE-2026-89425\nSeverity: HIGH\nFixed Version: 3.1.7, 3.2.3\nLink: [CVE-2026-89425](https://avd.aquasec.com/nvd/cve-2026-89425)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89425/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.21.5\nVulnerability CVE-2026-89425\nSeverity: HIGH\nFixed Version: 2.21.7, 2.22.3, 2.18.11\nLink: [CVE-2026-89425](https://avd.aquasec.com/nvd/cve-2026-89425)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-89425/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-core\nInstalled Version: 2.21.5\nVulnerability CVE-2026-89425\nSeverity: HIGH\nFixed Version: 2.21.7, 2.22.3, 2.18.11\nLink: [CVE-2026-89425](https://avd.aquasec.com/nvd/cve-2026-89425)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-91776/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.1\nVulnerability CVE-2026-91776\nSeverity: HIGH\nFixed Version: 2.18.11, 2.21.7, 2.22.3\nLink: [CVE-2026-91776](https://avd.aquasec.com/nvd/cve-2026-91776)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-91776/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-databind\nInstalled Version: 3.0.1\nVulnerability CVE-2026-91776\nSeverity: HIGH\nFixed Version: 3.1.7, 3.2.3\nLink: [CVE-2026-91776](https://avd.aquasec.com/nvd/cve-2026-91776)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-91776/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.5\nVulnerability CVE-2026-91776\nSeverity: HIGH\nFixed Version: 2.18.11, 2.21.7, 2.22.3\nLink: [CVE-2026-91776](https://avd.aquasec.com/nvd/cve-2026-91776)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-91776/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.5\nVulnerability CVE-2026-91776\nSeverity: HIGH\nFixed Version: 2.18.11, 2.21.7, 2.22.3\nLink: [CVE-2026-91776](https://avd.aquasec.com/nvd/cve-2026-91776)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-91777/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.1\nVulnerability CVE-2026-91777\nSeverity: HIGH\nFixed Version: 2.21.7, 2.18.11, 2.22.3\nLink: [CVE-2026-91777](https://avd.aquasec.com/nvd/cve-2026-91777)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-91777/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-databind\nInstalled Version: 3.0.1\nVulnerability CVE-2026-91777\nSeverity: HIGH\nFixed Version: 3.1.7, 3.2.3\nLink: [CVE-2026-91777](https://avd.aquasec.com/nvd/cve-2026-91777)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-91777/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.5\nVulnerability CVE-2026-91777\nSeverity: HIGH\nFixed Version: 2.21.7, 2.18.11, 2.22.3\nLink: [CVE-2026-91777](https://avd.aquasec.com/nvd/cve-2026-91777)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-91777/quay.io/phasetwo/phasetwo-keycloak",
+          "level": "error",
+          "message": {
+            "text": "Package: com.fasterxml.jackson.core:jackson-databind\nInstalled Version: 2.21.5\nVulnerability CVE-2026-91777\nSeverity: HIGH\nFixed Version: 2.21.7, 2.18.11, 2.22.3\nLink: [CVE-2026-91777](https://avd.aquasec.com/nvd/cve-2026-91777)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/phasetwo/phasetwo-keycloak:26.6.7.1790010472"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-92392/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: curl\nInstalled Version: 8.18.0-1ubuntu2.1\nVulnerability CVE-2026-92392\nSeverity: HIGH\nFixed Version: 8.18.0-1ubuntu2.8\nLink: [CVE-2026-92392](https://avd.aquasec.com/nvd/cve-2026-92392)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-92392/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: libcurl4t64\nInstalled Version: 8.18.0-1ubuntu2.1\nVulnerability CVE-2026-92392\nSeverity: HIGH\nFixed Version: 8.18.0-1ubuntu2.8\nLink: [CVE-2026-92392](https://avd.aquasec.com/nvd/cve-2026-92392)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-92392/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: libcurl4t64\nInstalled Version: 8.14.1-2+deb13u4\nVulnerability CVE-2026-92392\nSeverity: HIGH\nFixed Version: 8.14.1-2+deb13u7\nLink: [CVE-2026-92392](https://avd.aquasec.com/nvd/cve-2026-92392)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97031/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.2\nVulnerability CVE-2026-97031\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-97031](https://avd.aquasec.com/nvd/cve-2026-97031)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97031/henrygd/beszel",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-97031\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-97031](https://avd.aquasec.com/nvd/cve-2026-97031)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "henrygd/beszel:0.20.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97031/henrygd/beszel-agent",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-97031\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-97031](https://avd.aquasec.com/nvd/cve-2026-97031)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "henrygd/beszel-agent:0.20.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97031/quay.io/oauth2-proxy/oauth2-proxy",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.26.7\nVulnerability CVE-2026-97031\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-97031](https://avd.aquasec.com/nvd/cve-2026-97031)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97031/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: stdlib\nInstalled Version: v1.27.1\nVulnerability CVE-2026-97031\nSeverity: HIGH\nFixed Version: 1.26.9, 1.27.2\nLink: [CVE-2026-97031](https://avd.aquasec.com/nvd/cve-2026-97031)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97687/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: urllib3\nInstalled Version: 2.7.0\nVulnerability CVE-2026-97687\nSeverity: HIGH\nFixed Version: 2.8.0\nLink: [CVE-2026-97687](https://avd.aquasec.com/nvd/cve-2026-97687)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97687/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: urllib3\nInstalled Version: 2.7.0\nVulnerability CVE-2026-97687\nSeverity: HIGH\nFixed Version: 2.8.0\nLink: [CVE-2026-97687](https://avd.aquasec.com/nvd/cve-2026-97687)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97687/python",
+          "level": "error",
+          "message": {
+            "text": "Package: urllib3\nInstalled Version: 2.7.0\nVulnerability CVE-2026-97687\nSeverity: HIGH\nFixed Version: 2.8.0\nLink: [CVE-2026-97687](https://avd.aquasec.com/nvd/cve-2026-97687)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "python:3.14.7-alpine"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97689/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: urllib3\nInstalled Version: 2.7.0\nVulnerability CVE-2026-97689\nSeverity: HIGH\nFixed Version: 2.8.0\nLink: [CVE-2026-97689](https://avd.aquasec.com/nvd/cve-2026-97689)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97689/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: urllib3\nInstalled Version: 2.7.0\nVulnerability CVE-2026-97689\nSeverity: HIGH\nFixed Version: 2.8.0\nLink: [CVE-2026-97689](https://avd.aquasec.com/nvd/cve-2026-97689)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "CVE-2026-97689/python",
+          "level": "error",
+          "message": {
+            "text": "Package: urllib3\nInstalled Version: 2.7.0\nVulnerability CVE-2026-97689\nSeverity: HIGH\nFixed Version: 2.8.0\nLink: [CVE-2026-97689](https://avd.aquasec.com/nvd/cve-2026-97689)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "python:3.14.7-alpine"
+          }
+        },
+        {
+          "ruleId": "GHSA-2m67-wjpj-xhg9/adorsys/keycloak-config-cli",
+          "level": "error",
+          "message": {
+            "text": "Package: tools.jackson.core:jackson-core\nInstalled Version: 3.0.1\nVulnerability GHSA-2m67-wjpj-xhg9\nSeverity: HIGH\nFixed Version: 3.1.1\nLink: [GHSA-2m67-wjpj-xhg9](https://github.com/advisories/GHSA-2m67-wjpj-xhg9)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "adorsys/keycloak-config-cli:6.5.1-26.5.5"
+          }
+        },
+        {
+          "ruleId": "GHSA-6v7p-g79w-8964/healthchecks/healthchecks",
+          "level": "error",
+          "message": {
+            "text": "Package: msgpack\nInstalled Version: 1.1.2\nVulnerability GHSA-6v7p-g79w-8964\nSeverity: HIGH\nFixed Version: 1.2.1\nLink: [GHSA-6v7p-g79w-8964](https://github.com/advisories/GHSA-6v7p-g79w-8964)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "healthchecks/healthchecks:v4.4"
+          }
+        },
+        {
+          "ruleId": "GHSA-6v7p-g79w-8964/python",
+          "level": "error",
+          "message": {
+            "text": "Package: msgpack\nInstalled Version: 1.1.2\nVulnerability GHSA-6v7p-g79w-8964\nSeverity: HIGH\nFixed Version: 1.2.1\nLink: [GHSA-6v7p-g79w-8964](https://github.com/advisories/GHSA-6v7p-g79w-8964)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "python:3.14.7-alpine"
+          }
+        },
+        {
+          "ruleId": "GHSA-hrxh-6v49-42gf/twinproduction/gatus",
+          "level": "error",
+          "message": {
+            "text": "Package: google.golang.org/grpc\nInstalled Version: v1.81.1\nVulnerability GHSA-hrxh-6v49-42gf\nSeverity: HIGH\nFixed Version: 1.82.1\nLink: [GHSA-hrxh-6v49-42gf](https://github.com/advisories/GHSA-hrxh-6v49-42gf)"
+          },
+          "properties": {
+            "acceptedUntil": "2026-11-18",
+            "image": "twinproduction/gatus:v5.37.0"
+          }
+        }
+      ]
+    }
+  ]
+}

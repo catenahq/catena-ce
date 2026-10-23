@@ -1,18 +1,21 @@
 # {{ ansible_managed }}
 # Realm definition for the per-VPS SSO tenant. keycloak-config-cli
 # import-update-merge semantics: re-running this against an existing
-# realm reconciles delta only (groups/users/clients/protocolMappers
-# merged by identifier). Safe to re-apply on every converge.
+# realm reconciles delta only (groups, scopes and flows merged by
+# identifier). Safe to re-apply on every converge.
 #
-# Per-app OIDC clients are added to this realm AFTER bootstrap by
-# dashboard-sync (plan step 5) hitting Keycloak Admin REST. Static
-# clients owned by infrastructure (oauth2-proxy in plan step 4)
-# extend this file as additional `clients:` entries.
+# Rendered twice by realm_bootstrap.yml: with realm_seed false into the
+# persistent realm dir, imported on every converge, and with realm_seed
+# true into a seed file imported while a bootstrap marker or the realm is
+# missing, and then deleted. The OIDC clients live in their own
+# realm-*.yaml.j2 files beside this one.
 
 realm: {{ keycloak_realm }}
-enabled: true
-displayName: "{{ keycloak_realm_display_name }}"
-displayNameHtml: "<b>{{ keycloak_realm_display_name }}</b>"
+
+# The tiers an application's own sign-in button can be limited to, each with
+# the tier roles it admits (the sign-in flows at the end of this file).
+{% set signin_tiers = {'admin': ['catena-tier-admin'],
+                       'staff': ['catena-tier-admin', 'catena-tier-staff']} %}
 
 # ─── Asserted on EVERY converge: security posture, not preference ────────
 #
@@ -55,22 +58,31 @@ requiredActions:
     defaultAction: {{ keycloak_enforce_mfa | bool | lower }}
     priority: 10
 
-{% if settings_render | default(true) %}
-# ─── FIRST IMPORT ONLY: this client's own preferences ────────────────────
+{% if realm_seed | bool %}
+# ─── SEED ONLY: this client's own preferences ────────────────────────────
 #
-# Marker-gated exactly like the smtpServer block below
-# (/var/lib/catena/keycloak-realm-settings-bootstrapped, see
-# realm_bootstrap.yml). These are seeded once and then owned by whoever
+# Rendered only into the seed file realm_bootstrap.yml imports while a
+# bootstrap marker or the realm is missing. These are then owned by whoever
 # administers the realm: keycloak-config-cli's MERGE semantics leave out what
-# the file does not declare, so a later converge stops asserting them and an
-# edit made in the Keycloak admin UI survives.
-#
-# Rendering them every converge is what this replaces. An admin who turned
-# "Verify email" off, widened the lockout window for a shared-terminal
-# scenario, added a second default group or switched the realm to French found
-# it silently undone the next time anyone converged.
-#
-# rm the marker to re-seed these from the template.
+# the file does not declare, so the persistent file never asserts them and an
+# edit made in the Keycloak admin UI ("Verify email" off, a wider lockout
+# window, French as the default locale) survives every converge.
+
+# The realm switched on, by the seed that creates it (realm_create). Keycloak
+# creates a realm whose representation leaves `enabled` out switched off, and
+# keeps the flag through an update that leaves it out
+# (DefaultExportImportManager, Keycloak 26.6); keycloak-config-cli sends only
+# the fields a file declares. So every other import leaves it out, the seed
+# included when it runs again over an existing realm, and a realm an
+# administrator switched off stays off.
+{% if realm_create | bool %}
+enabled: true
+{% endif %}
+
+# The name on the login page: the client's domain, which follows a new domain
+# until they give the page another name (the record under attributes below).
+displayName: "{{ keycloak_realm_display_name }}"
+displayNameHtml: "{{ keycloak_realm_display_name | keycloak_signin_name_html }}"
 
 # Login flow. resetPasswordAllowed=true: standard "forgot password" flow
 # available on the login page.
@@ -97,15 +109,20 @@ failureFactor: 30
 #   staff    the SMB's employees; departments are subgroups of /staff
 #   client   the SMB's external users (lowest authenticated tier)
 #   visitor  anonymous; see the note on the group below
+# /admin and /staff hold the tier roles the sign-in flows at the end of this
+# file check, catena-tier-admin and catena-tier-staff. realm_bootstrap.yml
+# creates them and grants each to its group after the import, adding only, so
+# a role mapped to either group by hand and a role added to a tier role stay;
+# this file declares neither the roles nor the groups' role mappings, which the
+# import would make exact. A department inherits /staff's.
 groups:
   - name: admin
     path: /admin
   - name: staff
     path: /staff
-    # Departments are subgroups of staff. Operators create real ones
-    # via the Keycloak admin UI; keycloak-config-cli MERGE preserves
-    # any pre-existing subgroups (never set keycloak_config_destroy).
-    # Examples (commented -- add your own or uncomment):
+    # Departments are subgroups of staff, created in the Keycloak admin
+    # UI or the People panel; the NO_DELETE import keeps them. Examples
+    # only: a department declared here would come back after every deletion.
     # subGroups:
     #   - name: sales
     #     path: /staff/sales
@@ -123,10 +140,10 @@ groups:
   - name: visitor
     path: /visitor
 
-{% if settings_render | default(true) %}
-# First import only, with the rest of the tunables above: which group a new
-# account lands in is this client's policy, and an admin who adds a second
-# default group means it.
+{% if realm_seed | bool %}
+# Seed only, with the rest of the tunables above: which group a new account
+# lands in is this client's policy, and an admin who adds a second default
+# group means it.
 defaultGroups:
   # New / self-service accounts land in `client` (lowest authenticated
   # tier). `staff` and `admin` are explicit-only promotions by an
@@ -134,9 +151,9 @@ defaultGroups:
   - /client
 {% endif %}
 
-# Realm-wide group claim mapper. Every client in this realm inherits
-# it via `client-scope`s `roles`/`profile` defaults, so per-client
-# protocolMapper duplication is unnecessary.
+# Realm-wide group claim mapper. Every client created in this realm gets it
+# through the realm's default client scopes, which realm_bootstrap.yml keeps
+# holding it, so no client declares a mapper of its own.
 clientScopes:
   - name: groups
     description: "Group memberships (top-level path) for OIDC clients."
@@ -155,72 +172,67 @@ clientScopes:
           id.token.claim: "true"
           access.token.claim: "true"
           userinfo.token.claim: "true"
+  # One per sign-in flow below, named after it: dashboard-sync gives it as a
+  # default scope to each sign-in entry it binds to that flow (catena-admin
+  # payload/lib/oidc_clients.py), which is how the post-broker-login flow tells
+  # an entry's tier. It carries no claim and stays out of the token's scope.
+{% for tier in signin_tiers %}
+  - name: "catena-signin-{{ tier }}"
+    description: "Marks an application bound to the catena-signin-{{ tier }} sign-in flow."
+    protocol: openid-connect
+    attributes:
+      include.in.token.scope: "false"
+      display.on.consent.screen: "false"
+{% endfor %}
 
-# Mark the groups scope as a default scope so every new client
-# auto-inherits it without per-client mapper config.
-defaultDefaultClientScopes:
-  - groups
-  - profile
-  - email
-  - roles
-  - web-origins
-
-# Bootstrap admin user. `admin` is appended to every gated app's
-# allow-list by the auth engine (superuser), so a single `/admin`
-# membership reaches every app from day one -- no need to also list
-# staff/client.
+{% if realm_seed | bool %}
+# Seed only: the realm's administrator, created with the realm and then the
+# account of whoever holds it, so an edit made to it in Keycloak (disabled,
+# renamed, a role on an application) survives every converge. `admin` is
+# appended to every gated app's allow-list by the auth engine (superuser), so
+# a single `/admin` membership reaches every app from day one -- no need to
+# also list staff/client. realm_bootstrap.yml puts this account back in /admin
+# only when /admin has no member left.
 #
-# KC_BOOTSTRAP_ADMIN_* on the server container creates the operator's
+# KC_BOOTSTRAP_ADMIN_* on the server container creates the admin's
 # account in the MASTER realm and NOWHERE ELSE. Keycloak users are
-# per-realm, so this entry is a SECOND account that happens to share
-# the email -- and it used to be imported with no credentials block at
-# all. The same email and password opened the master realm and was
-# refused here, with nothing on the login page to say why.
-#
-# Seeded from the same on-box admin_password so there is one password
-# to know, and only on the FIRST import (admin_render_password, gated
-# on a marker like the SMTP block below): rendering it every converge
-# would reset the password back to the store's value each time and
-# silently undo a change made in the Account Console.
+# per-realm, so this entry is a SECOND account that shares the email.
+# Without a password of its own, the same email and password open the
+# master realm and are refused here, with nothing on the login page to
+# say why. Its password comes from the same on-box admin_password, so there
+# is one password to know.
 users:
   - username: "{{ admin_email }}"
     email: "{{ admin_email }}"
     enabled: true
     emailVerified: true
-{% if admin_render_password | default(true) %}
     credentials:
       - type: password
         value: "{{ admin_password }}"
         temporary: false
-{% endif %}
     groups:
       - /admin
     realmRoles:
       - default-roles-{{ keycloak_realm }}
+{% endif %}
 
-{% if smtp_enabled and (smtp_render_password | default(true)) %}
-# Realm-level SMTP config. Auto-resolved from .env via the role's
-# autofill (Resend / Brevo / raw SMTP_HOST). Drives password reset,
-# invitations, MFA enrollment, and the verify-email send used by
+# Realm-level SMTP config, from the outgoing mail chosen in the panel's
+# Settings > Mail (resolved in ../defaults/main.yml). Drives password
+# reset, invitations, MFA enrolment, and the verify-email send used by
 # validate.yml's Vantage 1b smoke test.
 #
-# Rendered ONLY on the FIRST realm import (gated by the
-# /var/lib/catena/keycloak-realm-smtp-bootstrapped marker, see
-# realm_bootstrap.yml). Subsequent imports omit this block; under
-# keycloak-config-cli's MERGE semantics the realm's existing
-# smtpServer config (which the client may have edited via Keycloak
-# admin UI / Portainer env) is preserved untouched.
-smtpServer:
-  host: "{{ smtp_host }}"
-  port: "{{ smtp_port }}"
-  from: "{{ smtp_from }}"
-  fromDisplayName: "{{ keycloak_realm_display_name }}"
-  auth: "true"
-  user: "{{ smtp_user }}"
-  password: "{{ smtp_password }}"
-  starttls: "{{ smtp_use_starttls | string | lower }}"
-  ssl: "false"
-  envelopeFrom: "{{ smtp_from }}"
+# Declared while keycloak_smtp_write holds (realm_bootstrap.yml): Settings >
+# Mail is where this is decided, so a saved change (a rotated key, another
+# provider) reaches the realm on the converge the save starts. A realm whose
+# mail settings were changed in the Keycloak admin UI's Email tab since Catena
+# wrote them gets no `smtpServer` here, and the import leaves them as they are.
+# Mail turned off renders an empty map, which clears the realm's settings.
+{% if keycloak_smtp_write | bool %}
+{% if smtp_enabled | bool %}
+smtpServer: {{ keycloak_smtp_server | combine({'password': smtp_password | default('')}) | to_json }}
+{% else %}
+smtpServer: {}
+{% endif %}
 {% endif %}
 
 # Phase Two extension features that ship enabled in this realm:
@@ -230,13 +242,227 @@ smtpServer:
 #   creates an organization, no extra resource cost).
 # - Events with webhook delivery (audit log surfaced to a sink the
 #   operator picks; we don't wire one by default).
-{% if settings_render | default(true) %}
-# First import only, with the rest of the tunables. A realm switched to French,
-# or given a third locale, is a choice about who uses it.
+{% if realm_seed | bool %}
+# Seed only, with the rest of the tunables. A realm switched to French, or
+# given a third locale, is a choice about who uses it.
 attributes:
   # Surface the realm as multi-language ready -- Phase Two themes
   # use this. EN + FR matches the project's bilingual stance.
   internationalizationEnabled: "true"
   supportedLocales: '["en","fr"]'
   defaultLocale: "en"
+  # The login page's name as written above, which realm_bootstrap.yml compares
+  # the page against before it moves the page to a new domain.
+  {{ keycloak_realm_display_name_attribute }}: "{{ keycloak_realm_display_name }}"
 {% endif %}
+
+# Who may sign in through an application's own sign-in button.
+#
+# dashboard-sync gives an application that asks for single sign-on in its
+# labels a client of its own (catena-admin payload/lib/oidc_clients.py) and
+# binds that client's browser flow to one of the two flows below:
+# catena-signin-admin for an application limited to administrators,
+# catena-signin-staff for one open to staff. An application whose labels name
+# the client group keeps the realm's browser flow, which admits every account.
+# realm_bootstrap.yml reads the two flow ids for dashboard-sync after the import.
+#
+# Each flow runs the steps of the realm's built-in browser flow inside a
+# required sub-flow (cookie, Kerberos, identity provider redirector,
+# organization identity-first login, the login form with its conditional second
+# factor), then a conditional sub-flow that denies an account holding none of
+# the tier roles the flow admits. That step is catena-tier-refusal, from the
+# extension JAR in Keycloak's providers directory (provider/): it refuses like
+# Keycloak's deny-access step, with the access-denied page, and does not count
+# toward the lockout, so a refusal by tier never locks the account.
+#
+# An account that signs in through an external identity provider finishes in
+# Keycloak's broker flows and never returns to these (IdentityBrokerService).
+# For it, catena-post-broker-login runs the same check after
+# the provider's sign-in: one conditional sub-flow per tier, which denies at an
+# entry carrying that tier's scope (above) an account holding none of the roles
+# the tier admits, then a step that admits everybody else, without which a flow
+# whose conditions all fail would not succeed (AuthenticationProcessor). A
+# provider runs it when it names it as its post-login flow. The extension names
+# it on every provider that names none, and realm_bootstrap.yml fails the
+# converge on any provider still naming none.
+#
+# keycloak-config-cli leaves a flow that matches this file as it is, and
+# rebuilds one that differs under the same id, keeping every client and
+# provider bound to it. Configuration aliases are unique in a realm, so each
+# copy has its own.
+authenticationFlows:
+{% for tier, admitted in signin_tiers.items() %}
+{%   set flow = 'catena-signin-' ~ tier %}
+  - alias: "{{ flow }}"
+    description: "Browser sign-in for applications open to the {{ tier }} tier."
+    providerId: basic-flow
+    topLevel: true
+    builtIn: false
+    authenticationExecutions:
+      - flowAlias: "{{ flow }} sign-in"
+        requirement: REQUIRED
+        priority: 10
+        authenticatorFlow: true
+      - flowAlias: "{{ flow }} tier check"
+        requirement: CONDITIONAL
+        priority: 20
+        authenticatorFlow: true
+  - alias: "{{ flow }} sign-in"
+    description: "The steps of the realm's browser flow."
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+      - authenticator: auth-cookie
+        requirement: ALTERNATIVE
+        priority: 10
+      - authenticator: auth-spnego
+        requirement: DISABLED
+        priority: 20
+      - authenticator: identity-provider-redirector
+        requirement: ALTERNATIVE
+        priority: 25
+      - flowAlias: "{{ flow }} organization"
+        requirement: ALTERNATIVE
+        priority: 26
+        authenticatorFlow: true
+      - flowAlias: "{{ flow }} forms"
+        requirement: ALTERNATIVE
+        priority: 30
+        authenticatorFlow: true
+  - alias: "{{ flow }} organization"
+    description: "Organization identity-first login."
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+      - flowAlias: "{{ flow }} conditional organization"
+        requirement: CONDITIONAL
+        priority: 10
+        authenticatorFlow: true
+  - alias: "{{ flow }} conditional organization"
+    description: "Whether the organization identity-first login applies."
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+      - authenticator: conditional-user-configured
+        requirement: REQUIRED
+        priority: 10
+      - authenticator: organization
+        requirement: ALTERNATIVE
+        priority: 20
+  - alias: "{{ flow }} forms"
+    description: "Username, password, otp and other auth forms."
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+      - authenticator: auth-username-password-form
+        requirement: REQUIRED
+        priority: 10
+      - flowAlias: "{{ flow }} conditional 2FA"
+        requirement: CONDITIONAL
+        priority: 20
+        authenticatorFlow: true
+  - alias: "{{ flow }} conditional 2FA"
+    description: "Whether a second factor is required."
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+      - authenticator: conditional-user-configured
+        requirement: REQUIRED
+        priority: 10
+      - authenticator: conditional-credential
+        authenticatorConfig: "{{ flow }}-conditional-credential"
+        requirement: REQUIRED
+        priority: 20
+      - authenticator: auth-otp-form
+        requirement: ALTERNATIVE
+        priority: 30
+      - authenticator: webauthn-authenticator
+        requirement: DISABLED
+        priority: 40
+      - authenticator: auth-recovery-authn-code-form
+        requirement: DISABLED
+        priority: 50
+  - alias: "{{ flow }} tier check"
+    description: "Denies an account holding none of the tier roles this flow admits."
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+{%   for role in admitted %}
+      - authenticator: conditional-user-role
+        authenticatorConfig: "{{ flow }}-without-{{ role }}"
+        requirement: REQUIRED
+        priority: {{ loop.index * 10 }}
+{%   endfor %}
+      - authenticator: catena-tier-refusal
+        requirement: REQUIRED
+        priority: {{ (admitted | length + 1) * 10 }}
+{% endfor %}
+  - alias: "catena-post-broker-login"
+    description: "After a sign-in through an external identity provider: the tier check of the application's sign-in flow."
+    providerId: basic-flow
+    topLevel: true
+    builtIn: false
+    authenticationExecutions:
+{% for tier in signin_tiers %}
+      - flowAlias: "catena-post-broker-login {{ tier }}"
+        requirement: CONDITIONAL
+        priority: {{ loop.index * 10 }}
+        authenticatorFlow: true
+{% endfor %}
+      - authenticator: allow-access-authenticator
+        requirement: REQUIRED
+        priority: {{ (signin_tiers | length + 1) * 10 }}
+{% for tier, admitted in signin_tiers.items() %}
+  - alias: "catena-post-broker-login {{ tier }}"
+    description: "Denies an account holding none of the tier roles catena-signin-{{ tier }} admits, at an application bound to it."
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+      - authenticator: conditional-client-scope
+        authenticatorConfig: "catena-post-broker-login-{{ tier }}-scope"
+        requirement: REQUIRED
+        priority: 10
+{%   for role in admitted %}
+      - authenticator: conditional-user-role
+        authenticatorConfig: "catena-post-broker-login-{{ tier }}-without-{{ role }}"
+        requirement: REQUIRED
+        priority: {{ (loop.index + 1) * 10 }}
+{%   endfor %}
+      - authenticator: catena-tier-refusal
+        requirement: REQUIRED
+        priority: {{ (admitted | length + 2) * 10 }}
+{% endfor %}
+
+# The second-factor condition skips the one-time code after a passkey sign-in,
+# as the realm's browser flow does. Each role condition is true for an account
+# WITHOUT the role, each scope condition for an entry carrying the scope, and
+# the conditions of one sub-flow must all be true for its deny step to run.
+authenticatorConfig:
+{% for tier, admitted in signin_tiers.items() %}
+  - alias: "catena-signin-{{ tier }}-conditional-credential"
+    config:
+      credentials: webauthn-passwordless
+{%   for role in admitted %}
+  - alias: "catena-signin-{{ tier }}-without-{{ role }}"
+    config:
+      condUserRole: {{ role }}
+      negate: "true"
+{%   endfor %}
+  - alias: "catena-post-broker-login-{{ tier }}-scope"
+    config:
+      client_scope: "catena-signin-{{ tier }}"
+      negate: "false"
+{%   for role in admitted %}
+  - alias: "catena-post-broker-login-{{ tier }}-without-{{ role }}"
+    config:
+      condUserRole: {{ role }}
+      negate: "true"
+{%   endfor %}
+{% endfor %}

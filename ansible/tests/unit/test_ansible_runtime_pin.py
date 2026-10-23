@@ -1,8 +1,9 @@
 """One validated ansible-core line, named in three places, held together here.
 
-The operator's controller gets it from pyproject.toml through uv. The host gets
-it from bootstrap/roles/ansible_runtime, installed by bootstrap into /opt/catena/ansible.
-And playbooks/reconcile.yml refuses to run below a floor.
+The tree's tests and syntax checks get it from pyproject.toml through uv. The
+host gets it from bootstrap/roles/ansible_runtime, installed into
+/opt/catena/ansible by the install. And playbooks/reconcile.yml refuses to run
+below a floor.
 
 Three numbers that must agree, and nothing in Ansible or pip would notice if
 they stopped: a host would install one version, refuse to run it, and report a
@@ -36,12 +37,9 @@ def _controller_spec() -> str:
     raise AssertionError("pyproject.toml no longer pins ansible-core")
 
 
-def test_the_host_installs_what_the_controller_pins():
-    """Same string, not merely a compatible one.
-
-    A host and a controller on different ansible-core minors is two products:
-    the same playbook, two module implementations, and only one of them is what
-    the bench observed.
+def test_the_host_installs_what_the_tests_run():
+    """Same string, not merely a compatible one: tests on another ansible-core
+    minor than the host's check a module implementation the host does not run.
     """
     assert _role()["ansible_runtime_spec"] == _controller_spec(), (
         f"bootstrap/roles/ansible_runtime installs {_role()['ansible_runtime_spec']!r} "

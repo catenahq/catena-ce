@@ -37,6 +37,12 @@
       "matchDepNames": ["containerd"],
       "matchUpdateTypes": ["minor", "major"],
       "enabled": false
+    },
+    {
+      "description": "The Keycloak extension's pom follows the Keycloak image pin, which moves with the image, never on its own.",
+      "matchDatasources": ["maven"],
+      "matchPackageNames": ["org.keycloak:**"],
+      "enabled": false
     }
   ]
 }

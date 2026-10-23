@@ -5,7 +5,7 @@
 # whole point of having both. version.txt is stamped before the first role, so
 # it says "a converge started here" -- which is what a client reading it out of
 # a snapshot wants. This manifest says "a converge finished here, and here is
-# what it left behind", so a converge that died at role 9 leaves the previous
+# what it left behind", so a converge that died partway leaves the previous
 # manifest standing rather than claiming plumbing it never delivered.
 #
 # `actions` is every name the dispatch table carries, read from the same merged

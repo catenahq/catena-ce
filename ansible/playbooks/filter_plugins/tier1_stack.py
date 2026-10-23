@@ -24,10 +24,10 @@ WHAT THIS RENDER IS FOR
   `docker stack deploy` was measured as the apply path and lost. It ALWAYS
   names services `<stack>_<key>`; there is no flag to suppress the prefix, and
   deploying over an existing standalone service does not adopt it -- it creates
-  a second service beside it. Renaming catena-traefik / catena-postgres /
-  catena-portainer reaches 13 DNS sites (Keycloak's JDBC URL, cloudflared's
-  ingress target, the Gatus probes, oauth2-proxy's upstream,
-  PORTAINER_API_BASE), three anchored matchers in catena-admin's recovery
+  a second service beside it. Renaming catena-traefik or catena-postgres
+  reaches every DNS site that names them (Keycloak's JDBC URL,
+  cloudflared's ingress target, the Gatus probes, oauth2-proxy's upstream),
+  three anchored matchers in catena-admin's recovery
   engines, and 107 bench assertions. The anchored ones -- pgreplay.go's
   pauseExcludeRe, quiesce.go's isControlPlane, restore.go's isRestoreExempt --
   would stop matching SILENTLY. Not worth the declarative reset and --prune it
@@ -137,8 +137,7 @@ def swarm_mount_to_compose(mount):
     file this renders carry the same value, so they cannot drift.
 
     Both spellings of the destination are accepted -- `destination=` (traefik,
-    postgres, portainer) and `target=` (coturn) -- because docker accepts both
-    and the roles use both.
+    postgres) and `target=` -- because docker accepts both.
     """
     fields = {}
     for part in str(mount).split(","):
@@ -275,7 +274,7 @@ def _service(spec):
         out["environment"] = {str(k): str(v) for k, v in sorted(env.items())}
 
     # Two spellings, both used on this host. A bare string mounts at
-    # /run/secrets/<name> (postgres, portainer read the secret by its own
+    # /run/secrets/<name> (postgres reads the secret by its own
     # name). A {name, target} pair is what content-hashed names need: the
     # SOURCE carries the value's hash and changes on rotation, while the
     # TARGET is the stable filename the container reads.
@@ -306,9 +305,9 @@ def _service(spec):
 
     labels = spec.get("container_labels") or {}
     if labels:
-        # CONTAINER labels, not service labels: gatus-sync reads `docker ps`,
-        # which reports labels on the task container. `deploy.labels` would
-        # put them on the service object where nothing looks for them.
+        # Container labels, where the engine's `--container-label` puts them
+        # (catena-admin payload/engines/tier1/spec.go): compose `labels:` is
+        # the task's container spec, `deploy.labels` the service object's.
         out["labels"] = {str(k): str(v) for k, v in sorted(labels.items())}
 
     hc = _healthcheck(spec)
@@ -325,8 +324,7 @@ def _service(spec):
 
 def tier1_spec_upsert(existing, spec):
     """Add `spec` to an accumulating roster, replacing any same-named entry
-    already in it. Used for both rosters -- the control plane and the app
-    companions -- because the operation is the same either way.
+    already in it.
 
     Each role appends its own spec as it deploys, which is what keeps the
     rendered file and the spec the engine applies reading the SAME variable.

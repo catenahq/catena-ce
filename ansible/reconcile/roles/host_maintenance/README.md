@@ -3,11 +3,13 @@
 The host's own upkeep, applied on every converge from either path, so a
 change here reaches a host that converges itself: apt's settings, the host
 resolving its own name, the baseline packages, Debian's unattended-upgrades
-and its origins, needrestart's restart policy, the journal's storage, the host
-mail agent kept off port 25, the settings the client changes in catena-admin >
-Settings, and whether this host needs a reboot. It runs right after `payload`.
+and its origins, needrestart's restart policy, the journal's storage, the NTP
+servers, the host mail agent kept off port 25, the settings the client changes
+in catena-admin > Settings, whether this host needs a reboot, the hourly
+licence check, the error reports to Catena support and the hourly verify hook
+of each application. It runs right after `payload`.
 
-## Packages, updates, journal, mail agent
+## Packages, updates, journal, clock, mail agent
 
 - `playbooks/tasks/apt_settings.yml` (the optional HTTP proxy, the dpkg lock
   timeout) and `playbooks/tasks/host_name_resolution.yml` (the hostname on
@@ -15,6 +17,8 @@ Settings, and whether this host needs a reboot. It runs right after `payload`.
   `bootstrap/roles/common`, which applies both before its first apt operation.
 - `catena_baseline_packages` (in `playbooks/group_vars/all/main.yml`, shared
   with `bootstrap/roles/common`, which installs them at bootstrap).
+- `catena-git`, a system user with no login and no home, which
+  `catena-apps` runs git as when it adds an application from a repository.
 - `/etc/apt/apt.conf.d/20auto-upgrades` enables unattended-upgrades; its
   service and `apt-daily-upgrade.timer` are enabled. Nothing else on the host
   applies OS packages.
@@ -28,6 +32,9 @@ Settings, and whether this host needs a reboot. It runs right after `payload`.
   either restarts every container.
 - `/etc/systemd/journald.conf.d/10-catena.conf`: persistent, sealed journal.
   The sealing key is minted once by `bootstrap/roles/common`.
+- `/etc/systemd/timesyncd.conf.d/10-catena.conf` lists Debian's NTP pool.
+  timesyncd reads its fallback pool only when the network announces no server,
+  so without it a dead server announced by DHCP keeps the clock unsynced.
 - `exim4` is masked, and stopped if running, so port 25 stays free for the
   mail server.
 
@@ -63,9 +70,10 @@ still running on replaced libraries. It writes
 `/var/lib/catena/reboot-required.json` and pings the self-hosted Healthchecks
 plane: `/fail` while a reboot is pending, success while it is not.
 
-Healthchecks notifies on the transition and escalates through ntfy, so a person
-is told once when the host starts needing a reboot and once when it stops. No
-second alert path exists to configure, or to forget to configure.
+Healthchecks notifies on the transition through its channels, the admin's email
+among them, so a person is told once when the host starts needing a reboot and
+once when it stops. No second alert path exists to configure, or to forget to
+configure.
 
 Services on replaced libraries are reported and do not page: needrestart has
 already restarted the ones it may, and the ones left (the container engine
@@ -75,3 +83,37 @@ among them) wait for the same restart the kernel does.
 
 Reboot. The probe has no path that boots the host, and adding one would move a
 decision about downtime from a person to a timer.
+
+## The licence check
+
+`catena-license-refresh.timer` runs `catena-license refresh` every hour, at a
+fixed offset into the hour for each host: the one call the host makes to Polar
+about the licence key in its store, recorded where the panel and the engines
+read it. With no key it asks nothing. The binary and both units ship in the
+catena-admin payload; this role enables the timer on every host, whatever its
+edition.
+
+A converge that installs the payload fails when the timer is not on the host
+afterwards; a converge on a host whose payload is staged out of band
+(`CATENA_PAYLOAD_INSTALL=false`) says so and leaves the timer to the first
+converge after the payload lands.
+
+## The error reports
+
+`catena-error-report.timer` runs `catena-error-report run` every five minutes:
+while the store holds `ERROR_REPORTS_TO_SUPPORT=on`, which the administrator
+sets in catena-admin > Settings, it sends Catena support the problems of
+Catena's own checks whenever they change, and switched off it withdraws the
+server. Its unit runs only while the licence is active. The binary and both
+units ship in the catena-admin payload; this role enables the timer on every
+host, whatever its edition and whatever the switch says, and treats a missing
+timer as it treats the licence check's.
+
+## The application verify
+
+`catena-app-verify.timer` runs `catena-apps verify --all` every hour: the
+verify hook of each application whose compose file declares one runs in a task
+of its service, and a failure goes to the maintenance feed once, until the hook
+passes again. The binary and both units ship in the catena-admin payload; this
+role enables the timer on every host, whatever its edition, and treats a missing
+timer as it treats the licence check's.

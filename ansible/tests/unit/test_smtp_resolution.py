@@ -12,10 +12,10 @@ winning when two are filled, carries three defects in one shape:
     tie-break that appears on no page the client can read;
   - switching provider without first CLEARING the old address keeps sending
     through the old one, silently, for as long as the stale value sits there;
-  - the ladder is written out once per consumer -- keycloak defaults,
-    wordpress_plugins.yml, Beszel -- each free to drift, and a host whose
-    password resets and whose contact form go through different relays, from
-    the same stored config, reports nothing.
+  - the ladder is written out once per consumer -- keycloak defaults, Beszel,
+    Healthchecks -- each free to drift, and a host whose password resets and
+    whose alerts go through different relays, from the same stored config,
+    reports nothing.
 
 Run: uv run pytest tests/unit/test_smtp_resolution.py
 """
@@ -29,8 +29,10 @@ import pytest
 ANSIBLE = Path(__file__).resolve().parents[2]
 PLUGIN = ANSIBLE / "playbooks" / "filter_plugins" / "smtp_resolve.py"
 KEYCLOAK_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "keycloak" / "defaults" / "main.yml"
-WORDPRESS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "wordpress_plugins.yml"
 BESZEL = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "beszel.yml"
+INFRA_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "defaults" / "main.yml"
+HEALTHCHECKS_COMPOSE = (ANSIBLE / "reconcile" / "roles" / "infrastructure" / "templates"
+                        / "healthchecks.compose.yml.j2")
 ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
 
@@ -108,38 +110,111 @@ def test_switching_provider_cannot_leave_the_old_one_in_use():
     assert got["port"] == 587
 
 
-# ─── one resolution, three consumers ───────────────────────────────────────
+# ─── one resolution, every consumer ────────────────────────────────────────
 
 
-@pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, WORDPRESS, BESZEL])
+def _code(path: Path) -> str:
+    return "\n".join(
+        ln for ln in path.read_text().splitlines() if not ln.lstrip().startswith("#"))
+
+
+@pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, INFRA_DEFAULTS])
 def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
     """A hand-written copy of the ladder is free to drift, and the symptom is
-    a host that sends password-reset mail through one relay and a contact
-    form through another, from the same stored config, with nothing
+    a host that sends password-reset mail through one relay and its alerts
+    through another, from the same stored config, with nothing
     reporting it."""
-    body = path.read_text()
-    assert "catena_smtp_resolve" in body, (
+    assert "catena_smtp_resolve" in path.read_text(), (
         f"{path.name} does not use the shared resolution")
     # The giveaway of a hand-rolled copy: naming a provider's hostname.
     for literal in ("smtp.resend.com", "smtp-relay.brevo.com"):
-        code = "\n".join(
-            ln for ln in body.splitlines() if not ln.lstrip().startswith("#"))
+        assert literal not in _code(path), (
+            f"{path.name} hardcodes {literal}; that belongs to the filter")
+
+
+@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS_COMPOSE])
+def test_the_infrastructure_consumers_read_its_resolution(path):
+    """Beszel's mail and Healthchecks's alert mail take the infrastructure
+    role's one resolution rather than a copy each."""
+    code = _code(path)
+    assert "infrastructure_smtp." in code, (
+        f"{path.name} does not read infrastructure_smtp")
+    assert "catena_smtp_resolve" not in code, (
+        f"{path.name} resolves the mail choice a second time")
+    for literal in ("smtp.resend.com", "smtp-relay.brevo.com"):
         assert literal not in code, (
             f"{path.name} hardcodes {literal}; that belongs to the filter")
 
 
-def test_implicit_tls_is_not_offered_and_not_stored():
-    """realm-vps.yaml.j2 renders starttls true and ssl false as literals, so an
-    SMTP_USE_TLS key would be collected, validated, stored and read by nothing.
-    A key that accepts a value and changes nothing answers "is TLS configured"
-    with a yes."""
+def test_the_infrastructure_resolution_sends_from_the_admin_email_when_no_sender_is_set():
+    """The sender the infrastructure role resolves falls back to the admin
+    email, as for every other sender on the host."""
+    import jinja2
+    import yaml
+
+    expr = yaml.safe_load(INFRA_DEFAULTS.read_text())["infrastructure_smtp"]
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["catena_smtp_resolve"] = _resolve()
+    body = expr.strip().removeprefix("{{").removesuffix("}}")
+    smtp = env.from_string(f"{{% set r = {body} %}}{{{{ r.sender }}}}").render(
+        cfg_smtp_provider="resend", cfg_smtp_host="", cfg_smtp_port="",
+        cfg_smtp_user="", cfg_smtp_sender="", admin_email="admin@acme.test")
+    assert smtp == "admin@acme.test"
+
+
+@pytest.mark.parametrize("port,implicit", [
+    ("465", True), ("587", False), ("2525", False), ("", False), ("25", False)])
+def test_the_port_decides_implicit_tls(port, implicit):
+    got = _resolve()("server", host="mail.acme.test", port=port)
+    assert got["implicit_tls"] is implicit
+
+
+def test_the_known_relays_and_no_mail_are_not_implicit_tls():
+    for provider in ("resend", "brevo", "none"):
+        assert _resolve()(provider)["implicit_tls"] is False, provider
+
+
+def test_the_implicit_tls_port_is_465():
+    module = importlib.util.module_from_spec(
+        importlib.util.spec_from_file_location("smtp_resolve", PLUGIN))
+    module.__spec__.loader.exec_module(module)
+    assert module._IMPLICIT_TLS_PORT == 465
+
+
+def _keycloak_realm_smtp(port: str) -> dict:
+    """keycloak_smtp_server as the role's defaults render it for a custom
+    server on `port`."""
+    import ast
+
+    import jinja2
+    import yaml
+
+    smtp = _resolve()("server", host="mail.acme.test", port=port, user="u",
+                      sender="no-reply@acme.test")
+    expr = yaml.safe_load(KEYCLOAK_DEFAULTS.read_text())["keycloak_smtp_server"]
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["bool"] = lambda v: str(v).lower() in ("1", "true", "yes", "on")
+    text = env.from_string(expr).render(
+        _smtp=smtp, smtp_enabled=smtp["enabled"], smtp_host=smtp["host"],
+        smtp_port=smtp["port"], smtp_user=smtp["user"], smtp_from=smtp["sender"],
+        keycloak_realm_display_name="Acme")
+    return ast.literal_eval(text)
+
+
+@pytest.mark.parametrize("port,starttls,ssl", [
+    ("465", "false", "true"), ("587", "true", "false"), ("2525", "true", "false")])
+def test_the_realm_mail_settings_follow_the_port(port, starttls, ssl):
+    realm = _keycloak_realm_smtp(port)
+    assert realm["port"] == port
+    assert (realm["starttls"], realm["ssl"]) == (starttls, ssl)
+
+
+def test_no_tls_setting_is_stored():
+    """The port is the only input: an SMTP_USE_TLS key would be collected,
+    stored and read by nothing."""
     assert "SMTP_USE_TLS" not in ONBOX_CONFIG.read_text(), (
         "SMTP_USE_TLS is back in the store registry")
-    realm = (ANSIBLE / "reconcile" / "roles" / "keycloak" / "templates"
-             / "realm-vps.yaml.j2").read_text()
-    assert 'ssl: "false"' in realm, (
-        "the realm no longer pins implicit TLS off; if that became configurable, "
-        "this file's reasoning about the deleted key no longer holds")
+    assert "smtp_use_starttls" not in KEYCLOAK_DEFAULTS.read_text()
 
 
 @pytest.mark.parametrize("gone", [
@@ -149,7 +224,8 @@ def test_implicit_tls_is_not_offered_and_not_stored():
 def test_no_consumer_still_reads_a_retired_key(gone):
     """A reader of a key nothing writes resolves it to empty and takes its
     branch of the ladder with it."""
-    for path in (KEYCLOAK_DEFAULTS, WORDPRESS, BESZEL, ONBOX_CONFIG):
+    for path in (KEYCLOAK_DEFAULTS, BESZEL, INFRA_DEFAULTS,
+                 HEALTHCHECKS_COMPOSE, ONBOX_CONFIG):
         body = "\n".join(
             line for line in path.read_text().splitlines()
             if not line.lstrip().startswith("#")

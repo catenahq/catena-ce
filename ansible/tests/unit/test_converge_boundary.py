@@ -1,18 +1,21 @@
 """The converge boundary, declared in boundary.yml and enforced here.
 
 Two things run against a Catena host: an operator with a laptop, and the host
-itself. Until now the line between them was wherever a task happened to have
-been written, which is how app config ended up needing an SSH session.
-
-boundary.yml draws the line. This asserts these properties of it.
+itself. boundary.yml draws the line between them. This asserts these
+properties of it.
 
   1. Every role is on exactly one side, or is declared as straddling with its
      task files enumerated. A role nobody classified is a role whose side gets
      decided by whoever next edits it.
 
   2. No reconcile-side task writes a bootstrap-owned path. A reconcile that can
-     rewrite the forced command is a reconcile that can rewrite what a
+     rewrite the forced command unproven is a reconcile that can rewrite what a
      reconcile is, and that is the whole reason the two sides exist.
+
+  2a. A bootstrap-owned path is written on the reconcile side only by a
+     declared proven switch, through its helper, and only the paths it
+     declares. No other helper or script the reconcile runs names one, so the
+     literal rule in 2 cannot be routed around through a helper.
 
   2b. No bootstrap-side task writes a reconcile-owned path, so what a host
      keeps current by converging itself has one writer.
@@ -27,6 +30,7 @@ Run: uv run pytest tests/unit/test_converge_boundary.py
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -219,6 +223,117 @@ def test_no_reconcile_task_writes_a_bootstrap_owned_path():
     )
 
 
+def _switches(b: dict) -> list[dict]:
+    return b.get("proven_switches") or []
+
+
+def _under(path: str, entry: str) -> bool:
+    """Whether `path` is `entry` or lies inside it. An entry ending in a slash
+    is a directory, which its bare name also names."""
+    if entry.endswith("/"):
+        return path == entry.rstrip("/") or path.startswith(entry)
+    return path == entry
+
+
+def test_every_proven_switch_says_why_and_stays_inside_the_owned_paths():
+    """A reconcile role that writes the way in is the exception question one
+    allows only behind a proof, so it says why, names the one helper that
+    writes, and lists every path that helper may write. Each of those is a
+    bootstrap-owned path, so the literal rule keeps holding every other
+    reconcile task to it."""
+    b = _boundary()
+    owned = b["bootstrap_owned_paths"]
+    for switch in _switches(b):
+        assert switch["role"] in b["reconcile_roles"], switch["role"]
+        why = (switch.get("why") or "").strip()
+        assert len(why) > 40, f"{switch['role']} switches with no real reason given"
+        assert (_ANSIBLE / switch["helper"]).is_file(), switch["helper"]
+        assert switch["paths"], f"{switch['role']} declares no path"
+        stray = [p for p in switch["paths"] if not any(_under(p, o) for o in owned)]
+        assert not stray, (
+            f"{switch['role']} declares paths outside bootstrap_owned_paths, which "
+            f"every other reconcile task would then be free to write: {stray}")
+
+
+_WRITERS = {"ansible.builtin.copy", "ansible.builtin.template", "ansible.builtin.file",
+            "ansible.builtin.lineinfile", "ansible.builtin.blockinfile",
+            "ansible.builtin.replace", "ansible.posix.authorized_key"}
+
+
+def test_a_switch_role_writes_the_way_in_only_through_its_helper():
+    """The proof lives in the helper, so the role has nothing else to write
+    with: its tasks run the helper and write only the helper's own copy under
+    /root."""
+    for switch in _switches(_boundary()):
+        tasks_dir = _ROOTS["reconcile"] / switch["role"] / "tasks"
+        text = "\n".join(p.read_text(encoding="utf-8") for p in sorted(tasks_dir.glob("*.yml")))
+        assert switch["helper"] in text, f"{switch['role']} does not run {switch['helper']}"
+        for path in sorted(tasks_dir.glob("*.yml")):
+            for task in yaml.safe_load(path.read_text(encoding="utf-8")) or []:
+                for module in _WRITERS & set(task):
+                    dest = str(task[module].get("dest") or task[module].get("path") or "")
+                    assert dest.startswith("/root/"), (
+                        f"{path.relative_to(_ANSIBLE)}: {task.get('name')!r} writes "
+                        f"{dest!r} beside the helper, outside its proof")
+
+
+_REFERENCE = re.compile(r"\b(helpers|scripts)/([A-Za-z0-9_.-]+\.(?:py|sh))\b")
+
+
+def _reconcile_side_texts() -> list[Path]:
+    return (sorted(_ROOTS["reconcile"].rglob("tasks/*.yml"))
+            + sorted((_ANSIBLE / "playbooks" / "tasks").glob("*.yml"))
+            + [_ANSIBLE / "playbooks" / "reconcile.yml"])
+
+
+def _code_strings(path: Path) -> list[str]:
+    """What a file can act on: a Python module's string literals minus its
+    docstrings, any other file's lines minus its comments."""
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if path.suffix != ".py":
+        return [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    tree = ast.parse(text)
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                docstrings.add(id(body[0].value))
+    return [n.value for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and id(n) not in docstrings]
+
+
+def test_only_a_proven_switch_names_a_bootstrap_owned_path_in_code():
+    """The literal rule reads task files, and a helper a task runs writes as
+    root just the same. Every helper and script a reconcile-side file names is
+    read here: none names a bootstrap-owned path, except a declared switch's
+    helper, which names only the paths it declares. Absolute paths only: a
+    message naming `authorized_keys` is not a write."""
+    b = _boundary()
+    owned = [o for o in b["bootstrap_owned_paths"] if o.startswith("/")]
+    allowed = {s["helper"]: s["paths"] for s in _switches(b)}
+    referenced = set()
+    for path in _reconcile_side_texts():
+        for kind, name in _REFERENCE.findall(path.read_text(encoding="utf-8", errors="ignore")):
+            if (_ANSIBLE / kind / name).is_file():
+                referenced.add(f"{kind}/{name}")
+    assert set(allowed) <= referenced, (
+        f"the scan does not see every switch helper being run: {sorted(set(allowed) - referenced)}")
+
+    offenders: dict[str, list[str]] = {}
+    for rel in sorted(referenced):
+        declared = allowed.get(rel, [])
+        for literal in _code_strings(_ANSIBLE / rel):
+            for token in re.findall(r"/[\w.@/-]*", literal):
+                if any(_under(token, o) for o in owned) and not any(
+                        _under(token, d) for d in declared):
+                    offenders.setdefault(rel, []).append(token)
+    assert not offenders, (
+        "helpers and scripts the reconcile runs name bootstrap-owned paths no "
+        f"proven switch declares for them (boundary.yml says why): {offenders}")
+
+
 def test_no_bootstrap_task_writes_a_reconcile_owned_path():
     """The other direction. A path the reconcile side owns, written by a
     bootstrap task as well, is refreshed only when an operator converges, so a
@@ -329,12 +444,11 @@ def _bootstrap_files_in_reconcile_roles(b: dict) -> dict[str, list[str]]:
 def test_no_reconcile_play_reaches_a_bootstrap_task_file():
     """The DECLARED boundary has to be the EXECUTABLE one.
 
-    Declaring a task file bootstrap-side stops nothing on its own. Two roles
-    straddle the line and each imports the other side's file from its own
-    main.yml, so a play that runs the role runs that file too -- and
-    reconcile.yml runs both roles. The property every other assertion in this
-    module is about was therefore true of the files and false of the run:
-    a reconcile could rewrite the forced command.
+    Declaring a task file bootstrap-side stops nothing on its own. A straddling
+    role that imports its other side's file from its own main.yml runs that
+    file in every play that runs the role, so the property every other
+    assertion in this module is about would be true of the files and false of
+    the run: a reconcile could rewrite the forced command.
 
     So an import of a cross-side task file has to be conditional, and the
     reconcile playbook has to turn it off. Checked structurally rather than by

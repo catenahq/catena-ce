@@ -19,19 +19,18 @@ generated from the leading comment of each role's `tasks/main.yml`.
 
 | Role | What it does |
 | --- | --- |
-| `backup` | Dispatcher -- backup_mode picks which subfile to run. install (default, converge.yml path) -- configuration and the initial snapshot; the units and scripts ship in the catena-admin payload verify (verify-backup.yml) -- dry-restore + assert |
+| `backup` | Configuration and the initial snapshot; the units and scripts ship in the catena-admin payload. |
 | `catena-admin` | Orchestrator for reconcile/roles/catena-admin. |
 | `cloudflare_tunnel` | Cloudflare tunnel converge -- unconditional dispatch to the host engine. |
 | `cloudflare_tunnel_regenerate` | Regenerate the Cloudflare tunnel for this host. |
-| `coturn` | Shared TURN/STUN server -- consumer-gated orchestrator. |
-| `host_maintenance` | The host's own upkeep, applied on every converge from either path: apt's settings, the host resolving its own name, the baseline packages, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the host mail agent kept off port 25, the time zone and locale set in catena-admin > Settings, and the reboot-required probe. |
-| `infrastructure` | The monitoring plane every host runs, and the wiring for the client apps deployed from the catalog. |
+| `dispatch_path` | The path the panel's dispatch arrives over, moved to the generation this tree ships the way the Lockdown closes SSH: beside the running one, proven, then switched. |
+| `host_maintenance` | The host's own upkeep, applied on every converge from either path: apt's settings, the host resolving its own name, the baseline packages, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the NTP servers, the host mail agent kept off port 25, the time zone and locale set in catena-admin > Settings, the reboot-required probe, the licence check, the error reports and the application verify. |
+| `infrastructure` | The monitoring plane every host runs, and the sync and probe wiring for the client apps deployed from the catalog. |
 | `keycloak` | Orchestrator for reconcile/roles/keycloak. |
 | `oauth2_proxy` | Orchestrator for reconcile/roles/oauth2_proxy. |
 | `payload` | Extract the host engine payload from the catena-admin image and install it. |
-| `portainer` | Deploy Portainer CE as the container control plane. |
 | `postgres` | Deploy the catena-owned Postgres swarm service. |
 | `public_ports` | Wire the declarative public-port reconciler into this host. |
-| `swarm` | Configure the swarm bootstrap/roles/docker created: the task-history bound, the data-node label, and the self-heal for containers the overlay race strands. |
-| `tier1_stack` | Render the accumulated specs into compose files and prove they load. |
+| `swarm` | Configure the swarm bootstrap/roles/docker created: the task-history bound, the data-node label, the private overlays, and the self-heal for containers the overlay race strands. |
+| `tier1_stack` | Render the accumulated specs into a compose file and prove it loads. |
 | `traefik` | reconcile/roles/traefik -- deploy + own the catena-traefik reverse proxy. |

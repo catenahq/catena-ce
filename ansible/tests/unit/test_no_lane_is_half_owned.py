@@ -72,7 +72,7 @@ def test_the_scan_sees_both_sides():
     scanner like this."""
     converge = _converge_units()
     image = _image_units()
-    assert len(converge) >= 5, f"only {len(converge)} converge-rendered units: {converge}"
+    assert len(converge) >= 2, f"only {len(converge)} converge-rendered units: {converge}"
     if _ADMIN.is_dir():
         assert len(image) >= 10, f"only {len(image)} image-shipped units: {sorted(image)}"
 

@@ -1,21 +1,16 @@
 ---
-# Deploy the catena-admin Go shell as a TIER-1 SWARM SERVICE, not a Portainer
-# stack: the panel holds PORTAINER_API_BASE + PORTAINER_API_KEY and
-# reconciles Portainer's stacks, so deploying it VIA Portainer would make it
-# a dependent of the thing it exists to drive -- a Portainer that would not
-# start would take down the only tool that could repair it, including the
-# restore that needs the panel at exactly the moment Portainer is what did
-# not come back.
+# Deploy the catena-admin Go shell as a TIER-1 SWARM SERVICE, not a stack: the
+# panel is the tool that repairs the host, so nothing in its path may be
+# something that can fail to come back.
 #
-# So it is created the same way reconcile/roles/traefik, reconcile/roles/postgres and
-# reconcile/roles/portainer create theirs -- `docker service create` against the local
-# swarm, with the spec reconciled on every converge. Nothing in the path
-# needs Portainer to be up, or an API key to exist.
+# So it is created the same way reconcile/roles/traefik and reconcile/roles/postgres
+# create theirs -- `docker service create` against the local swarm, with the
+# spec reconciled on every converge.
 #
 # The argv is rendered by filter_plugins/catena_admin_service.py, which the
-# TEST BENCH imports too: the bench deploys this same container with an
-# image it built on the VPS, and the parts that must not drift between the
-# two are the eight mounts and six container labels nobody re-reads.
+# TEST BENCH imports too: the bench recreates this same container on a host a
+# scenario left without it, and the parts that must not drift between the
+# two are the seven mounts nobody re-reads.
 #
 # Credentials arrive as SWARM SECRETS, not --env: `docker service create`
 # has no --env-file, so an --env value sits in the host process table for
@@ -38,32 +33,20 @@
   # reports it. Blank values are dropped -- the shell's env fallback is the
   # documented degraded path, an empty secret file is not.
   ansible.builtin.set_fact:
-    _ca_secrets: "{{ catena_admin_secret_specs | catena_admin_secret_entries }}"
+    _ca_secrets: "{{ catena_admin_secret_specs | swarm_secret_entries }}"
   no_log: true
   when: catena_admin_deploy_from_converge | bool
 
-- name: "Catena-admin: which swarm secrets already exist"
-  ansible.builtin.command:
-    argv: [docker, secret, inspect, "{{ item.name }}"]
-  loop: "{{ _ca_secrets }}"
-  loop_control:
-    label: "{{ item.name }}"
-  register: _ca_secret_exists
-  changed_when: false
-  failed_when: false
+- name: "Catena-admin: create the missing swarm secrets"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+  vars:
+    swarm_secrets: "{{ _ca_secrets }}"
   when: catena_admin_deploy_from_converge | bool
 
-- name: "Catena-admin: create the missing swarm secrets"
-  ansible.builtin.include_tasks: secret.yml
-  loop: >-
-    {{ _ca_secret_exists.results
-       | rejectattr('skipped', 'defined')
-       | selectattr('rc', 'ne', 0)
-       | map(attribute='item') | list }}
-  loop_control:
-    loop_var: ca_secret
-    label: "{{ ca_secret.name }}"
-  when: catena_admin_deploy_from_converge | bool
+# The served secondary domains, catena_secondary_zones, whose sign-in hosts
+# catena_hostnames in the env below names.
+- name: "Catena-admin: the served domains"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/served_zones.yml"
 
 # ─── the service spec ────────────────────────────────────────────────────
 # One dict feeding create AND reconcile, so a fresh host and a converged one
@@ -74,7 +57,11 @@
     _ca_spec:
       name: "{{ catena_admin_service_name }}"
       image: "{{ catena_admin_image }}"
-      network: "{{ catena_network_name | default('catena-network') }}"
+      # catena-network for its gate, Keycloak and Gatus; healthchecks_network
+      # for Healthchecks, on no other.
+      networks:
+        - "{{ catena_network_name | default('catena-network') }}"
+        - "{{ healthchecks_network }}"
       ui_port: "{{ catena_admin_ui_port }}"
       direct_port: "{{ catena_admin_direct_port }}"
       group: "{{ catena_admin_supplementary_gid }}"
@@ -99,8 +86,9 @@
       # `docker service update --env-add` on THIS service is removed by the next
       # converge, because the converge is what the panel's environment is. It is
       # the one place in the tree where a hand-made change is deliberately not
-      # preserved -- everything a client owns lives in the on-box store, in
-      # Portainer, or in an app's own database, none of which this touches. A
+      # preserved -- everything a client owns lives in the on-box store, in the
+      # application folders, or in an app's own database, none of which this
+      # touches. A
       # value that needs to survive belongs in /etc/catena/config.json.
       env:
         # :8000 to match the oauth2-proxy upstream and the dash.<zone> route;
@@ -111,26 +99,12 @@
         CATENA_ADMIN_DIRECT_ADDR: ":{{ catena_admin_direct_port }}"
         CATENA_ADMIN_LOCAL_USER: "{{ admin_email }}"
         CATENA_DEFAULT_THEME: "{{ catena_admin_default_theme }}"
-        CATENA_EE_PAYLOAD_DIR: "{{ catena_admin_ee_payload_dir }}"
         CATENA_ADMIN_STATE_DIR: "{{ catena_admin_state_dir }}"
         # The domain this server serves, compared against the domain a
         # licence token names so one key cannot unlock two servers.
         CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone | default('') }}"
-        # The port is portainer_ui_port, the product's value in
-        # playbooks/group_vars/all/main.yml, passed so the panel and the
-        # converge read the same number; the service name and the /api suffix
-        # are the image's.
-        PORTAINER_API_BASE: >-
-          http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api
         KEYCLOAK_HOSTNAME: "{{ keycloak_hostname }}"
         KEYCLOAK_REALM: "{{ keycloak_realm }}"
-        # Host facts the app-catalog render substitutes into a template's env
-        # defaults. The zone arrives as CLOUDFLARE_PRIMARY_ZONE above; these
-        # two have no other reader in the image yet. Both are optional in the
-        # catalog EXCEPT public_ip, which two templates name with no default --
-        # a host that does not pass it drops those two from its marketplace.
-        COTURN_HOSTNAME: "{{ coturn_hostname | default('') }}"
-        HOST_PUBLIC_IP: "{{ public_ip | default('') }}"
         # The Admin REST base is the CLUSTER-internal address, not the public
         # auth.<zone> hostname above: the panel talks to Keycloak over the
         # catena network, and routing realm administration through the public
@@ -163,17 +137,11 @@
         INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
         INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
-        # Portainer is not one of its own stacks, so it can never appear in the
-        # Apps grid the panel derives from Portainer. This is what lets the panel
-        # add the console tile itself. Host fact, like the four above.
-        INFRA_PORTAINER_HOSTNAME: "{{ portainer_admin_hostname }}"
-        # The hub's CLUSTER-internal address, not the public hostname above.
-        # Same reason KEYCLOAK_ADMIN_BASE is internal: the public name is behind
-        # oauth2-proxy, so a server-side read there meets the SSO gate instead of
-        # the API. The port is a host fact (the alias and the scheme are not),
-        # which is why this is passed rather than defaulted in the image.
-        BESZEL_API_BASE: >-
-          http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}
+        # Every address Catena answers on, a JSON list, which the Check tab
+        # holds as Catena's (catena-admin shell/appcheck OwnHosts), as
+        # dashboard-sync's app checker does.
+        CATENA_HOSTNAMES: "{{ catena_hostnames | to_json }}"
+  no_log: true # secrets carries each secret's value
   when: catena_admin_deploy_from_converge | bool
 
 - name: "Catena-admin: check the swarm service exists"
@@ -239,9 +207,9 @@
     - _ca_converged.stdout_lines | default([]) | select('search', '^Running') | list | length == 0
 
 # ─── reconcile (rolling) ─────────────────────────────────────────────────
-# Three diffs against one live spec: the hardening subset, the environment,
-# and the mounted secrets. Concatenated into a SINGLE `docker service
-# update` so the task is recreated once, not three times.
+# Four diffs against one live spec: the hardening subset, the environment,
+# the mounted secrets and the attached networks. Concatenated into a SINGLE
+# `docker service update` so the task is recreated once, not four times.
 - name: "Catena-admin: inspect the live service spec"
   ansible.builtin.command:
     argv: [docker, service, inspect, "{{ catena_admin_service_name }}"]
@@ -252,12 +220,34 @@
     - catena_admin_deploy_from_converge | bool
     - _ca_service.rc | default(1) == 0
 
+# The live spec names each network by id. A network that does not exist fails
+# here, rather than reading as one to detach.
+- name: "Catena-admin: the id of each network the service joins"
+  ansible.builtin.command:
+    argv: [docker, network, inspect, --format, "{{ '{{' }}.Id{{ '}}' }}", "{{ item }}"]
+  loop: "{{ _ca_spec.networks }}"
+  register: _ca_network_lookup
+  changed_when: false
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_service.rc | default(1) == 0
+
+- name: "Catena-admin: map each network to its id"
+  ansible.builtin.set_fact:
+    _ca_network_ids: >-
+      {{ dict(_ca_network_lookup.results | map(attribute='item')
+              | zip(_ca_network_lookup.results | map(attribute='stdout') | map('trim'))) }}
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_service.rc | default(1) == 0
+
 - name: "Catena-admin: compute spec drift"
   ansible.builtin.set_fact:
     _ca_drift: >-
       {{ ((_ca_inspect.stdout | from_json) | swarm_service_drift(catena_admin_desired))
          + ((_ca_inspect.stdout | from_json) | catena_admin_env_drift(_ca_spec | catena_admin_full_env))
-         + ((_ca_inspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets)) }}
+         + ((_ca_inspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets))
+         + ((_ca_inspect.stdout | from_json) | catena_admin_network_drift(_ca_network_ids)) }}
   no_log: true
   when:
     - catena_admin_deploy_from_converge | bool
@@ -375,16 +365,52 @@
     _ca_settled: >-
       {{ ((_ca_reinspect.stdout | from_json) | swarm_service_drift(catena_admin_desired))
          + ((_ca_reinspect.stdout | from_json) | catena_admin_env_drift(_ca_spec | catena_admin_full_env))
-         + ((_ca_reinspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets)) }}
+         + ((_ca_reinspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets))
+         + ((_ca_reinspect.stdout | from_json) | catena_admin_network_drift(_ca_network_ids)) }}
   when:
     - catena_admin_deploy_from_converge | bool
     - _ca_reconcile is changed
     - _ca_reinspect.rc | default(1) == 0
 
-# A panel whose env moved answers a different managed env: a new domain moves
-# every managed DOMAIN_HOST with it. dashboard-sync already ran in this converge
+- name: "Catena-admin: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: "{{ catena_admin_secret_specs | map(attribute='base') | list }}"
+  when: catena_admin_deploy_from_converge | bool
+
+# A primary domain or zone change reaches the host as a converge. Each folder
+# application keeps the host-derived values of its x-catena block (its public
+# hostname and the like) in its .env, so `catena-apps resettle` rewrites them
+# from the store and deploys the applications whose .env moved; it changes
+# nothing when the store and the folders agree. -held: this converge holds
+# /run/catena.lock for the whole play. An application it cannot settle or deploy
+# is named and does not fail the converge: the next converge tries again.
+- name: "Catena-admin: is catena-apps installed"
+  ansible.builtin.stat:
+    path: /usr/local/bin/catena-apps
+  register: _ca_apps_bin
+
+- name: "Catena-admin: settle the application folders against the store"
+  ansible.builtin.command:
+    argv: [/usr/local/bin/catena-apps, resettle, -held]
+  register: _ca_resettle
+  changed_when: _ca_resettle.rc in [0, 1] and ((_ca_resettle.stdout | from_json).resettled | length) > 0
+  # rc 1 still prints the report; any other status prints none.
+  failed_when: false
+  no_log: true
+  when: _ca_apps_bin.stat.exists
+
+- name: "Catena-admin: say which applications did not settle"
+  ansible.builtin.debug:
+    msg: "catena-apps resettle exited {{ _ca_resettle.rc }}: {{ _ca_resettle.stderr_lines | default([]) | join(' | ') }}"
+  when:
+    - _ca_resettle is not skipped
+    - _ca_resettle.rc | default(0) != 0
+
+# A panel whose env moved forwards Keycloak calls under a different public auth
+# hostname. dashboard-sync already ran in this converge
 # (reconcile/roles/infrastructure), against the pre-reconcile panel, so run it
-# again now and the client stacks and their routes follow in this converge
+# again now and the sign-in entries and routes follow in this converge
 # rather than on the next timer tick. restarted, not started: a start joins a
 # run that is already in flight and reports work done before the panel moved.
 - name: "Catena-admin: re-run dashboard-sync against the reconciled panel"
@@ -413,11 +439,10 @@
 # deployed the shell; it depends on catena-schedule being installed, which is
 # what the stat asks.
 #
-# The binary itself decides what an unlicensed host may schedule: it verifies
-# the licence offline and refuses a Business lane or a tighter-than-weekly
-# backup cadence. Community's cap is also asserted below against the stored
-# value, because a client can edit their own config.json and CV8 has to hold in
-# this repo, not only in the panel.
+# The binary itself decides what a host may schedule: it verifies the licence
+# offline and runs only the lanes the edition covers. A host without a paid
+# edition gets the backup at most once a week and the vulnerability watch at
+# most once a day; a faster stored schedule runs at the lane's default time.
 #
 # Idempotent: it skips identical writes, so a converge with nothing to change
 # touches no file and reports unchanged.
