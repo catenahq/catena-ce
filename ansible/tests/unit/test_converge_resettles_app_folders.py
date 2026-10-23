@@ -1,9 +1,8 @@
 """A converge re-settles every application folder against the store.
 
-A primary domain or zone change reaches the host as a converge. The catena-admin
-role runs `catena-apps resettle -held`, which rewrites the host-derived values
-of each folder application and deploys the ones that moved, inside the hold the
-converge already has.
+The catena-admin role runs `catena-apps resettle -held`, which rewrites the
+host-derived values of each folder application and deploys the ones that moved,
+inside the hold the converge already has.
 
 Run: uv run pytest tests/unit/test_converge_resettles_app_folders.py
 """

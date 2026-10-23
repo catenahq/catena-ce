@@ -384,8 +384,8 @@
     - catena_payload_missing | length == 0
 
 # The error reports to Catena support: `catena-error-report run`, every five
-# minutes, from the catena-admin payload like the licence check. Its own
-# include, for the licence check's reason.
+# minutes, from the catena-admin payload like the licence check, with its own
+# include as there.
 - name: "Error reports: is the payload-shipped timer expected on this host"
   ansible.builtin.include_role:
     name: common
@@ -400,7 +400,7 @@
       /etc/systemd/system/{{ error_report_systemd_unit_name }}.timer is absent
       although reconcile/roles/payload ran in this converge, so this host could
       not send the error reports its administrator switches on. The "Payload:"
-      tasks above say why the timer was not extracted.
+      tasks above say why the error-report timer was not extracted.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool
@@ -429,8 +429,8 @@
     - catena_payload_missing | length == 0
 
 # The verify hook of each application: `catena-apps verify --all`, hourly, from
-# the catena-admin payload like the licence check. Its own include, for the
-# licence check's reason.
+# the catena-admin payload like the licence check, with its own include as
+# there.
 - name: "App verify: is the payload-shipped timer expected on this host"
   ansible.builtin.include_role:
     name: common
@@ -445,7 +445,7 @@
       /etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer is absent
       although reconcile/roles/payload ran in this converge, so this host would
       never run the verify hook of its applications. The "Payload:" tasks above
-      say why the timer was not extracted.
+      say why the app-verify timer was not extracted.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool

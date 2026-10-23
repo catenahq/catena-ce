@@ -191,7 +191,7 @@ def configured_zone_names(zones: object) -> list[str]:
 INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "catena_postgres_password": mint_strong_password,
     # Signs the catena-admin native-login session cookie (the host-published
-    # tailnet listener). Minted once, stable across converges, rides the backup.
+    # tailnet listener).
     "catena_admin_session_key": mint_strong_password,
     # The password the panel's sign-in gate sends with every request it
     # forwards, and the only proof the panel accepts that a request came
@@ -200,8 +200,7 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "catena_admin_gate_secret": mint_strong_password,
     # The token the host's dashboard-sync lane sends in a header to the panel's
     # Keycloak forward on the host's loopback, and the only proof the forward
-    # accepts that a call came from the lane. Minted once, stable across
-    # converges, rides the backup.
+    # accepts that a call came from the lane.
     "catena_marketplace_token": mint_url_safe,
     # SSO service credentials.
     "keycloak_db_password": mint_strong_password,
