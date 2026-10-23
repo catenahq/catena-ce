@@ -90,6 +90,19 @@ def test_readme_does_not_depend_on_our_own_tooling():
             assert tool in body, f"RECOVERY-README.{lang} never mentions {tool}"
 
 
+def test_the_database_reload_is_plain_sql_through_psql():
+    """Database exports are plain SQL files: the guide names the .sql export
+    and reloads it with psql alone, with no decompression step."""
+    for lang in _LANGS:
+        body = (_TEMPLATES / f"RECOVERY-README.{lang}.md.j2").read_text()
+        assert "backup-staging/pg/*.sql`" in body, (
+            f"RECOVERY-README.{lang} does not name the .sql export")
+        assert "psql -U postgres < <" in body, (
+            f"RECOVERY-README.{lang} lost the plain psql reload")
+        assert "zcat" not in body, (
+            f"RECOVERY-README.{lang} still tells the reader to decompress")
+
+
 def test_the_one_application_restore_runs_from_its_folder_alone():
     """The folder under compose/ is the application's definition: the guide
     restores it with the volumes, prepares a bare machine for swarm and deploys

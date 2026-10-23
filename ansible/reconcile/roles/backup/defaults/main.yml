@@ -425,9 +425,10 @@ backup_restic_env_script: /usr/local/bin/catena-restic-env
 backup_restic_mount_script: /usr/local/bin/catena-restic-mount
 backup_restic_unmount_script: /usr/local/bin/catena-restic-unmount
 # Repo integrity probe, shipped in the engine payload. catena-backup-run calls it
-# with --metadata after every successful backup; the weekly 5% bit-rot read is
-# a separate timer (catena-restic-check-subset.timer) because that one is
-# time-based, not backup-driven.
+# with --metadata after the first backup of each day, together with the removal
+# of the backups past retention; the weekly 5% bit-rot read is a separate timer
+# (catena-restic-check-subset.timer) because that one is time-based, not
+# backup-driven.
 backup_restic_check_script: /usr/local/bin/catena-restic-check
 # Bound on the post-backup metadata check. `restic check` is metadata-only, but
 # it still talks to the object store, so a network stall must not hold the

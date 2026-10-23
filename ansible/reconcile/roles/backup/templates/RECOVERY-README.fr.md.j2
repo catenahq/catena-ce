@@ -15,7 +15,7 @@ aide pour récupérer vos données. Il vous faut trois programmes courants :
 | --- | --- |
 | Données des applications (fichiers, téléversements, boîtes courriel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
 | Définitions des applications (un dossier par application : son fichier compose, ses paramètres dans `.env` et l'origine du fichier) | `{{ storage_mount_point }}/compose/<nom-de-l-application>/` |
-| Exports de bases de données (un fichier par base, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql.gz` |
+| Exports de bases de données (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
 | Fichiers stockés hors volume | `{{ storage_mount_point }}/apps/` |
 | Vos paramètres et mots de passe | `/etc/catena/config.json` |
 | La version du logiciel utilisée par ce serveur | `/etc/catena/version.txt` |
@@ -95,11 +95,12 @@ attendent.
 
 ## 5. Recharger une base de données
 
-Les exports de bases sont du SQL en clair, lisible et chargeable sans
-aucun de nos logiciels :
+Chaque export est un seul fichier SQL en clair qui contient toutes les bases
+d'un serveur de bases de données. Il est lisible et chargeable sans aucun de
+nos logiciels :
 
 ```
-zcat <nom>-<date>.sql.gz | psql -U postgres
+psql -U postgres < <nom>-<date>.sql
 ```
 
 Ils ont été écrits avec l'instruction de remplacer ce qui existe déjà :

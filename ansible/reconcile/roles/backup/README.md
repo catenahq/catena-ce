@@ -45,17 +45,27 @@ nothing.
 ## Logical dumps
 
 `catena-backup-run` writes a logical dump per database engine before the
-snapshot, alongside the raw volumes (which are also in the set):
+snapshot, alongside the raw volumes (which are also in the set). The dumps are
+plain SQL: the backup repository compresses them, so each snapshot after the
+first stores only what changed.
 
-- Postgres -> `backup-staging/pg/<container>-<ts>.sql.gz` (`pg_dumpall`).
+- Postgres -> `backup-staging/pg/<container>-<ts>.sql` (`pg_dumpall`).
   Replayed by `catena-recovery`.
-- MySQL / MariaDB -> `backup-staging/mysql/<container>-<ts>.sql.gz`
+- MySQL / MariaDB -> `backup-staging/mysql/<container>-<ts>.sql`
   (`mariadb-dump`, falling back to `mysqldump`). A SEPARATE directory on
-  purpose: the replay feeds every `*.sql.gz` under `pg/` to psql.
+  purpose: the replay feeds every export under `pg/` to psql.
 
-A dump failure is fatal for the run. It means the engine did not answer,
-and snapshotting its volume in that state while reporting success is how
-a broken database becomes a broken backup nobody looked at.
+The first backup of each day, and the offsite copy before it copies, removes
+the snapshots past the retention numbers and checks the repository.
+
+A dump failure is fatal for the run. It means a running engine did not
+answer, and snapshotting its volume in that state while reporting success is
+how a broken database becomes a broken backup nobody looked at.
+
+A database that is not running yet is another case: the backup waits up to ten
+minutes for it. One still not running after that is left out, the backup of
+everything else goes ahead, and the run is reported as failed, naming the
+application.
 
 ## Excluded volumes
 
