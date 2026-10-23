@@ -357,6 +357,17 @@ none. A backup never creates one: it stops when it finds no repository, or
 when the password is wrong. Snapshots list, browse and export without a
 restore.
 
+Before each snapshot the backup exports every running Postgres and MariaDB
+database as plain SQL, one file per database server, and the repository
+compresses what it stores, so after the first a backup uploads only what
+changed. A backup waits up to ten minutes for each deployed database to answer;
+one still silent is left out, the rest is backed up, and the run is reported
+failed with the application named. A failed export of a running database fails
+the backup. Backups past the retention numbers are removed, and the
+repository's structure checked, once a day, with the first backup after
+midnight in the server's time zone; until then every backup stays listed and
+restorable.
+
 Restores run on the host through `catena-recovery`, the payload's restore
 engine, which the dashboard's restore page drives. A restore reads the
 repository it is given the same way whichever it is (this server's own,
@@ -383,7 +394,11 @@ the record.
 
 On a Catena Business server the offsite copy copies the objects of a bucket
 into a locked bucket at another provider, and refuses a locked bucket that
-holds a different restic repository from the source bucket's. To recover, the
+holds a different restic repository from the source bucket's. Before each copy
+of the host's backup repository, the backups past the retention numbers are
+removed, so the locked bucket receives only the backups kept; while such a
+copy exists, a removal deletes only data no kept backup uses and never rewrites
+stored data, so the locked bucket holds each piece of data once. To recover, the
 objects are copied from the locked bucket into a bucket the administrator
 names, with the keys the administrator gives: the original bucket, or a new
 bucket and new keys after a compromise. The restore page lists the restic
@@ -407,6 +422,8 @@ bucket.
 | Snapshots export without a restore | `bench:snapshot_export_round_trip` |
 | The backup key rotates without losing the repository | `bench:restic_password_rotation_round_trip` |
 | Deleting the dashboard costs convenience, never data: backups run, restores work, applications stay online | `bench:sovereign_exit`, `bench:recovery_readme_manual_restore` |
+| Each backup after the first uploads only what changed, and a backup waits for the deployed databases to answer before it exports them | `bench:backup_quarter_hourly` |
+| Backups past the retention numbers are removed once a day and before each offsite copy, and nothing is rewritten while an offsite copy exists | `bench:backup_quarter_hourly`, `bench:worm_round_trip` |
 
 ### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
@@ -431,6 +448,11 @@ with its saved choice kept. The backup, the updates, the converge, the
 container engine upgrade and the restart stay runnable by hand on every host.
 A dashboard update applies the configuration its new image carries with a
 converge, and puts the previous dashboard back when that converge fails.
+
+Every timer starts at its set time, with no random delay, except the hourly
+licence check, which keeps a fixed minute of its own on each host. A lane run
+still going at its next set time is not doubled: the lane starts again at the
+first set time after it ends.
 
 The local Healthchecks checks of the lanes follow the lanes' schedules, and a
 lane that is off, or that the host's edition does not cover, has its checks
@@ -461,7 +483,8 @@ lane or as a step of the chain, never both. Once a week it also starts the
 restored databases, Postgres and MariaDB, and each application that declares a
 start check, on a network of their own with no published port, and checks that
 each opens. An offsite copy of the
-host's backup repository always runs behind a repository check and is refused when it fails;
+host's backup repository always runs behind the removal of the backups past the
+retention numbers and a repository check, and is refused when the check fails;
 an option makes it wait for a restore test of the newest backup too. Leaving
 out the backup or its repository check, scheduling no restore test, leaving out
 the health check before the updates, or leaving out the offsite check is
@@ -512,6 +535,7 @@ on every page until it is taken.
 | --- | --- |
 | Scheduled work is default-deny: this repository ships only enumerated local-maintenance timers, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
 | A host with no paid edition schedules only the weekly backup and the vulnerability watch, and refuses a backup more often than weekly | `bench:community_free_schedules` |
+| A lane starts at its set time, and a run that outlasts its next set time is not doubled | `bench:backup_quarter_hourly` |
 | A host with no paid edition is emailed about an exploited vulnerability its software carries, or a recent critical one with a fixed version, naming the fix | `bench:community_security_alerts` |
 | A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
 | A failed backup verification stops the daily chain before any update, while the restore test is in the chain | `bench:daily_chain_verify_hot_fail_aborts_updates` |
