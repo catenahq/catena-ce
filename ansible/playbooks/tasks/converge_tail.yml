@@ -35,6 +35,19 @@
   when: catena_public_ports_installed | default(true) | bool
   tags: [public_ports]
 
+# Rewrite the version report now that every role has moved its services, so the
+# panel's System and Apps pages name what runs from the end of an update rather
+# than from the timer's next pass. Upstream lookups are best-effort and it takes
+# no host lock. Skipped where reconcile/roles/infrastructure found the payload
+# staged out of band and the script not yet on the host.
+- name: "Versions: refresh the version report"
+  ansible.builtin.systemd_service:
+    name: catena-version-check.service
+    state: started
+  changed_when: false
+  when: _gatus_sync_present | default(false) | bool
+  tags: [version_check]
+
 # Report -- never repair -- changes to the files boundary.yml puts on the
 # operator's side, other than the dispatch path switch's own. This task is
 # what keeps the rule that a converge does not write them from also meaning

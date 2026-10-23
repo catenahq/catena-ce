@@ -208,9 +208,9 @@
     # The tier-1 oracle render, ports, drift report, prune and release
     # manifest: the tail both converge playbooks share (its header says how its
     # tags work).
-    - name: "Converge tail: tier-1 render, ports, drift, prune, release"
+    - name: "Converge tail: tier-1 render, ports, versions, drift, prune, release"
       ansible.builtin.include_tasks:
         file: tasks/converge_tail.yml
       vars:
         catena_converge_path: converge
-      tags: [tier1_stack, public_ports, bootstrap_drift, prune, release_manifest]
+      tags: [tier1_stack, public_ports, version_check, bootstrap_drift, prune, release_manifest]

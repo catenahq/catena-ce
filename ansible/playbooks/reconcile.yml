@@ -113,9 +113,9 @@
 
   post_tasks:
     # The tail converge.yml ends on too.
-    - name: "Converge tail: tier-1 render, ports, drift, prune, release"
+    - name: "Converge tail: tier-1 render, ports, versions, drift, prune, release"
       ansible.builtin.include_tasks:
         file: tasks/converge_tail.yml
       vars:
         catena_converge_path: reconcile
-      tags: [tier1_stack, public_ports, bootstrap_drift, prune, release_manifest]
+      tags: [tier1_stack, public_ports, version_check, bootstrap_drift, prune, release_manifest]
