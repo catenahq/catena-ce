@@ -1,7 +1,7 @@
 """Lock the sovereign-exit guarantee: a snapshot explains itself.
 
 The promise is that a client can rebuild from a snapshot with restic +
-docker + psql alone, without our software and without us. Three artifacts
+docker + psql or mariadb alone, without our software and without us. Three artifacts
 carry that promise, and all three are easy to break silently:
 
   - RECOVERY-README.{en,fr}.md rendered into /etc/catena, which is in
@@ -101,6 +101,18 @@ def test_the_database_reload_is_plain_sql_through_psql():
             f"RECOVERY-README.{lang} lost the plain psql reload")
         assert "zcat" not in body, (
             f"RECOVERY-README.{lang} still tells the reader to decompress")
+
+
+def test_the_guide_reloads_the_mariadb_exports_too():
+    """The backup writes MariaDB exports beside the Postgres ones, under
+    backup-staging/mysql: the guide names them and reloads them with the
+    MariaDB client alone."""
+    for lang in _LANGS:
+        body = (_TEMPLATES / f"RECOVERY-README.{lang}.md.j2").read_text()
+        assert "backup-staging/mysql/*.sql`" in body, (
+            f"RECOVERY-README.{lang} does not name the MariaDB exports")
+        assert "mariadb -u root -p < <" in body, (
+            f"RECOVERY-README.{lang} lost the MariaDB reload")
 
 
 def test_the_one_application_restore_runs_from_its_folder_alone():

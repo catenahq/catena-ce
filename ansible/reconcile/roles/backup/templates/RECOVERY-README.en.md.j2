@@ -5,8 +5,8 @@ extracting a snapshot, everything described below is already in your
 hands.
 
 You do not need our software, our tools, or our help to get your data
-back. You need three ordinary programs: `restic` (reads the backup),
-`docker` (runs the applications), and `psql` (loads the databases).
+back. You need ordinary programs: `restic` (reads the backup), `docker`
+(runs the applications), and `psql` or `mariadb` (load the databases).
 
 ## 1. What is in the snapshot
 
@@ -14,7 +14,8 @@ back. You need three ordinary programs: `restic` (reads the backup),
 | --- | --- |
 | Application data (files, uploads, mailboxes) | `{{ storage_mount_point }}/docker/volumes/<name>/_data/` |
 | Application definitions (one folder per app: its compose file, its settings in `.env`, and where the file came from) | `{{ storage_mount_point }}/compose/<app-name>/` |
-| Database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
+| PostgreSQL database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
+| MariaDB database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
 | Files stored outside a volume | `{{ storage_mount_point }}/apps/` |
 | Your settings and passwords | `/etc/catena/config.json` |
 | The software version this server ran | `/etc/catena/version.txt` |
@@ -97,6 +98,13 @@ database server. It is readable and loadable without any of our software:
 psql -U postgres < <name>-<date>.sql
 ```
 
+A MariaDB export loads the same way with the MariaDB client, which asks for
+the database root password; the application's `.env` holds it:
+
+```
+mariadb -u root -p < <name>-<date>.sql
+```
+
 They were written with instructions to replace what is already there, so
 loading one into an empty database is safe. Use these only if the
 application's own data directory did not survive; loading an export over
@@ -113,4 +121,4 @@ opens it. Keep both somewhere separate from the server itself.
 
 Your data is not locked behind anything. If a step above does not work,
 the files are still plain files, and someone comfortable with Docker and
-PostgreSQL can work from them directly.
+PostgreSQL or MariaDB can work from them directly.

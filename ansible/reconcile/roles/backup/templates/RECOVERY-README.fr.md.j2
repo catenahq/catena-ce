@@ -5,9 +5,9 @@ extrait une sauvegarde, tout ce qui est décrit ci-dessous est déjà entre
 vos mains.
 
 Vous n'avez besoin ni de notre logiciel, ni de nos outils, ni de notre
-aide pour récupérer vos données. Il vous faut trois programmes courants :
+aide pour récupérer vos données. Il vous faut des programmes courants :
 `restic` (lit la sauvegarde), `docker` (exécute les applications) et
-`psql` (charge les bases de données).
+`psql` ou `mariadb` (chargent les bases de données).
 
 ## 1. Ce que contient la sauvegarde
 
@@ -15,7 +15,8 @@ aide pour récupérer vos données. Il vous faut trois programmes courants :
 | --- | --- |
 | Données des applications (fichiers, téléversements, boîtes courriel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
 | Définitions des applications (un dossier par application : son fichier compose, ses paramètres dans `.env` et l'origine du fichier) | `{{ storage_mount_point }}/compose/<nom-de-l-application>/` |
-| Exports de bases de données (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
+| Exports de bases de données PostgreSQL (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
+| Exports de bases de données MariaDB (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
 | Fichiers stockés hors volume | `{{ storage_mount_point }}/apps/` |
 | Vos paramètres et mots de passe | `/etc/catena/config.json` |
 | La version du logiciel utilisée par ce serveur | `/etc/catena/version.txt` |
@@ -103,6 +104,14 @@ nos logiciels :
 psql -U postgres < <nom>-<date>.sql
 ```
 
+Un export MariaDB se charge de la même façon avec le client MariaDB, qui
+demande le mot de passe root de la base de données ; le fichier `.env` de
+l'application le contient :
+
+```
+mariadb -u root -p < <nom>-<date>.sql
+```
+
 Ils ont été écrits avec l'instruction de remplacer ce qui existe déjà :
 charger un export dans une base vide est donc sans danger. Ne les
 utilisez que si le répertoire de données de l'application n'a pas
@@ -121,5 +130,5 @@ Conservez les deux ailleurs que sur le serveur lui-même.
 
 Vos données ne sont verrouillées derrière rien. Si une étape ci-dessus ne
 fonctionne pas, les fichiers restent des fichiers ordinaires, et toute
-personne à l'aise avec Docker et PostgreSQL peut travailler directement à
-partir d'eux.
+personne à l'aise avec Docker et PostgreSQL ou MariaDB peut travailler
+directement à partir d'eux.
