@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 206 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 208 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -82,6 +82,8 @@ The 206 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ee_multidomain` | A second, unrelated domain is attached to a licensed host, both domains are served through the one tunnel, a gated app on each domain sends its visitors to its own domain's sign-on with cookies scoped to its own host, and a person signs in through the second domain's own sign-on. |
 | `ee_named_buttons` | Each licensed maintenance button dispatches its own distinct action rather than sharing one. |
 | `erpnext_failed_migrate_rolls_back` | When an ERPNext update's database migration fails, the previous version and its database are put back and the site keeps serving. |
+| `erpnext_helpdesk_restore_round_trip` | Putting ERPNext with Helpdesk back from a backup restores its data and its administrator's sign-in, whether the Restore page restores it alone or the whole server, and the weekly deep verification boots its database. |
+| `erpnext_helpdesk_update_migrates` | An update of ERPNext with Helpdesk moves every one of its services to the new build in one step and migrates the database, and the site comes back serving. |
 | `erpnext_restore_round_trip` | Putting ERPNext back from a backup restores its data and its administrator's sign-in, whether the Restore page restores ERPNext alone or the whole server, and the weekly deep verification boots ERPNext's database. |
 | `erpnext_update_migrates` | An ERPNext update moves every ERPNext service to the new version in one step and migrates the database, and the site comes back serving. |
 | `error_reports_opt_in` | A paid server sends Catena support nothing until its administrator switches error reports on with a consent, then sends one report per change with only the listed fields, lists each report in the panel, and sends nothing after it is switched off. |
