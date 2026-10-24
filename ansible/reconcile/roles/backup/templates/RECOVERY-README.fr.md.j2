@@ -13,7 +13,7 @@ aide pour récupérer vos données. Il vous faut des programmes courants :
 
 | Quoi | Où dans la sauvegarde |
 | --- | --- |
-| Données des applications (fichiers, téléversements, boîtes courriel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
+| Données des applications (fichiers, téléversements, boîtes courriel) et historique de surveillance (Gatus, Healthchecks, Beszel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
 | Définitions des applications (un dossier par application : son fichier compose, ses paramètres dans `.env` et l'origine du fichier) | `{{ storage_mount_point }}/compose/<nom-de-l-application>/` |
 | Exports de bases de données PostgreSQL (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
 | Exports de bases de données MariaDB (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
@@ -30,10 +30,9 @@ propriétaire, aucun besoin de notre logiciel pour les ouvrir.
   leurs sources publiques. Les conserver multiplierait la taille de
   chaque sauvegarde sans aucun bénéfice, puisque les versions exactes
   sont inscrites dans chaque fichier compose.
-- **L'historique de surveillance** (Gatus, Healthchecks, Beszel) **et les
-  volumes qu'une application marque comme reconstructibles.** Ces données
-  se reconstruisent en quelques minutes et changent sans arrêt, ce qui
-  gonflerait chaque sauvegarde.
+- **Les volumes qu'une application marque comme reconstructibles.** Ces
+  données se reconstruisent en quelques minutes et changent sans arrêt, ce
+  qui gonflerait chaque sauvegarde.
 - **Les clés d'identité SSH du serveur.** Un serveur reconstruit génère
   les siennes. Transporter les anciennes serait un problème de sécurité,
   pas une commodité.
