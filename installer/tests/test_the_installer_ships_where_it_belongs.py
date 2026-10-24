@@ -1,7 +1,7 @@
 """The installer stays out of the public panel image, and carries only the
 tree files it uses.
 
-Why both rules hold is in installer/README.md.
+Why both rules hold is in catena-ce/installer/catena_installer/README.md.
 
 Run: uv run pytest installer/tests/test_the_installer_ships_where_it_belongs.py
 """

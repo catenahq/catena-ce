@@ -1,5 +1,5 @@
 """The run: one inventory, what a client answered for it, and where the install
-got to. What it keeps on disk, and what it never does, is in installer/README.md.
+got to. What it keeps on disk, and what it never does, is in README.md.
 
 THE STATE IS A WORD, not a percentage. What a resumed run needs to know is
 whether an install is running.
