@@ -247,6 +247,8 @@ another provider.
 | The same holds for every running MariaDB | **no bench yet** |
 | After the first, a backup uploads only what changed | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded` |
 | The monitoring history of Gatus, Healthchecks and Beszel is in every backup, as every application's data is | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded` |
+| Before each snapshot the databases of Gatus, Healthchecks and Beszel are copied whole while they run, and a copy that fails fails the backup | `bench:ce_restore#stage-2a-the-monitoring-databases-are-copied-whole` |
+| That copy follows no link in the monitoring volumes and keeps no privilege beyond reading them; a planted link fails the backup | **no bench yet** |
 | The repository compresses what it stores | **no bench yet** |
 | A backup waits for each deployed database to answer; one still silent is left out, the rest is backed up, and the run fails naming the application | `bench:backup_quarter_hourly#stage-9-the-backup-waits-for-its-databases` |
 | That wait is ten minutes per database | **no bench yet** |
@@ -259,6 +261,7 @@ another provider.
 | A restore reads this server's repository, another server's or the offsite copy the same way, with a key that may only read, and writes nothing to the offsite copy | `bench:worm_round_trip#stage-6b-restore-from-the-offsite-copy`, `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore#stage-4-ce-restore` |
 | A restore writes nothing to this server's own repository | **no bench yet** |
 | A whole-server restore puts the data back, adopts the settings stored with it and starts the services Catena runs | `bench:dr_suite#stage-13-disaster-recovery`, `bench:dr_suite#stage-14-post-recovery-assertions`, `bench:dr_suite#stage-19-onbox-store` |
+| A whole-server restore starts Gatus, Healthchecks and Beszel on the copies the backup took whole | `bench:ce_restore#stage-4a-the-monitoring-databases-come-back-whole` |
 | A whole-server restore joins the private network its settings name | **no bench yet** |
 | When the settings a whole-server restore adopts hold object-store keys the provider revoked, it reads the repository with the keys entered on the restore page, and backups resume on the new keys once they are saved with the destination | `bench:post_compromise_rebuild#stage-3-restore-with-pair-b`, `bench:post_compromise_rebuild#stage-3d-destination-confirmed`, `bench:post_compromise_rebuild#stage-4-store-holds-pair-b`, `bench:post_compromise_rebuild#stage-5-backup-on-pair-b` |
 | Restored client applications stay stopped until an admin starts them from the restore page, which replays their databases | `bench:dr_suite#stage-14-applications-held`, `bench:dr_suite#stage-15-applications-started`, `bench:dr_suite#stage-15-database-replay-honest`, `bench:inplace_restore_suite#wizard-restore-stage-5b-client-applications-held`, `bench:inplace_restore_suite#wizard-restore-stage-6b-held-applications-started`, `bench:post_compromise_rebuild#stage-3c-applications-started`, `bench:erpnext_helpdesk_restore_round_trip` |
