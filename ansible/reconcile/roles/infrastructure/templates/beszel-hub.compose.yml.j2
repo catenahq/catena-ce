@@ -20,7 +20,9 @@
 # processes, the admin-only gate and Gatus.
 #
 # Metrics history (/beszel_data) is a named volume the backup carries, as it
-# carries every application's data.
+# carries every application's data. The backup also copies the databases whole
+# before each snapshot, and a whole-server restore starts the hub on those
+# copies.
 #
 # x-catena declares that volume: a newer hub migrates it on its first start, so
 # the data is copied before the image moves and put back with the previous

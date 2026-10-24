@@ -1,5 +1,6 @@
 """The backup carries the volumes of the monitoring stacks (Gatus, Healthchecks,
-Beszel) as it carries every application's data.
+Beszel) as it carries every application's data, and names their SQLite
+databases so each is also copied whole.
 
 Patterns are matched the way restic 0.19.1 documents: component by component,
 `*` and `?` stay inside a component, `**` spans any number of components, a
@@ -12,6 +13,9 @@ from __future__ import annotations
 
 import fnmatch
 import re
+
+import jinja2
+import jinja2.nativetypes
 from pathlib import Path
 
 import yaml
@@ -90,6 +94,64 @@ def test_no_pattern_leaves_out_a_monitoring_volume():
                 hit = [p for p in patterns if _excludes(p, path)]
                 assert not hit, f"{hit} leave {path} out of the backup"
     assert checked == 6
+
+
+class _Placeholder(jinja2.ChainableUndefined):
+    """A variable the render is not given prints as a word."""
+
+    def __str__(self) -> str:
+        return "x"
+
+
+def _plain(path: Path) -> dict:
+    """The defaults of a role that hold no expression."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return {k: v for k, v in data.items() if not (isinstance(v, str) and "{{" in v)}
+
+
+def _render(path: Path, **values) -> str:
+    env = jinja2.Environment(undefined=_Placeholder)
+    env.filters["bool"] = bool
+    return env.from_string(path.read_text(encoding="utf-8")).render(**values)
+
+
+def _databases() -> list[str]:
+    """infrastructure_sqlite_databases, evaluated against the role's names."""
+    expr = _defaults()["infrastructure_sqlite_databases"]
+    env = jinja2.nativetypes.NativeEnvironment()
+    env.filters["regex_replace"] = lambda value, pattern, repl: re.sub(pattern, repl, value)
+    return env.from_string(expr).render(**_plain(INFRA / "defaults" / "main.yml"))
+
+
+def test_the_copy_list_names_each_monitoring_database():
+    listing = _render(ROLES / "backup" / "templates" / "backup-sqlite.j2",
+                      ansible_managed="", storage_mount_point="/srv/catena",
+                      infrastructure_sqlite_databases=_databases())
+    lines = [ln for ln in listing.splitlines() if ln and not ln.startswith("#")]
+    defaults = _defaults()
+    expected = []
+    for template, name in STACKS.items():
+        [volume] = _volume_keys(template)
+        files = {"gatus.compose.yml.j2": [defaults["gatus_sqlite_file"]],
+                 "healthchecks.compose.yml.j2": [defaults["healthchecks_sqlite_file"]],
+                 "beszel-hub.compose.yml.j2": defaults["beszel_hub_sqlite_files"]}[template]
+        expected += [f"{VOLUMES}/{defaults[name]}_{volume}/_data/{f}" for f in files]
+    assert lines == expected
+    assert len(lines) == 4 and all(ln.startswith("/") for ln in lines)
+
+
+def test_the_listed_files_are_the_ones_the_services_open():
+    defaults = _defaults()
+    values = dict(_plain(INFRA / "defaults" / "main.yml"),
+                  catena_public_surface_deferred=False,
+                  infrastructure_smtp={"enabled": False, "sender": "x", "implicit_tls": False})
+    gatus = yaml.safe_load(_render(INFRA / "templates" / "gatus-base.yaml.j2", **values))
+    assert gatus["storage"]["path"] == f"/data/{defaults['gatus_sqlite_file']}"
+    hc = yaml.safe_load(_render(INFRA / "templates" / "healthchecks.compose.yml.j2", **values))
+    assert hc["services"]["app"]["environment"]["DB_NAME"] == f"/data/{defaults['healthchecks_sqlite_file']}"
+    hub = yaml.safe_load(_render(INFRA / "templates" / "beszel-hub.compose.yml.j2", **values))
+    assert f"{defaults['beszel_hub_data_volume']}:/beszel_data" in hub["services"]["app"]["volumes"]
+    assert defaults["beszel_hub_sqlite_files"] == ["data.db", "auxiliary.db"]
 
 
 def test_the_patterns_name_no_monitoring_volume():

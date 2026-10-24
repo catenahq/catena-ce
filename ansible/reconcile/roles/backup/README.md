@@ -54,6 +54,10 @@ first stores only what changed.
 - MySQL / MariaDB -> `backup-staging/mysql/<container>-<ts>.sql`
   (`mariadb-dump`, falling back to `mysqldump`). A SEPARATE directory on
   purpose: the replay feeds every export under `pg/` to psql.
+- SQLite databases of the monitoring stacks -> `backup-staging/sqlite/<volume>/<file>`,
+  one whole copy of each database listed in `/etc/catena/backup-sqlite` (rendered
+  from `infrastructure_sqlite_databases`), taken while the service runs. A
+  whole-server restore starts each service on its copy.
 
 The first backup of each day, and the offsite copy before it copies, removes
 the snapshots past the retention numbers and checks the repository.

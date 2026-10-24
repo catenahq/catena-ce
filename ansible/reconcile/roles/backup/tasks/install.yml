@@ -250,6 +250,14 @@
     group: root
     mode: "0644"
 
+- name: Write backup SQLite databases data file
+  ansible.builtin.template:
+    src: backup-sqlite.j2
+    dest: /etc/catena/backup-sqlite
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Drop backup coverage paths data file
   # Plain-text one-path-per-line file consumed by catena-backup-coverage.
   # Templating lives HERE (pure data, no shell code) so the checker itself

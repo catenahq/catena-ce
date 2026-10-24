@@ -115,6 +115,20 @@ def test_the_guide_reloads_the_mariadb_exports_too():
             f"RECOVERY-README.{lang} lost the MariaDB reload")
 
 
+def test_the_guide_puts_a_monitoring_copy_back():
+    """Each backup holds a whole copy of the monitoring services' SQLite
+    databases under backup-staging/sqlite: the guide names the folder and
+    puts a copy in place of the file after deleting its journal files, with cp
+    and rm alone."""
+    for lang in _LANGS:
+        body = (_TEMPLATES / f"RECOVERY-README.{lang}.md.j2").read_text()
+        assert "backup-staging/sqlite" in body, (
+            f"RECOVERY-README.{lang} does not name the copies of the databases")
+        for step in ("-wal", "-shm", "-journal", "rm -f /var/lib/docker/volumes/"):
+            assert step in body, f"RECOVERY-README.{lang} lacks {step}"
+        assert "cp /recovered{{ storage_mount_point }}/backup-staging/sqlite/" in body
+
+
 def test_the_one_application_restore_runs_from_its_folder_alone():
     """The folder under compose/ is the application's definition: the guide
     restores it with the volumes, prepares a bare machine for swarm and deploys

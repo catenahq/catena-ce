@@ -6,8 +6,9 @@
 # monitoring.
 #
 # SQLite lives under a named Docker volume -> gets backed up by restic
-# as part of /srv/catena/docker/volumes. Check definitions + ping history
-# survive a restore.
+# as part of /srv/catena/docker/volumes. The backup also copies the database
+# whole before each snapshot, and a whole-server restore starts the service on
+# that copy, so check definitions + ping history survive a restore.
 #
 # x-catena declares the SQLite volume: a newer Healthchecks migrates it on its
 # first start, so the data is copied before the image moves and put back with
@@ -16,7 +17,7 @@ x-catena:
   schema: 2
   data:
     app:
-      volume: healthchecks-data
+      volume: {{ healthchecks_data_volume }}
       upgrade: in_place
 
 services:
@@ -70,7 +71,7 @@ services:
       # scripts/healthchecks-seed.py creates the superuser and its Project.
       REGISTRATION_OPEN: "False"
       DB: "sqlite"
-      DB_NAME: "/data/hc.sqlite"
+      DB_NAME: "/data/{{ healthchecks_sqlite_file }}"
       # Mail goes out through the outgoing mail chosen in Settings > Mail
       # (infrastructure_smtp), to the admin email channel healthchecks-seed.py
       # keeps. Port 465 is implicit TLS, any other port STARTTLS, as every
@@ -105,7 +106,7 @@ services:
       # and no client app does (playbooks/group_vars/all/main.yml).
       REMOTE_USER_HEADER: "HTTP_X_FORWARDED_EMAIL"
     volumes:
-      - healthchecks-data:/data
+      - {{ healthchecks_data_volume }}:/data
     # Host-mode publish so the host-side consumers can reach /api/v3/checks/
     # on {{ healthchecks_host_localhost_port }}: gatus-sync and the other
     # host-side pingers dial it by IP, which is why
@@ -133,7 +134,7 @@ services:
 {% endfor %}
 
 volumes:
-  healthchecks-data:
+  {{ healthchecks_data_volume }}:
 
 networks:
   # Created by reconcile/roles/swarm before this deploys.

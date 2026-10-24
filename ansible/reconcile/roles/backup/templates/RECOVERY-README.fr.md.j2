@@ -17,6 +17,7 @@ aide pour récupérer vos données. Il vous faut des programmes courants :
 | Définitions des applications (un dossier par application : son fichier compose, ses paramètres dans `.env` et l'origine du fichier) | `{{ storage_mount_point }}/compose/<nom-de-l-application>/` |
 | Exports de bases de données PostgreSQL (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
 | Exports de bases de données MariaDB (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
+| Copies des bases de surveillance (Gatus, Healthchecks, Beszel), chacune prise entière pendant qu'elle fonctionnait | `{{ storage_mount_point }}/backup-staging/sqlite/<nom-du-volume>/<fichier>` |
 | Fichiers stockés hors volume | `{{ storage_mount_point }}/apps/` |
 | Vos paramètres et mots de passe | `/etc/catena/config.json` |
 | La version du logiciel utilisée par ce serveur | `/etc/catena/version.txt` |
@@ -68,6 +69,22 @@ Remettez les données en place :
 docker volume create <nom-du-volume>
 cp -a /recovered{{ storage_mount_point }}/docker/volumes/<nom-du-volume>/_data/. \
       /var/lib/docker/volumes/<nom-du-volume>/_data/
+```
+
+Gatus, Healthchecks et Beszel conservent des bases SQLite, et chaque
+sauvegarde contient une copie de chacune, prise entière pendant qu'elle
+fonctionnait. Pour l'une d'elles, ajoutez aussi
+`--include '{{ storage_mount_point }}/backup-staging/sqlite/<nom-du-volume>'`
+à la restauration ci-dessus, puis, avant de la démarrer, supprimez les
+fichiers de journal de la base et remettez la copie à la place du fichier de
+la base :
+
+```
+rm -f /var/lib/docker/volumes/<nom-du-volume>/_data/<fichier>-wal \
+      /var/lib/docker/volumes/<nom-du-volume>/_data/<fichier>-shm \
+      /var/lib/docker/volumes/<nom-du-volume>/_data/<fichier>-journal
+cp /recovered{{ storage_mount_point }}/backup-staging/sqlite/<nom-du-volume>/<fichier> \
+   /var/lib/docker/volumes/<nom-du-volume>/_data/<fichier>
 ```
 
 Sur une machine qui n'exécute pas encore Docker swarm, préparez-la une
