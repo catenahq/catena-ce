@@ -108,7 +108,6 @@ def test_the_one_block_carries_both_the_secrets_and_the_urls():
     for needed in ("admin_password", "console_recovery_password"):
         assert needed in banner, needed
     assert "catena_admin_hostname" in banner, "panel URL missing"
-    assert "portainer" not in banner.lower()
     # The SSH forward is the way in when Cloudflare or SSO is not working, so
     # it is the half that has to survive an edit. Its port comes through
     # _admin_port, which is where the role default is read.

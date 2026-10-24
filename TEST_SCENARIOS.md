@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 208 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 209 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -27,6 +27,7 @@ The 208 scenarios the maintainers' test bench carries, and the behaviour each on
 | `apps_folder_round_trip` | An application added from a private repository needs the repository's token, keeps its settings exactly as typed, stops and starts with its data in place, is removed with its data kept on request, and is left as it is by the nightly update once a person has changed its files. |
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
 | `backup_destination_creates_repository` | Saving a backup destination creates its repository there, a destination holding other files is refused, and a backup never creates a repository. |
+| `backup_quarter_hourly` | A backup scheduled every 15 minutes on a Catena Pro server runs every 15 minutes, and each backup after the first uploads only what changed. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
 | `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing but the vulnerability watch. |
 | `catalog_app_sign_in` | Every catalog application that offers single sign-on in its free edition signs a new staff account in with Keycloak, and the others create no sign-in entry. |

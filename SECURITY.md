@@ -34,8 +34,8 @@ Reports against the hosted services (catena.run, docs.catena.run) are
 welcome at the same address.
 
 Out of scope: vulnerabilities in the upstream applications the catalog
-deploys (Nextcloud, Keycloak, etc.) -- report those upstream; we track
-and ship the fixed versions through the managed-update pipeline.
+deploys and in the upstream services Catena runs -- report those upstream; we
+track and ship the fixed versions through the managed-update pipeline.
 
 ## Supported versions
 

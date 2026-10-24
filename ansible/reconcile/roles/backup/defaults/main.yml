@@ -270,20 +270,6 @@ backup_extra_paths: >-
 # value. Common examples (uncomment per client via an inventory override,
 # e.g. inventory/<client>/group_vars/all/backup.yml):
 #
-#   # Nextcloud's user files directory -- if users treat it as a
-#   # sync of their local machines, the S3 backup is redundant and
-#   # expensive at TB scale. WARNING: Nextcloud's Postgres database
-#   # still indexes those files by path, so after restore those rows
-#   # reference missing files. Document this as a known state for the
-#   # client; don't exclude files silently without also documenting the
-#   # restore expectation.
-#   - "*/catena-nextcloud_nc-data/_data/data/*/files/*"
-#
-#   # Paperless consume/ and export/ -- ephemeral work directories,
-#   # reproducible from originals/.
-#   - "*/paperless*/consume/*"
-#   - "*/paperless*/export/*"
-#
 #   # Generic: any container-managed cache dir matching /cache/ or /tmp/.
 #   - "*/cache/*"
 #   - "*/.cache/*"
@@ -425,9 +411,10 @@ backup_restic_env_script: /usr/local/bin/catena-restic-env
 backup_restic_mount_script: /usr/local/bin/catena-restic-mount
 backup_restic_unmount_script: /usr/local/bin/catena-restic-unmount
 # Repo integrity probe, shipped in the engine payload. catena-backup-run calls it
-# with --metadata after every successful backup; the weekly 5% bit-rot read is
-# a separate timer (catena-restic-check-subset.timer) because that one is
-# time-based, not backup-driven.
+# with --metadata after the first backup of each day, together with the removal
+# of the backups past retention; the weekly 5% bit-rot read is a separate timer
+# (catena-restic-check-subset.timer) because that one is time-based, not
+# backup-driven.
 backup_restic_check_script: /usr/local/bin/catena-restic-check
 # Bound on the post-backup metadata check. `restic check` is metadata-only, but
 # it still talks to the object store, so a network stall must not hold the

@@ -45,17 +45,27 @@ nothing.
 ## Logical dumps
 
 `catena-backup-run` writes a logical dump per database engine before the
-snapshot, alongside the raw volumes (which are also in the set):
+snapshot, alongside the raw volumes (which are also in the set). The dumps are
+plain SQL: the backup repository compresses them, so each snapshot after the
+first stores only what changed.
 
-- Postgres -> `backup-staging/pg/<container>-<ts>.sql.gz` (`pg_dumpall`).
+- Postgres -> `backup-staging/pg/<container>-<ts>.sql` (`pg_dumpall`).
   Replayed by `catena-recovery`.
-- MySQL / MariaDB -> `backup-staging/mysql/<container>-<ts>.sql.gz`
+- MySQL / MariaDB -> `backup-staging/mysql/<container>-<ts>.sql`
   (`mariadb-dump`, falling back to `mysqldump`). A SEPARATE directory on
-  purpose: the replay feeds every `*.sql.gz` under `pg/` to psql.
+  purpose: the replay feeds every export under `pg/` to psql.
 
-A dump failure is fatal for the run. It means the engine did not answer,
-and snapshotting its volume in that state while reporting success is how
-a broken database becomes a broken backup nobody looked at.
+The first backup of each day, and the offsite copy before it copies, removes
+the snapshots past the retention numbers and checks the repository.
+
+A dump failure is fatal for the run. It means a running engine did not
+answer, and snapshotting its volume in that state while reporting success is
+how a broken database becomes a broken backup nobody looked at.
+
+A database that is not running yet is another case: the backup waits up to ten
+minutes for it. One still not running after that is left out, the backup of
+everything else goes ahead, and the run is reported as failed, naming the
+application.
 
 ## Excluded volumes
 
@@ -90,11 +100,8 @@ is a property of the bucket itself, set outside Catena. So every object a
 source bucket has ever held since the copy was declared accumulates there
 permanently, even after the source's own retention has pruned it.
 
-That matters most for an application's own object storage, where the
-application keeps file versions. A file-sharing application is the worked example: it
-writes directly to S3 as its primary object storage, and
-its versions-retention variable (set in the app template's own Environment
-settings of the app, not in this installer) bounds that live bucket's
+That matters most for an application's own object storage, where it keeps
+file versions: its own retention setting bounds that live bucket's
 steady-state size. Raising it mainly grows the LIVE bucket, not the
 accumulation rate offsite -- a daily copy catches new versions well before
 a 7-day or 30-day live-side cap prunes them. The real cost driver over a

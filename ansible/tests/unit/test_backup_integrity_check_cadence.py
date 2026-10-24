@@ -1,4 +1,5 @@
-"""The repo integrity check follows the backup; the bit-rot read is a lane.
+"""The repo integrity check follows the first backup of each day; the bit-rot
+read is a lane.
 
 The metadata check is tied to the backup itself, not to the RESTIC_CHECK state
 inside the catena-daily chain: that chain is the licensed lane, so a check
@@ -8,8 +9,8 @@ and never checking the repository at all.
 Two halves, two cadences, for reasons that differ:
 
   - metadata (`restic check`): index + structure, no pack reads. Cheap, and it
-    validates what the backup just wrote, so it belongs immediately after a
-    successful backup -- which also means it runs on every edition.
+    runs with the first backup of each day, which is every backup of a daily or
+    weekly host -- so it runs on every edition.
   - subset (`restic check --read-data-subset=5%`): reads pack data end to end
     to catch silent corruption in the object store. Time-based, because bit
     rot accrues with wall-clock time rather than with backup count, and each

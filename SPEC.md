@@ -3,7 +3,11 @@
 Catena-CE is an Ansible-based installer for Catena. It prepares a new Debian 13 server to host dockerized applications by providing a secure, ready-to-deploy platform. The main dashboard, `catena-admin`, is built from a closed-source repository and its image is available [on Github](https://github.com/catenahq/catena-admin/pkgs/container/catena-admin)
 
 This file is the contract, and it leads the code: the tree implements this
-file, not the other way round. Items declared here that the tree does not
+file, not the other way round. Each section states its scope in a few lines and
+its behaviour as invariants, each with the gates that prove it
+([Gate pointers](#gate-pointers)). An invariant marked **no bench yet** has no
+rehearsal scenario proving it; a scenario that proves no invariant is listed in
+[Scenarios outside the invariants](#scenarios-outside-the-invariants). Items declared here that the tree does not
 implement yet are listed in [Declared, not yet built](#declared-not-yet-built).
 
 AI agents: do not modify this file. Report any feature or code snippet in the
@@ -12,9 +16,8 @@ not implement.
 
 ## Not in this repository
 
-- **The dashboard source.** `catena-admin` is closed. This repository consumes
-  its public signed image: it deploys the dashboard container and extracts the
-  host engine binaries from that same image. No Go source belongs here.
+- **The dashboard source.** `catena-admin` is closed. This repository deploys
+  its public signed image and extracts the host engines from that same image.
 - **The application catalogue.** Per-app compose files and templates live in
   `catena-templates`.
 - **Maintainer tooling.** The rehearsal bench, the audit graph and the
@@ -24,261 +27,146 @@ not implement.
 
 ## Licensing
 
-Catena-CE is complete and functional on its own. Catena Pro and Catena
-Business are licences that unlock features of the dashboard and payload every
-host already runs; the website's
-[edition comparison](https://catena.run/en/#pricing) lists which.
-
-A paid edition is a subscription key bought through Polar and saved in the
-dashboard. The host asks Polar about the key every hour, and only when it
-holds one. A key is active on one server at a time, bound to that server's
-hardware, so a copy of the server is refused while the original holds the
-key.
-
-If an activation reaches Polar and its answer is lost, the server records it,
-and the dashboard says to free that activation, labelled with the server's
-domain, in Polar's customer portal, then to save the key again.
-
-While Polar cannot be reached, the edition holds for 48 hours after its
-last confirmation; a cancelled, revoked or freed key locks at once. The host
-tells its admin of a lock once, in the maintenance log and by email through
-the configured relay. A lock takes away the paid features only: applications,
-their data, backups, restores and updates by hand keep running.
-
-A move to another server needs a paid edition on the server being moved, and
-none on the receiving one. The receiving server reaches the old one over SSH,
-with a one-time migration ticket and a pairing code the old server's dashboard
-gives out when it allows the move; no private network is needed, and no port
-opens for it. Once the move is validated, the old server frees the key and
-closes its migration window, and the receiving server takes the key over and
-converges itself.
-
-A paid server can send Catena support a report when one of Catena's own checks
-fails or recovers, once its administrator switches it on in the dashboard. The
-report names the check, its state and the application concerned, and nothing
-from inside the applications; the text a failed job wrote stays on the server,
-where the dashboard offers it for download, and reaches support only when the
-administrator reviews it, edits it if they wish, and sends it. The dashboard
-shows each report sent, and switching reports off stops them at once.
+Catena-CE is complete on its own. Catena Pro and Catena Business are Polar
+subscription keys, saved in the dashboard, that unlock dashboard features; the
+website's [edition comparison](https://catena.run/en/#pricing) lists which.
 
 | Invariant | Enforced by |
 | --- | --- |
-| No key, an unconfirmed key or a refused one leaves the host on Community, and nothing fails closed | `bench:ee_ce_regression`, `bench:ee_lapse`, `threat:LE3` |
-| A paid edition holds 48 hours while Polar is unreachable, locks at once on a refusal, and tells the admin once | `bench:polar_unreachable_grace`, `bench:ee_lapse`, `threat:LE3` |
-| A lock takes away paid features only: applications, restores and Community actions keep running | `bench:license_seat`, `threat:LE3` |
-| A subscription key is active on one server at a time | `bench:license_seat`, `bench:polar_sandbox_smoke`, `threat:LE7` |
-| A move hands the key on only once the move is validated | `bench:wizard_migrate_round_trip`, `bench:migrate_lane_auth_denied`, `threat:LE12` |
-| A move reaches the old server only through a one-time grant, while its migration window is open | `bench:migrate_lane_auth_denied`, `threat:CV15` |
-| Error reports leave the server only while switched on and carry only the listed fields | `bench:error_reports_opt_in`, `threat:CV18` |
+| No key, or a key Polar refuses, leaves the host on Community, and nothing fails closed | `bench:activate_ee#stage-1.5-negatives`, `bench:ee_lapse#stage-4-freeze`, `bench:license_seat#stage-6-a-fails-open`, `threat:LE3` |
+| A Pro key unlocks the Pro features and nothing of Business, whose actions are absent rather than hidden | `bench:ee_entitlement_partial` |
+| The host asks Polar about its key every hour, and only while it holds one | **no bench yet** |
+| A key is active on one server at a time, bound to its hardware: a copy of a licensed server and a second server are refused while the first holds it | `bench:license_seat#stage-2-a-copy-is-refused`, `bench:license_seat#stage-3-a-second-server-is-refused`, `bench:polar_sandbox_smoke#stage-4-second-server-refused`, `threat:LE7` |
+| An activation whose answer is lost is recorded and labelled in Polar with the server's domain; once it is freed and the key saved again, the server is granted | `bench:license_seat#stage-4.6-an-unanswered-activate-is-named` |
+| The dashboard says to free a lost activation in Polar's customer portal | **no bench yet** |
+| While Polar cannot be reached, the edition holds for 48 hours after its last confirmation, then locks, and unlocks once Polar answers | `bench:polar_unreachable_grace`, `threat:LE3` |
+| A revoked or freed key locks at once | `bench:ee_lapse#stage-2-revoked-at-polar`, `bench:license_seat#stage-5-the-first-locks` |
+| A cancelled key locks at once | **no bench yet** |
+| A lock is told to the admin once, in the maintenance log and by email through the configured relay | `bench:ee_lapse#stage-5-one-lock-notice`, `bench:polar_unreachable_grace#stage-3-past-the-grace` |
+| A lock takes away the paid features only: the lanes open to every host, the OS updates, restores and Community actions keep working | `bench:ee_lapse#stage-3-host-lapsed`, `bench:license_seat#stage-6-a-fails-open`, `threat:LE3` |
+| Community actions keep working on a licensed host, and leave its licence state unchanged | `bench:ee_ce_regression#stage-2-press-ce-action`, `bench:ee_ce_regression#stage-4-business-still-active` |
+| The Polar API version the licence check pins still answers in Polar's sandbox | `bench:polar_api_version_current#stage-1-pinned-version-answers` |
+| On a locked host the applications keep running with their data, and a backup, a restore and an update by hand run | **no bench yet** |
+| A move needs no paid edition on the receiving server | `bench:wizard_migrate_round_trip#stage-0-preconditions` |
+| A move is refused from a server with no paid edition | **no bench yet** |
+| The receiving server reaches the old one over SSH only, with a one-time migration ticket and the pairing code the old dashboard gives out, while its migration window is open; no port opens and no private network is needed | `bench:migrate_lane_auth_denied`, `bench:wizard_migrate_round_trip`, `threat:CV15` |
+| The key moves only once the move is validated: the old server frees it and closes its window, and the receiving server takes it and converges | `bench:migrate#stage-1-migrate`, `bench:wizard_migrate_round_trip#stage-4-window-and-completion`, `bench:migrate_lane_auth_denied#stage-4.5-licence-release-guarded`, `bench:migrate_preseed_no_split_brain#stage-5-licence-stays-with-the-source`, `bench:wizard_migrate_resume_source`, `threat:LE12` |
+| Error reports leave a paid server only while its admin has switched them on, carry only the check, its state and the application, are listed in the dashboard, and stop at once when switched off | `bench:error_reports_opt_in`, `threat:CV18` |
+| A failed job's text reaches support only after the admin reviews it, and as edited | `bench:error_reports_opt_in` |
+| The dashboard offers a failed job's text for download | **no bench yet** |
 
 ## How this repository is layered
 
-A desired state is reached in four layers, widest to narrowest.
-
-| Layer | What it is |
-| --- | --- |
-| **Installer** | `uvx catena-installer`, or `catena-installer <verb> --inventory <inventory>` in a console. Reaches the server over SSH; the server runs `ansible/install-host.sh` from the release image's own tree, which selects a playbook or chains several |
-| **Playbook** | Names the hosts and the ordered list of roles to apply to them. One playbook is one atomic operation |
-| **Role** | A unit of related tasks plus its defaults, templates, handlers and its own `validate.yml`. The reuse boundary: several playbooks apply the same role |
-| **Task** | One step. Task files are shared between roles and between playbooks where the step is the same step |
-
-Reuse happens downward only. A role never calls a playbook, and a task never
-decides which role it belongs to.
+The installer reaches the server over SSH, and the server runs
+`ansible/install-host.sh` from the release image's own tree. A playbook is one
+atomic operation: hosts and an ordered list of roles. A role is the reuse unit,
+with its defaults, templates, handlers and its own `validate.yml`. A task is one
+step, shared wherever the step is the same. Reuse runs downward only.
 
 ## The installer
 
-`catena-installer` (`installer/`) runs on the client's machine, Windows, macOS
-or Linux, with uv: `uvx catena-installer`, or `uv run catena-installer` in a
-checkout. With no argument it serves a page on loopback; with a verb it runs in
-the console. It runs no Ansible itself: it reaches the server over SSH, and the
-server installs itself with the code of the release image it fetched, so the
-roles, the engines and the dashboard are one version.
-
-The installer only reaches and installs a server: SSH access (address, initial
-user, key, operator account), the admin email, and the settings the first
-converge needs. A value the dashboard can change later is set in the
-dashboard, never at install. Run again on an installed server, `install` is
-the break-glass for a server whose dashboard is down. A verb that runs one
-playbook is named after it.
-
-| Verb | Runs | For |
-| --- | --- | --- |
-| `init` | nothing | Creating an inventory: its `.env`, every key at its default, to fill in before `install` |
-| `install` | the `accounts` leg, then the `system` leg: `bootstrap`, `show-keyset`, `converge`, the version recorded, `validate`, and the keyset again; then the installer's outside checks | A fresh server, and a running one: run again, it asks nothing and re-applies the release the server records, the bootstrap roles included. `--release` moves the server to that release with that release's code. Reaches the server at its SSH address when one is set, else its public IP; `--address` reaches it at another address for one run, such as its tailnet address after a Lockdown, and `--tags` scopes the converge leg. Leaves public SSH open |
-| `connect` | nothing | Opening the forward of the `panel` account, to the dashboard, from the client's machine |
-| `uninstall` | `uninstall.yml`, on the server | Handing the server back to Debian |
-
-The `accounts` leg runs through the provider's login and creates the `ops` and
-`panel` accounts with the installer's key; it closes nothing. The installer
-then logs in again as `ops` with that key, and the `system` leg refuses to
-start until sshd's own record of that session proves it, because its first
-role turns off every other login. A leg whose connection drops runs to its
-end on the server, which keeps a log of it without the passwords; an install
-run again waits for it to end. After the `system` leg the installer scans
-the public IP's every TCP port against what the server declares, and checks
-that the container network is out of its reach.
-
-A server that presents another SSH host key than the one the installer's
-machine trusts for its address stops `install` before anything reaches it. A
-reinstalled server presents a new key, and so does another machine answering at
-that address: the person installing says which, with `--reinstalled` or the
-installer page's reinstalled-server box. The old key is then forgotten, and
-the installer trusts the new one.
-
-`ansible/seed.py` runs on the client's machine before the install. It writes
-the inventory and passes an optional admin password to the server as a
-transient 0600 file for the run. It mints nothing, and refuses any value the
-dashboard owns.
+`catena-installer` (`installer/`) runs on the client's machine with uv
+(`uvx catena-installer`) and only reaches and installs a server: SSH access, the
+admin email, and what the first converge needs. Everything the dashboard can
+change is set in the dashboard. Its verbs are `init`, `install`, `connect` and
+`uninstall`; `ansible/seed.py` writes the inventory.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Installing and uninstalling go through the installer, and the server runs the tree of the release it installs | `bench:ce_install_suite`, `bench:install_rerun`, `bench:ce_uninstall` |
-| A host runs the roles, the engines and the dashboard of one release | `bench:update_from_previous_release`, `workflow:ci.yml#installer` |
-| Hardening waits until the server sees the installer's key open an `ops` session | `workflow:ci.yml#installer` |
+| With no argument the installer serves a page on loopback, with a verb it runs in the console, on Windows, macOS and Linux | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, **no bench yet** |
+| The installer runs no Ansible: the server installs itself from the tree of the release image it fetched, so its roles, engines and dashboard are one release | `bench:update_from_previous_release#stage-4b-one-version-after-the-reinstall`, `bench:install_rerun#stage-4-engines-follow-the-shell`, `workflow:ci.yml#installer` |
+| The installer takes only what reaches and installs a server, and an install naming a value the dashboard owns stops before writing anything | `workflow:ci.yml#installer`, **no bench yet** |
+| `init` writes an inventory with every key at its default | `workflow:ci.yml#installer`, **no bench yet** |
+| `install` reaches the server at its SSH address when one is set, else at its public IP; `--address` reaches another address for one run | `bench:launcher_install#stage-1-private-leg-installs`, `bench:launcher_install#stage-3-public-leg-installs`, `bench:install_rerun#stage-1a-address-is-for-this-run` |
+| `install` run again asks nothing, changes nothing on a healthy server, and redeploys a dashboard that is gone | `bench:install_rerun#stage-1-install-rerun`, `bench:install_rerun#stage-6-install-deploys-the-panel` |
+| `install` run again re-applies the release the server records, the bootstrap roles included | **no bench yet** |
+| `install --release` moves the server to that release with that release's code | **no bench yet** |
+| `install --tags` scopes the converge leg to the roles named | **no bench yet** |
+| A server reachable only through the provider's login installs through the accounts leg, which creates `ops` and `panel` with the installer's key and closes nothing, then the system leg as `ops` | `bench:launcher_install#stage-1-private-leg-installs` |
+| The system leg, whose first role turns off every other login, starts only once sshd records the installer's key opening an `ops` session | `workflow:ci.yml#installer`, **no bench yet** |
+| A leg whose connection drops runs to its end on the server, which logs it without the passwords | `bench:fi_o2_operator_ctrl_c#stage-1b-interrupted-install-ends-on-the-server` |
+| An install run again while a leg is running waits for it | `workflow:ci.yml#installer`, **no bench yet** |
+| After the system leg the installer scans every TCP port of the public IP against what the server declares, and checks the container network is out of its reach | `workflow:ci.yml#installer`, **no bench yet** |
+| A server presenting another SSH host key than the one trusted for its address stops `install` before anything reaches it; `--reinstalled`, or the page's reinstalled-server box, forgets the old key and trusts the new one | `bench:launcher_install#stage-6-install-stops-on-the-new-key`, `bench:launcher_install#stage-7-reinstalled-flag-continues`, `bench:launcher_install#stage-8-new-key-trusted` |
+| The inventory holds no credential | `bench:launcher_install#stage-2-private-leg-leaves-its-answers`, `bench:launcher_install#stage-4-public-leg-leaves-its-answers` |
+| An admin password reaches the server as a transient 0600 file for the run, and the installer mints nothing | `workflow:ci.yml#installer`, **no bench yet** |
+| The dashboard answers through the `panel` account's forward to the host's loopback | `bench:ce_install_suite#stage-3-bare-install` |
+| `connect` opens that forward from the client's machine | `workflow:ci.yml#installer`, **no bench yet** |
+| `uninstall` hands the server back to Debian: the OS update lane returns to Debian and the container engine's version hold is released | `bench:ce_uninstall#stage-3-handback-asserts` |
+| `uninstall` prints teardown guidance | **no bench yet** |
 | A verb that runs one playbook is named after it | `audit:check-grid` |
-| The installer takes only what reaches and installs a server, and refuses a value the dashboard owns | `workflow:ci.yml#installer`, `bench:ce_install_suite` |
-| An install whose connection drops runs to its end on the server, and an install run again waits for it | `bench:fi_o2_operator_ctrl_c#stage-1b-interrupted-install-ends-on-the-server`, `workflow:ci.yml#installer` |
 
 ## Playbooks
 
-| Playbook | What it is |
-| --- | --- |
-| `accounts.yml` | The install's first leg, run on the server through the provider's login: the `ops` and `panel` accounts with the installer's key, and the sudo rule of `ops`. Closes nothing |
-| `bootstrap.yml` | The half that cannot self-repair. Run by `install`, on the server, as the first step of its `system` leg |
-| `converge.yml` | The full converge. Safe to re-run |
-| `lockdown.yml` | The access posture, run on the host by the dashboard only. Joins the private network when one is saved. Closes public SSH behind it once the network proves it reaches the host, and opens public SSH when no private network is chosen |
-| `reconcile.yml` | The half a host runs against itself, from the dashboard image, with no controller inventory. Has no verb: only the host runs it |
-| `validate.yml` | Two vantages, both on the host: per-role checks, and access (the dashboard on the host's loopback, the public hostnames once a domain is set, the published ports). The install's last step, after which the installer makes the checks only another machine can make; runnable on its own |
-| `show-keyset.yml` | Right after bootstrap: mints the admin and console passwords if absent and shows them once, with the journal verification key. The install repeats the block when it ends |
-| `rotate-tunnel.yml` | Deletes the host's Cloudflare tunnel and mints a new one, run on the host by the dashboard's Settings > Domain > Apply, followed by `reconcile.yml`. Applying the domain already in use is how the tunnel is regenerated. Takes no secret: it authenticates as the Cloudflare token already in the store |
-| `rotate-tailscale.yml` | Forces re-authentication to the private network, run on the host by the dashboard |
-| `uninstall.yml` | Hands the OS update lane back to Debian, releases the container engine's version hold, and prints teardown guidance |
-
-`converge.yml` and `reconcile.yml` apply the same roles in the same order.
-`reconcile.yml` is `converge.yml` minus the roles a human must run and minus
-the steps that only make sense on a fresh box. Which roles that leaves is
-declared, not decided at the moment of extraction.
+At install the server runs `accounts.yml`, `bootstrap.yml`, `show-keyset.yml`,
+`converge.yml` and `validate.yml`. It runs `reconcile.yml` when it converges
+itself, and, from the dashboard only, `lockdown.yml`, `rotate-tunnel.yml` and
+`rotate-tailscale.yml`. `uninstall.yml` hands it back to Debian.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Re-running a converge repairs a drifted server; it never duplicates or breaks a healthy one | `bench:install_rerun`, `bench:converge_suite#stage-7c-rotated-secret-arrives`, `bench:converge_suite#stage-7b-bump-survives` |
-| A host converges itself from the image with no controller inventory | `bench:payload_action_dispatches_without_converge` |
-| Validation checks both directions: services answer, forbidden exposure does not | `bench:ce_validate` |
-| Uninstall hands the OS update lane back to Debian | `bench:ce_uninstall` |
+| Re-running a converge repairs a drifted server; it never duplicates or breaks a healthy one | `bench:install_rerun#stage-1-install-rerun`, `bench:converge_suite#stage-7c-rotated-secret-arrives`, `bench:converge_suite#stage-7b-bump-survives` |
+| The host converges itself from the tree inside the dashboard image | `bench:reconcile_is_a_noop#stage-1-first-reconcile` |
+| The host's own converge reads nothing from a controller inventory, and no installer verb runs it | `workflow:ci.yml#installer`, **no bench yet** |
+| `converge.yml` and `reconcile.yml` apply the same roles in the same order, the reconcile half minus the roles a person must run | `workflow:ci.yml#installer`, **no bench yet** |
+| Validation checks every role's state and, from the host, the dashboard, the public hostnames once a domain is set and the published ports; a converge that fails it fails | `bench:ce_validate#stage-1-ce-validate` |
+| Validation fails on an exposure the server does not declare | **no bench yet** |
+| Validation is the install's last step and runs on its own | `workflow:ci.yml#installer`, **no bench yet** |
+| The Lockdown joins the private network the dashboard saved | `bench:ce_install_suite#stage-3a1-tailnet-joined`, `bench:fi_n11_lockdown_refuses_shields_up` |
+| The Lockdown runs only from the dashboard, never in a converge | `workflow:ci.yml#installer`, **no bench yet** |
+| The install mints the admin and console passwords when absent and shows them once with the journal verification key, again when it ends | **no bench yet** |
+| The dashboard forces the server to authenticate to its private network again | **no bench yet** |
+| A converge meeting a frozen container engine or a badly degraded network fails within a bounded time, naming the cause | `bench:fi_c1_docker_daemon_hang`, `bench:fi_c4_registry_pull_timeout` |
+| A converge on a server whose disk is nearly full, from the install or from the dashboard, stops at its disk check before any role runs | `bench:fi_d5_disk_full_mid_converge` |
 
 ## Roles
 
-### The boundary
+A role is **Bootstrap** when nothing left could repair it if it were wrong: it is
+applied by `install`, on the server, from the release image, and the set stays
+small. Every other role is **Reconcile**: its value is a function of the product
+version or of the host, and the host runs it unattended from the image. A role's
+side is its directory, `ansible/bootstrap/roles/` or `ansible/reconcile/roles/`;
+`ansible/boundary.yml` declares each role, the reason it is bootstrap, and how it
+is reached.
 
-Two questions, asked in order, decide which side a role is on.
-
-1. If this is wrong, is anything left that can fix it? If no, it is
-   **Bootstrap**: applied by `install`, on the server, from the release image.
-   The set is small and is meant to stay small.
-2. Otherwise, is the correct value a function of the product VERSION or of
-   THIS HOST? Either way the role is **Reconcile**: it can run on the host,
-   unattended, from the image, on a timer.
-
-A role's side is where it lives: `ansible/bootstrap/roles/` or
-`ansible/reconcile/roles/`. `ansible/boundary.yml` is the declaration, because
-a directory cannot carry the reason a role is on the side it is on.
-`ansible/tests/unit/test_converge_boundary.py` holds the two to each other.
-Nothing straddles the line.
-
-### Bootstrap roles
-
-Each entry carries the reason it is here, because a set that grows by
-assertion grows.
-
-| Role | Why it cannot self-repair |
-| --- | --- |
-| `common` | The accounts, SSH, the ufw lockdown, and the packages the other bootstrap roles assume. Opens public SSH, and holds the tasks the dashboard's Lockdown runs to close or open it |
-| `host_hardening` | Kernel and module hardening, applied before dockerd's first start so its runtime writes do not win until the next reboot. Re-applying it under a live workload is not a thing to do unattended |
-| `tailscale` | The private network the host is reached over, when one is configured. Joined only by `lockdown.yml`. Getting it wrong is the definition of question one |
-| `storage` | The data prefix every service keeps its data under, on the disk the host already has, and the optional remote bulk mount. A failure here costs data rather than access, and it cannot be safely re-applied to a live host by a timer |
-| `docker` | The engine, at the version pinned here and held on the host, and the swarm. Nothing else runs without it, and that includes whatever would have repaired it |
-| `catena_admin_host` | Who the dashboard's dispatch signs in as and with what: the runner account, the dashboard's key pair and the host key it trusts; and the way a server taking this one over arrives, the migration account and its sshd rules, which nothing on the host can prove without an open migration window. A reconcile that could mint, move or trust another key could rewrite what a reconcile is |
-| `ansible_runtime` | The pinned ansible-core the host reconciles itself with. Also performed by the reconcile lane, deliberately: a root process with python3 can repair a broken runtime, so a host whose runtime broke does not need a human |
-
-### Reconcile roles
-
-Order is the converge order, which is dependency order.
-
-| Role | Contract |
-| --- | --- |
-| `dispatch_path` | The path a dashboard request crosses to become a root action: sshd's variable list for the runner account, its sudo rule, the forced command on the dashboard's key and the dispatcher, kept on the generation this tree ships. A new generation is installed beside the running one, and the dashboard's key moves to it only after a request has crossed it; a failed proof keeps the running path and stops the converge. First, so a proof that fails stops the converge before anything else changes |
-| `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the dashboard image the converge names, refused unless that image is, by digest, the release the converge's own tree came from and was built from this tree. Deploys no container |
-| `public_ports` | The declarative public-port registry's host side: the fragment directory, the docker drop-in that reapplies the rules on every docker start, and the reconciler's timer. The reconciler and its timer ship in the payload, and a payload without them fails the converge |
-| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, which include git, the system user `catena-git` (no login, no home) that `catena-apps` runs git as when it adds an application from a repository, the journal's storage, the host resolving its own name, the clock's NTP pool, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, the reboot-required probe's configuration, and the timers of the licence check, the error reports and the application verify. The probe, the licence check, the error reporter, the application verify and their timers ship in the payload |
-| `swarm` | The swarm's own settings (task history, the data-node label), which a restore does not bring back, and the self-heal that restarts containers which lost the race to the overlay at daemon start |
-| `traefik` | The reverse proxy and the `catena-network` overlay |
-| `postgres` | The infrastructure Postgres swarm service, hosting the sign-on database |
-| `cloudflare_tunnel` | The cloudflared swarm service, the tunnel and wildcard DNS. Self-defers when the store holds no Cloudflare token |
-| `keycloak` | The sign-on identity provider and its realm |
-| `oauth2_proxy` | One auth proxy per gated admin tool, each keeping its own sign-in session |
-| `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the external heartbeat's configuration, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
-| `catena-admin` | The action catalogue, the bind-mount targets, the update lanes' per-host configuration and the list of services they may update, the dashboard's port declarations, and the dashboard container, created directly against the local swarm. The image is the release the install fetched, or, on a converge the host runs itself, the image the dashboard runs; a converge that names none stops before any role runs. An install fetches the release it is given, else the one the server records, else the newest the registry names |
-| `backup` | The backup lane's per-host configuration (repository, credentials, paths, excludes) and the first snapshot. restic, rclone, the backup wrapper and its units ship in the payload |
-
-### How a role is reached
-
-Three ways, and the difference is load-bearing. All three are declared in
-`boundary.yml`, each entry carrying how it is reached, so a role outside the
-converge's `roles:` list is classified rather than exempted.
-
-| Reached as | Roles | Meaning |
-| --- | --- | --- |
-| A converge role | The two tables above | Applied by `converge.yml`, and by `reconcile.yml` for the reconcile half |
-| A post-task role | `tier1_stack` | A fold over the converge rather than a step in it: the control-plane roles each append their service spec to an accumulator, and this renders the accumulated set and type-checks it against the docker installed. It applies nothing, and runs from `post_tasks` once every contributor has |
-| An own-playbook role | `cloudflare_tunnel_regenerate` | Deletes this host's tunnel before handing back to `cloudflare_tunnel` to mint a new one. A converge able to do that would drop the public edge every run, so the delete is only ever an explicit request: the dashboard's Settings > Domain > Apply, which runs `rotate-tunnel.yml` before its converge |
-
-### Paths a reconcile task may never write
-
-`/etc/ssh/`, `/etc/sudoers.d/`, `authorized_keys`,
-`/usr/local/sbin/catena-admin-runner`, `/usr/local/lib/catena-dispatch/`,
-`/etc/sysctl.d/`, `/etc/modprobe.d/`, `/etc/ansible/facts.d/`.
-
-These are bootstrap-owned. A reconcile that can rewrite the way in can rewrite
-what a reconcile is, so the rule is a list of literals that can be checked
-rather than remembered.
-
-The one exception is the `dispatch_path` role, declared under `proven_switches`
-in `boundary.yml`: it writes only the paths of the dispatch path, and changes
-the live path only after a request has crossed the new one. The accounts, the
-dashboard's key pair, the host key and `known_hosts` stay bootstrap-owned.
-
-Two qualifiers, both deliberate. The rule covers **task files only**: a
-defaults file may name `/etc/ssh` because restic reads it into the backup set,
-and reading a path is not writing it. And comments are stripped before
-matching, so the file that explains why a reconcile must not write the forced
-command is allowed to say so.
-
-### Paths a bootstrap task may never write
-
-The unattended-upgrades and needrestart configuration, the journal's drop-ins,
-the clock's NTP drop-in, the update lanes' configuration, the dashboard's port declaration and the
-overlay self-heal. The reconcile side keeps them current on every converge,
-from either path. A bootstrap task runs only at install, so a second writer
-there would hold the host to the install's value until the next converge.
-
-### Reachability, not location
-
-A reconcile-side task file that only its own operator playbook reaches, never
-a converge, may be declared under `operator_only_files` in `boundary.yml`, and
-the rule then does not apply to it. The exemption is about what can reach the
-file, not where the file lives: a converge may not reach it, and a timer may
-not reach it. None is declared.
+Bootstrap: `common`, `host_hardening`, `tailscale`, `storage`, `docker`,
+`catena_admin_host`, `ansible_runtime`. Reconcile, in converge order:
+`dispatch_path`, `payload`, `public_ports`, `host_maintenance`, `swarm`,
+`traefik`, `postgres`, `cloudflare_tunnel`, `keycloak`, `oauth2_proxy`,
+`infrastructure`, `catena-admin`, `backup`. `tier1_stack` runs after them;
+`cloudflare_tunnel_regenerate` runs only from `rotate-tunnel.yml`.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Every role is on exactly one side, with a stated reason if it is bootstrap | `audit:check-grid` |
-| No reconcile task writes a bootstrap-owned path, and no reconcile play reaches a bootstrap task file | `bench:ce_install_suite` |
-| A restore is neither a CLI verb nor a converge step: it runs only when started on the host | `workflow:ci.yml#installer`, `bench:ce_restore`, `bench:backup_rollback` |
-| The reconcile half reads nothing from a controller inventory | `bench:payload_action_dispatches_without_converge` |
+| Every role is on exactly one side, with a stated reason if it is bootstrap | `audit:check-grid`, `workflow:ci.yml#installer` |
+| No reconcile task writes a bootstrap-owned path (`/etc/ssh/`, `/etc/sudoers.d/`, `authorized_keys`, `/usr/local/sbin/catena-admin-runner`, `/usr/local/lib/catena-dispatch/`, `/etc/sysctl.d/`, `/etc/modprobe.d/`, `/etc/ansible/facts.d/`), and no reconcile play reaches a bootstrap task file; `dispatch_path` alone switches the dispatch path, behind a proof | `workflow:ci.yml#installer` |
+| No bootstrap task writes a reconcile-owned path: the OS update and restart policy, the journal and clock drop-ins, the update lanes' configuration, the dashboard's port declaration and the overlay self-heal | `workflow:ci.yml#installer` |
+| A restore is neither an installer verb nor a converge step: it runs only when started on the host | `workflow:ci.yml#installer`, `bench:ce_restore#stage-4-ce-restore` |
 | The install's converge and the host's own converge produce the same host: after either, the other changes nothing | `bench:reconcile_is_a_noop` |
-| A host that converges itself puts back the upkeep it owns | `bench:reconcile_repairs_host_upkeep` |
-| A dashboard update changes the way a dispatch arrives only after a request has crossed the new path; a failed proof keeps the running path | `bench:update_from_previous_release` |
-| A converge refuses engines from an image built from another tree, and root runs nothing out of a place the dashboard can write | `bench:update_from_previous_release`, `workflow:ci.yml#installer`, `threat:CV14` |
+| A host that converges itself puts back the upkeep it owns: unattended upgrades, the journal's storage, the mail agent off port 25, the clock on its NTP pool, the swarm's task history and data-node label, and its lanes' configuration | `bench:reconcile_repairs_host_upkeep#stage-3-restored`, `bench:reconcile_repairs_host_upkeep#stage-6-clock-on-the-pool` |
+| The host resolves its own name, keeps the time zone and locale set in the dashboard, and runs git as `catena-git`, with no login and no home | **no bench yet** |
+| Kernel and module hardening is in force | `bench:ce_install_suite`, `bench:ce_validate#stage-1-ce-validate` |
+| Kernel hardening is applied before the container engine's first start | **no bench yet** |
+| Data lives under one data prefix on the host's own disk | `bench:ce_install_suite` |
+| A remote bulk mount holds data the host names | **no bench yet** |
+| The container engine runs the version pinned here, held on the host | `bench:ce_uninstall#stage-1-mask-apt-timers`, `bench:docker_engine_upgrade_round_trip#stage-3-the-new-engine-holds` |
+| The dashboard's dispatch signs in as the runner account with its own key pair and a host key it trusts; the migration account admits no key outside an open migration window | `bench:ce_admin_smoke#stage-1-host-state`, `bench:migrate_lane_auth_denied#stage-0-preconditions`, `bench:migrate_lane_auth_denied#stage-1-no-lane-before-arming`, `bench:wizard_migrate_resume_source` |
+| A host whose Ansible runtime broke repairs it with no person | **no bench yet** |
+| A dashboard update changes the way a dispatch arrives only after a request has crossed the new path; a failed proof keeps the running path and stops the converge | `bench:update_from_previous_release#stage-3e-the-dispatch-path-moved-beside-the-running-one`, `bench:update_from_previous_release#stage-3f-a-failed-proof-keeps-the-path` |
+| A converge installs the host engines only from the dashboard image it names, by digest, built from this tree, and root runs nothing out of a place the dashboard can write | `bench:update_from_previous_release#stage-5-another-tree-is-refused`, `bench:ce_install_suite#stage-3d-payload-digest-gate`, `workflow:ci.yml#installer`, `threat:CV14` |
+| A payload without the port reconciler or its timer fails the converge | **no bench yet** |
+| Containers that lost the race to the overlay at engine start rejoin it by themselves | `bench:swarm_overlay_selfheal` |
+| A deleted container is scheduled again by itself; a removed service stays removed until a converge, which restores every declared service | `bench:container_delete_recreated#stage-1-app-task-rescheduled`, `bench:container_delete_recreated#stage-2-infra-task-rescheduled`, `bench:container_delete_recreated#stage-3-removed-service-stays-removed`, `bench:container_delete_recreated#stage-4-converge-restores-service`, `bench:container_delete_recreated#stage-5-declared-set-serves-again` |
+| A host restarted without warning brings every declared service back, with no converge and no person | `bench:host_reboot_recovery#stage-3-host-booted`, `bench:host_reboot_recovery#stage-4-stack-back-without-a-converge`, `bench:host_reboot_recovery#stage-5-proxy-serves-again` |
+| The sign-on service keeps its database on the infrastructure Postgres | **no bench yet** |
+| Each gated admin tool has its own auth proxy and its own sign-in session | `bench:app_container_cannot_claim_an_identity#stage-5-a-seen-cookie-opens-no-admin-tool` |
+| With no Cloudflare token in the store the tunnel waits, and the server converges green | `bench:ce_install_suite#stage-3-bare-install`, `bench:install_without_a_domain#stage-1-converge-with-no-domain`, `bench:post_compromise_rebuild#stage-6-tunnel-sync-without-a-token` |
+| The tunnel is replaced only on request, never by a converge, which leaves a healthy connector running untouched | `workflow:ci.yml#installer`, `bench:cf_tunnel_regenerate_round_trip#stage-1-rotate-tunnel`, `bench:fi_c6_cloudflared_flapping#stage-1-reconverge-no-flap` |
+| The dashboard runs the release the install fetched or, on the host's own converge, the image it already runs | `bench:update_from_previous_release#stage-4b-one-version-after-the-reinstall`, `bench:install_rerun#stage-4-engines-follow-the-shell` |
+| A converge that names no dashboard image stops before any role runs | **no bench yet** |
+| An install fetches the release it is given, else the one the server records, else the newest the registry names | `workflow:ci.yml#installer`, **no bench yet** |
+| The first backup runs once a destination is saved | `bench:ce_install_suite#stage-4i0-first-backup-ran` |
+| The control-plane services' accumulated definition loads against the installed engine and names what runs, and applies nothing | `bench:ce_install_suite`, `workflow:ci.yml#installer` |
 
 ## State the tasks produce
 
@@ -287,405 +175,367 @@ that produces it.
 
 ### The on-box store -- `common`, read by every role
 
-`/etc/catena/config.json`, 0600 root, is the runtime source of truth: the
-admin password an install supplies, every setting and credential saved in the
-dashboard, and every internal secret, minted on the host. It rides the backup.
-The inventory is bootstrap input only, with one exception: the
-development-only certificate keys, which no dashboard field shows, are written
-from the inventory into the store on every install run.
-`ansible/helpers/onbox_config.py`
-declares which names are secrets. Every converge loads the store first, so a
-tag-filtered run reads the same values as a full one.
+`/etc/catena/config.json` is the runtime source of truth: the admin password, every
+setting and credential saved in the dashboard, and every internal secret, minted
+on the host. `ansible/helpers/onbox_config.py` declares which names are secrets.
 
 | Invariant | Enforced by |
 | --- | --- |
-| The store is 0600 root, holds the full secret set, and rides the backup | `bench:ce_install_suite`, `bench:recover_secrets_from_running_host`, `threat:CV3` |
-| A tag-filtered converge reads the store, not a stale inventory value | `bench:converge_suite#stage-7c-rotated-secret-arrives` |
+| The store is 0600 root and holds the full secret set | `bench:ce_install_suite#stage-3b-onbox-store`, `threat:CV3` |
+| The store rides the backup | `bench:dr_suite#stage-19-onbox-store` |
+| A client whose install inputs are lost rebuilds its credential set from the running host's store | `bench:recover_secrets_from_running_host` |
+| A server broken into at root holds no credential that reaches another Catena server: its SSH keys are refused there, and no minted secret is the same on both | `bench:cross_host_pivot_finds_nothing#stage-2-ssh-pivot`, `bench:cross_host_pivot_finds_nothing#stage-3-store-custody`, `bench:cross_host_pivot_finds_nothing#stage-4-keycloak-master` |
+| The backup's object-store keys show on no dashboard page, and in no file or log of the host beyond the store and the file rendered from it | `bench:s3_backup_keys_rotation_round_trip#stage-6-no-secret-shown` |
+| A tag-filtered converge reads the store, not a stale inventory value | `bench:fi_s3_placeholder_inert#stage-1-placeholder-inert-converge-succeeds`, `bench:fi_s3_placeholder_inert#stage-2-onbox-store-not-poisoned`, `bench:converge_suite#stage-7c-rotated-secret-arrives` |
+| The inventory is install input only; the development certificate keys alone are written from it into the store on every install | `bench:install_rerun#stage-8f-store-and-hosts-follow-the-env`, `bench:fi_s3_placeholder_inert#stage-2b-onbox-config-not-reseeded` |
 
 ### The public-port registry -- `public_ports`
 
-A port is declared before it opens: infrastructure roles drop a JSON fragment
-into `/etc/catena/public-ports.d/`, application templates carry
-`vps.expose.*` compose labels. The reconciler the payload ships,
-`catena-public-ports`, merges both into ufw and DOCKER-USER rules with the
-label vocabulary of the dashboard image the host runs, and validation and the
-external scan check against the merged set.
-
-ufw is default-deny. No web port is bound on the host: web traffic enters
-through the Cloudflare tunnel. The ports bound on the public IP are the non-web
-ports an application template declares, such as mail, a relay's or a video
-bridge's UDP media and a SIP gateway.
-
-SSH is key-only, with no root and no password login. Public port 22 follows
-the private network:
-
-| Private network | Public 22 |
-| --- | --- |
-| None | Open. Nothing closes it |
-| Joined | Open until the Lockdown is applied |
-| Joined, Lockdown applied | Closed once the network proves it reaches the host; reopened by the port reconciler while the network is down |
-| Set back to none after a Lockdown | Closed, and reopened while the old network is down, until the access is applied again, which opens it |
-
-No domain, tunnel or private network is configured at install. Each is saved
-in the dashboard, which checks the credential on the host first and stores
-nothing it refuses. Until a domain exists, the dashboard is reached through a
-forward-only SSH account (`panel`) to the host's loopback.
+A port is declared before it opens: roles drop fragments into
+`/etc/catena/public-ports.d/`, application templates carry `vps.expose.*` labels,
+and `catena-public-ports` merges both into ufw and DOCKER-USER rules. Web traffic
+enters only through the Cloudflare tunnel. No domain, tunnel or private network
+is set at install; each is saved in the dashboard.
 
 | Invariant | Enforced by |
 | --- | --- |
-| No web port is open on the server itself; an external scan proves it | `bench:security_scan`, `bench:fi_v2_external_scan_blocked`, `threat:CV1` |
-| Every open port is declared before it is opened | `bench:security_scan`, `bench:ce_validate` |
+| No web port is open on the server's address, and no port beyond the allowed set | `bench:ce_install_suite`, `bench:dr_suite#stage-14-post-recovery-assertions`, `threat:CV1` |
+| An outside scan of the server's public names and address finds no critical or high vulnerability | `bench:security_scan#stage-7-emit-status` |
+| Every open port is declared: role fragments and template labels merge into ufw and DOCKER-USER, and validation and the outside scan check against the merged set | **no bench yet** |
+| An application's declared ports open with it and close when it is removed | `bench:host_network_app_ports#stage-2-ports-open`, `bench:host_network_app_ports#stage-7-removal-closes-the-ports` |
 | A port declaration is read with the label vocabulary of the dashboard image the host runs, so an image update changes it with no converge | `bench:labels_vocabulary_from_image` |
-| SSH is key-only with no root login; public 22 closes only behind a proven private network, reopens while that network is down, and opens again when no private network is applied | `bench:security_scan`, `bench:fi_n8_ufw_concurrent_ssh`, `bench:ce_install_suite`, `threat:CV6` |
-| A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite` |
-| A credential entered in the dashboard is checked on the host before it is stored, and a refused one is never stored | `bench:ce_install_suite`, `bench:fi_s4_tailscale_oauth_revoked` |
-| The tunnel can be replaced on a live host from the dashboard, without a reinstall | `bench:cf_tunnel_regenerate_round_trip` |
-| A domain token may reach several domains; only the ones chosen in the dashboard are attached, and Community attaches one | `bench:fi_n10_multidomain_cap` |
+| Port rules are reapplied on every container engine start, without waiting for the host lock | **no bench yet** |
+| SSH is key-only, with no root and no password login | `bench:ce_install_suite`, `threat:CV6` |
+| With no private network, public 22 is open and nothing closes it | `bench:ce_install_suite#stage-3-bare-install`, `bench:ce_install_suite#stage-3-lockdown-without-a-tailnet-keeps-22` |
+| With a private network joined, public 22 stays open until the Lockdown | `bench:ce_install_suite#stage-3a2-end-state` |
+| The Lockdown closes public 22 only once the private network proves it reaches the host | `bench:ce_install_suite#stage-3a4-lockdown-closes-22`, `bench:fi_n1_tailnet_partition_mid_converge`, `bench:fi_v3_tailscale_acl_misconfig`, `bench:fi_n11_lockdown_refuses_shields_up` |
+| After a Lockdown, public 22 reopens while the private network is down | `bench:ce_install_suite#stage-3a6-tailnet-down-reopens-22` |
+| Set back to no private network, public 22 opens once the access is applied | `bench:ce_install_suite#stage-3a7-no-provider-reopens-22` |
+| An admin's SSH session survives the firewall being applied under it | `bench:fi_n8_ufw_concurrent_ssh` |
+| A server installs with no domain, tunnel or private network, and brings its public edge up later without a reinstall | `bench:ce_install_suite#stage-3-bare-install`, `bench:ce_install_suite#stage-3a-tunnel-live`, `bench:install_without_a_domain` |
+| A credential entered in the dashboard is checked on the host before it is stored, and a refused one is never stored | `bench:ce_install_suite#stage-3a3-revoked-token-refused`, `bench:fi_s4_tailscale_oauth_revoked#stage-1-f-s4-save-refused`, `bench:s3_backup_keys_rotation_round_trip#stage-2-pair-b-saved-in-settings` |
+| A Cloudflare token the provider refuses fails the converge at the tunnel role | `bench:fi_n4_cf_zone_misconfigured` |
+| Until a domain exists, the dashboard is reached through the forward-only `panel` account | `bench:ce_install_suite#stage-3-bare-install` |
+| The tunnel is replaced on a live host from the dashboard with the token in the store: a new tunnel, the wildcard repointed, the old one deleted, the connector on the new credential | `bench:cf_tunnel_regenerate_round_trip#stage-1-rotate-tunnel` |
+| A Community host serves one domain, and degrades to it when given more | `bench:fi_n10_multidomain_cap` |
+| A licensed host serves a second domain through the same tunnel | `bench:ee_multidomain` |
+| Of the domains a token reaches, only those chosen in the dashboard are attached | **no bench yet** |
+| Changing the domain in the dashboard moves the server: the new domain serves, the old domain's tunnel rule, wildcard and token are removed, the sign-in page and the applications follow, and a sign-in name set by hand stays | `bench:primary_domain_change_round_trip#stage-3-the-move-is-a-move`, `bench:primary_domain_change_round_trip#stage-4-the-zone-list-names-the-new-domain`, `bench:primary_domain_change_round_trip#stage-4b-the-sign-in-page-names-the-new-domain`, `bench:primary_domain_change_round_trip#stage-5-the-new-domain-serves`, `bench:primary_domain_change_round_trip#stage-6-the-app-follows`, `bench:primary_domain_change_round_trip#stage-7-a-hand-set-sign-in-name-stays` |
 | The private-network control server is pluggable | `bench:ce_install_headscale` |
 
 ### The restic repository -- `backup`
 
 Backups are encrypted on the host and go to an S3 repository set in the
-dashboard. The restic password is generated on the host once the repository
-and its keys are saved, and shown once: the host keeps it to run backups, and
-the copy kept off the host opens the repository once the host is gone. A
-server rebuilds from the endpoint and that keyset alone.
-
-restic and rclone ship in the payload, pinned by digest. Saving a backup
-destination in the dashboard creates its repository when the bucket holds
-none. A backup never creates one: it stops when it finds no repository, or
-when the password is wrong. Snapshots list, browse and export without a
-restore.
-
-Restores run on the host through `catena-recovery`, the payload's restore
-engine, which the dashboard's restore page drives. A restore reads the
-repository it is given the same way whichever it is (this server's own,
-another server's, or an offsite copy) and writes nothing to it, so a key that
-may only read is enough. A whole-server restore puts the data back, adopts
-the settings stored with it, renders the server's services from them, starts
-the services Catena runs, and joins the private network those settings name.
-The client applications it brought back stay stopped until an administrator
-starts them from the restore page, which replays their databases, releases
-them from their backup mode and brings the server up to date with a converge:
-a restore cannot tell whether their data was compromised before the backup was
-taken. A one-application restore holds that application the same way; a move
-to another server holds nothing. After a whole-server restore, backups wait
-until an administrator confirms the backup destination or saves a new one (a
-converge meanwhile reports them waiting, not failed), and
-the daily chain's updates and engine upgrade are turned off, with a warning
-on every page, until an administrator turns them back on: a restore never
-treats the repository it read, or the one its settings name, as safe to write
-to. A new destination gets a new backup password, shown once. Progress is
-recorded in
-`/var/lib/catena/recovery.state`: an interrupted restore resumes with the same
-snapshot and scope, refuses a different one, and only a finished run clears
-the record.
-
-On a Catena Business server the offsite copy copies the objects of a bucket
-into a locked bucket at another provider, and refuses a locked bucket that
-holds a different restic repository from the source bucket's. To recover, the
-objects are copied from the locked bucket into a bucket the administrator
-names, with the keys the administrator gives: the original bucket, or a new
-bucket and new keys after a compromise. The restore page lists the restic
-repositories a locked bucket holds. The backup repository is recovered the
-same way, never into the bucket it was copied from: backups then either
-continue in that repository in its new bucket, its offsite copy continuing in
-the same locked bucket once that copy proves to hold the same repository, or
-start in a new repository whose copy goes to a new folder of the locked
-bucket.
+dashboard; restic and rclone are built into the payload. Restores run on the host
+through `catena-recovery`, which the dashboard's restore page drives. On Catena
+Business the offsite copy keeps the repository's objects in a locked bucket at
+another provider.
 
 | Invariant | Enforced by |
 | --- | --- |
-| A server rebuilds from only the backup endpoint and key | `bench:dr_suite#stage-19-onbox-store`, `bench:ce_restore`, `bench:recover_secrets_from_running_host`, `threat:CV9` |
-| Backups are encrypted on the host before upload, under a password also kept off the host | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
-| Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore`, `bench:erpnext_restore_round_trip` |
-| A bucket put back into a new bucket switches the application that used it | `bench:worm_round_trip` |
-| A restore writes nothing to the repository it reads | `bench:worm_round_trip` |
-| After a restore, the client applications stay stopped until an administrator starts them | `bench:inplace_restore_suite`, `bench:dr_suite` |
-| After a whole-server restore, backups wait for a confirmed or new destination | `bench:rebuild_backs_up_after_restore`, `bench:dr_suite` |
-| An interrupted restore resumes with the same snapshot and scope, and is never reported as finished | `bench:fi_n5_provider_outage_mid_restore`, `bench:inplace_restore_suite#app-restore-stage-6-halted-scope-refuses-to-widen` |
-| Snapshots export without a restore | `bench:snapshot_export_round_trip` |
+| Backups are encrypted on the host before upload | `bench:dr_suite#stage-9-backup-and-pin`, `bench:rebuild_backs_up_after_restore#stage-2-a-password-of-its-own`, `threat:CV4` |
+| The backup password is generated on the host once the destination and its keys are saved | `bench:ce_install_suite#stage-4e-configure-backup` |
+| The backup password is shown once | **no bench yet** |
+| A server rebuilds on a new machine from only the backup endpoint and the keyset kept off the host | `bench:dr_suite#stage-13-disaster-recovery`, `bench:rebuild_backs_up_after_restore#stage-4-store-holds-the-keysets-password`, `threat:CV9` |
+| Saving a destination creates its repository when the bucket is empty, and refuses a bucket holding other files; a backup never creates one | `bench:backup_destination_creates_repository#stage-3-save-creates-the-repository`, `bench:backup_destination_creates_repository#stage-2-save-refused-onto-other-files`, `bench:backup_destination_creates_repository#stage-4-backup-onto-an-emptied-bucket-exits-8` |
+| A backup stops when the repository's password is wrong | **no bench yet** |
+| A backup that cannot finish, whether the disk is full, the object store is unreachable or its key is refused, fails and never reports success | `bench:fi_d4_disk_full_mid_snapshot`, `bench:fi_n6_s3_endpoint_5xx`, `bench:fi_n7_restic_repo_unreachable`, `bench:fi_s8_s3_hot_revoked` |
+| A failed scheduled backup reports to the backup's alert check as failed | `bench:fi_n6_s3_endpoint_5xx`, `bench:fi_s8_s3_hot_revoked` |
+| Replacing the backup's object-store keys in the dashboard moves every backup onto the new pair at once, so the old pair is revoked with no backup failing | `bench:s3_backup_keys_rotation_round_trip#stage-3-backup-on-pair-b`, `bench:s3_backup_keys_rotation_round_trip#stage-5-backup-after-the-revocation` |
+| Snapshots list, browse and export without a restore | `bench:inplace_restore_suite#wizard-restore-stage-2-page-lists-backups`, `bench:pitr_fuse_round_trip#stage-5-browse-from-the-panel`, `bench:snapshot_export_round_trip#stage-3-extract-canary` |
+| Before each snapshot every running Postgres is exported as plain SQL, one file per database server, and a failed export fails the backup | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded`, `bench:fi_b2_pg_dump_failed#stage-3-abort-before-restic` |
+| The same holds for every running MariaDB | **no bench yet** |
+| After the first, a backup uploads only what changed | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded` |
+| The repository compresses what it stores | **no bench yet** |
+| A backup waits for each deployed database to answer; one still silent is left out, the rest is backed up, and the run fails naming the application | `bench:backup_quarter_hourly#stage-9-the-backup-waits-for-its-databases` |
+| That wait is ten minutes per database | **no bench yet** |
+| Backups past the retention numbers are removed and the repository checked once a day, with the first backup after midnight in the server's time zone | `bench:backup_quarter_hourly#stage-8-the-days-first-run-cleans-up` |
+| Until that daily removal, every backup stays listed and restorable | **no bench yet** |
+| A restore runs on the host, started from the restore page | `bench:ce_restore#stage-4-ce-restore`, `bench:inplace_restore_suite#wizard-restore-stage-4-restore-through-the-page` |
+| The restore page renders in English or French by the browser's language, and offers the same actions in both | `bench:recovery_landing_page_bilingual_parity#stage-1-en-default`, `bench:recovery_landing_page_bilingual_parity#stage-2-fr-variant`, `bench:recovery_landing_page_bilingual_parity#stage-3-action-target-parity` |
+| A restore asked for a snapshot the repository does not hold is refused before it changes anything | `bench:fi_b3_snapshot_id_mismatch#stage-1-phony-snapshot-rejected`, `bench:fi_b3_snapshot_id_mismatch#stage-3-nothing-held` |
+| A restore that needs more space than the server has free is refused before anything stops, naming the space it lacks | `bench:fi_d3_postgres_oom_mid_restore#stage-1-f-d3-refuses-restore`, `bench:fi_d3_postgres_oom_mid_restore#stage-2-nothing-held` |
+| A restore reads this server's repository, another server's or the offsite copy the same way, with a key that may only read, and writes nothing to the offsite copy | `bench:worm_round_trip#stage-6b-restore-from-the-offsite-copy`, `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore#stage-4-ce-restore` |
+| A restore writes nothing to this server's own repository | **no bench yet** |
+| A whole-server restore puts the data back, adopts the settings stored with it and starts the services Catena runs | `bench:dr_suite#stage-13-disaster-recovery`, `bench:dr_suite#stage-14-post-recovery-assertions`, `bench:dr_suite#stage-19-onbox-store` |
+| A whole-server restore joins the private network its settings name | **no bench yet** |
+| When the settings a whole-server restore adopts hold object-store keys the provider revoked, it reads the repository with the keys entered on the restore page, and backups resume on the new keys once they are saved with the destination | `bench:post_compromise_rebuild#stage-3-restore-with-pair-b`, `bench:post_compromise_rebuild#stage-3d-destination-confirmed`, `bench:post_compromise_rebuild#stage-4-store-holds-pair-b`, `bench:post_compromise_rebuild#stage-5-backup-on-pair-b` |
+| Restored client applications stay stopped until an admin starts them from the restore page, which replays their databases | `bench:dr_suite#stage-14-applications-held`, `bench:dr_suite#stage-15-applications-started`, `bench:dr_suite#stage-15-database-replay-honest`, `bench:inplace_restore_suite#wizard-restore-stage-5b-client-applications-held`, `bench:inplace_restore_suite#wizard-restore-stage-6b-held-applications-started`, `bench:post_compromise_rebuild#stage-3c-applications-started`, `bench:erpnext_helpdesk_restore_round_trip` |
+| An application restored from a backup taken in its backup mode comes back as of that backup, its database whole | `bench:actualbudget_backup_mode_round_trip#stage-6-restored-data-opens`, `bench:actualbudget_backup_mode_round_trip#stage-7-started-and-whole`, `bench:mailserver_webmail_backup_mode#stage-6-started-and-whole`, `bench:rocketchat_backup_mode_round_trip#stage-6-started-and-whole` |
+| A database replay recreates a role the dump holds and the cluster lost, and gives it back the objects it owned | `bench:fi_d2_pg_dumpall_replay_constraint#stage-4-replay-recreates-role`, `bench:fi_d2_pg_dumpall_replay_constraint#stage-5-ownership-restored` |
+| Starting restored applications takes them out of their backup mode | `bench:inplace_restore_suite#app-restore-stage-4b-backup-mode-released`, `bench:sovereign_exit#stage-2b-held-applications-started-from-a-shell` |
+| Starting them from the restore page converges the server | **no bench yet** |
+| A one-application restore holds that application alone; a move holds nothing | `bench:inplace_restore_suite#app-restore-stage-4-scope-held`, `bench:inplace_restore_suite#wizard-app-restore-stage-6-scope-held`, `bench:actualbudget_backup_mode_round_trip#stage-5-restored-and-held`, `bench:mailserver_webmail_backup_mode#stage-5-restored-and-held`, `bench:rocketchat_backup_mode_round_trip#stage-5-restored-and-held`, `bench:wizard_migrate_round_trip#stage-5-data-moved-source-recoverable` |
+| The bulk pre-copy of a move starts no application on the receiving server while the old one keeps serving, and a second pass replaces the database archives the first left | `bench:migrate_preseed_no_split_brain#stage-3-nothing-started-here`, `bench:migrate_preseed_no_split_brain#stage-4-second-pass-sweeps-old-archives` |
+| A move that fails after the old server stopped leaves it stopped but reachable, says so and records it, never moves the traffic, and never restarts the old server on its own | `bench:wizard_migrate_resume_source#stage-3-no-automatic-resume`, `bench:wizard_migrate_resume_source#stage-5-traffic-never-moved` |
+| One command puts a stranded old server back into service, and leaves an application its admin had stopped stopped | `bench:wizard_migrate_resume_source#stage-4-resume-the-source` |
+| While a move takes its snapshot, the old server's applications are frozen and its databases keep answering | `bench:wizard_migrate_resume_source#stage-3-no-automatic-resume` |
+| After a whole-server restore, backups wait until an admin confirms the destination or saves a new one, and a converge meanwhile succeeds | `bench:dr_suite#stage-14-backups-wait`, `bench:rebuild_backs_up_after_restore#stage-3a-the-backups-wait`, `bench:ce_restore#stage-4.1b-the-backups-wait`, `bench:post_compromise_rebuild#stage-3a-the-backups-wait`, `bench:dr_suite#stage-16-settle-converge` |
+| A converge reports waiting backups as waiting, not failed | **no bench yet** |
+| On a licensed host, a whole-server restore turns the nightly updates and the engine upgrade off, with a warning on every page | `bench:worm_round_trip#stage-6c-backups-wait` |
+| They stay off until an admin turns them back on | **no bench yet** |
+| A new destination gets a new backup password | `bench:rebuild_backs_up_after_restore#stage-7-a-new-destination`, `bench:worm_round_trip#stage-7c-fresh-repository` |
+| An interrupted restore resumes with the same snapshot, and refuses a wider scope | `bench:fi_n5_provider_outage_mid_restore#stage-2-resume-restore-succeeds`, `bench:inplace_restore_suite#app-restore-stage-6-halted-scope-refuses-to-widen` |
+| An interrupted restore refuses a different snapshot, is never reported finished, and only a finished run clears its record | **no bench yet** |
+| The offsite copy copies the repository's objects into a locked bucket at another provider, and refuses a locked bucket holding a different repository | `bench:worm_round_trip#stage-1-mirror-to-worm`, `bench:offsite_copy_unreachable_target#stage-7-another-repository-refused` |
+| The offsite copy reads the repository with source keys of its own: once the backup's old keys are revoked it copies nothing, until its source keys are changed in the dashboard | `bench:s3_backup_keys_rotation_offsite_copy#stage-2-copy-runs-on-pair-a`, `bench:s3_backup_keys_rotation_offsite_copy#stage-4-copy-refused-with-pair-a`, `bench:s3_backup_keys_rotation_offsite_copy#stage-5-copy-follows-pair-b` |
+| A bucket repair ends with each application's own consistency check, and reports the files missing from the bucket without failing | `bench:s3_reconcile_orphan_cleanup#stage-2-baseline-report-is-clean`, `bench:s3_reconcile_orphan_cleanup#stage-4-report-names-the-orphan` |
+| Backups past the retention numbers are removed before each offsite copy, and while a copy exists a removal never rewrites stored data | `bench:worm_round_trip#stage-0b-dropped-backups-stay-out-of-the-copy`, `bench:rclone_copy_preserves_pruned_packs#stage-5-cold-still-has-pruned-snaps` |
+| A recovery copies a bucket's objects from the locked bucket into the original bucket or a new one with new keys, and the application that used it switches to it | `bench:worm_round_trip#stage-7a-nextcloud-round-trip` |
+| The restore page lists the repositories a locked bucket holds | `bench:worm_round_trip#stage-7c-fresh-repository` |
+| A backup repository recovered into a new bucket keeps backing up, its offsite copy continuing in the same locked bucket; a fresh repository's copy goes to a new folder of it | `bench:worm_round_trip#stage-6c-backup-repository-continues`, `bench:worm_round_trip#stage-7c-fresh-repository` |
+| A backup repository is never recovered into the bucket it was copied from, and its copy continues only once the locked bucket proves to hold the same repository | **no bench yet** |
+| Backups restore, rehearsed rather than assumed | `bench:backup_rollback`, `bench:ce_restore`, `bench:erpnext_restore_round_trip`, `bench:erpnext_helpdesk_restore_round_trip` |
 | The backup key rotates without losing the repository | `bench:restic_password_rotation_round_trip` |
 | Deleting the dashboard costs convenience, never data: backups run, restores work, applications stay online | `bench:sovereign_exit`, `bench:recovery_readme_manual_restore` |
 
 ### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
-Scheduled work is default-deny. This repository ships no local-maintenance
-timers and enables seven the payload ships (the public-port reconcile, the dashboard and Gatus syncs, the hourly
-reboot-required probe, the hourly licence check, the hourly application verify,
-and the five-minute error reports to Catena support, which send nothing until
-an administrator switches them on). None spends object storage.
-
-Every lane (backup, the bit-rot check, the restore test, the offsite copy, the
-daily update chain, dashboard updates, the scheduled converge, the off-site
-heartbeat, the vulnerability watch) ships in the payload with its timer off,
-except the vulnerability watch's on a host that never saved its schedules.
-`catena-schedule apply` turns a lane on only on a host whose edition covers it,
-at the cadence set in the dashboard. Two lanes are open to every host: the
-backup, which a host without a paid edition runs at most once a week, and the
-vulnerability watch, at most once a day; a faster schedule is refused. Every
-other lane, and any faster cadence, needs a paid edition. A host that loses its
-paid edition keeps those two lanes, at their default time when the saved
-schedule is faster than a free host may set, and turns every other timer off
-with its saved choice kept. The backup, the updates, the converge, the
-container engine upgrade and the restart stay runnable by hand on every host.
-A dashboard update applies the configuration its new image carries with a
-converge, and puts the previous dashboard back when that converge fails.
-
-The local Healthchecks checks of the lanes follow the lanes' schedules, and a
-lane that is off, or that the host's edition does not cover, has its checks
-paused. The external heartbeat is
-the one call that leaves the server: while its lane is on and the licence
-active, it calls the outside monitoring address saved in the dashboard, and
-names any of the server's own monitors that stopped answering.
-
-Around the nightly backup, each application whose compose file declares a
-backup mode is put into it and taken back out, also after a failed backup and
-before a resumed run backs up again; a restore takes restored applications out
-of it. The commands run only inside that application's own container. A
-command still running when its time is up gets as long again, two minutes at
-most, to end, and is then stopped before the next command runs in that
-application. An application left in its backup mode, and a command that had
-to be stopped, are named in the maintenance log. An update holds the
-application's own commands to their time the same way: a command stopped
-before the update refuses it, and a stopped migration rolls the update back.
-
-The daily chain applies updates whether or not a backup is configured, and the
-dashboard warns on every page for as long as none is. While the backups wait
-after a restore, the chain still takes its updates when their steps are on, and
-the maintenance log says no backup stands behind them. The dashboard's
-Schedules page chooses the chain's steps; a server that never chose runs them
-all except the vulnerability watch and the restore test. The restore test
-restores the latest backup into a scratch area and checks it, on its own weekly
-lane or as a step of the chain, never both. Once a week it also starts the
-restored databases, Postgres and MariaDB, and each application that declares a
-start check, on a network of their own with no published port, and checks that
-each opens. An offsite copy of the
-host's backup repository always runs behind a repository check and is refused when it fails;
-an option makes it wait for a restore test of the newest backup too. Leaving
-out the backup or its repository check, scheduling no restore test, leaving out
-the health check before the updates, or leaving out the offsite check is
-allowed with a warning, and updates running without the backup step put a warning at the top
-of every page. A configured backup that fails, or fails its verification,
-stops the chain before any update, unless the backup step is left out. After
-the container updates, the chain upgrades the container engine, when that step
-is on, to the version pinned in this repository, within the major version it
-runs, and restores the previous version when the host does not come back
-healthy. Its last step, when on, restarts the host when an update needs one,
-including the operating system updates, also after a night that stopped before
-any change, and checks afterwards that every service came back. The chain
-reports to its own alert check and records its result, or the step that
-failed, in the maintenance log.
-
-Jobs that change the server or its backup repository run one at a time:
-backups and their checks, the offsite copy, updates, converges, access changes,
-restores, the daily chain from its first step to its last, the scheduled
-dashboard and firewall syncs, and the backup password and repository actions.
-A scheduled job waits for the one running; a night that cannot start within an
-hour is skipped, reported, and runs again the next night; a change made in the
-dashboard meanwhile answers that the server is busy. Firewall rules are
-reapplied on every container engine start without waiting.
-
-The vulnerability watch runs on every host, on its own schedule or, on a paid
-host, as a step of the daily chain, never both. It checks the software lists of
-every running image against a fresh vulnerability database and the list of
-vulnerabilities known to be exploited, and alerts once per vulnerability on
-every edition: for one known to be exploited, with or without a fixed version,
-or for a critical one published in the last 30 days that has a fixed version,
-naming the fix. The vulnerabilities page, the software inventory, the emergency
-patch and its automatic mode need a paid edition. An emergency patch moves an
-application's service to the oldest release its update policy allows that a
-scan on the host shows free of the vulnerability, behind the update's own
-copies, health check and rollback; a person confirms it, or, when the
-administrator turns the automatic mode on, the watch starts it for an exploited
-vulnerability, never for a service kept off the updates and never while
-updates are paused.
-
-Debian's unattended-upgrades is the one thing that applies OS packages, on
-every host, licensed or not: the security suite, stable updates and point
-releases, and the private-network client from its own repository. A service
-left running on a replaced library restarts after the update; the container
-engine waits for a restart of the host. The dashboard shows a pending restart
-on every page until it is taken.
+Scheduled work is default-deny. Every lane (backup, the bit-rot check, the
+restore test, the offsite copy, the daily update chain, dashboard updates, the
+scheduled converge, the off-site heartbeat, the vulnerability watch) ships in
+the payload with its timer off; `catena-schedule apply` turns one on, at the
+cadence set in the dashboard, when the host's edition covers it. Jobs that
+change the server or its backup repository share one host lock. Debian's
+unattended-upgrades applies OS packages.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Scheduled work is default-deny: this repository ships only enumerated local-maintenance timers, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
-| A host with no paid edition schedules only the weekly backup and the vulnerability watch, and refuses a backup more often than weekly | `bench:community_free_schedules` |
-| A host with no paid edition is emailed about an exploited vulnerability its software carries, or a recent critical one with a fixed version, naming the fix | `bench:community_security_alerts` |
-| A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
-| A failed backup verification stops the daily chain before any update, while the restore test is in the chain | `bench:daily_chain_verify_hot_fail_aborts_updates` |
-| The weekly restore test starts the restored databases and each application that declares a start check, and checks that each opens | `bench:verify_hot_bootprobe_weekly`, `bench:erpnext_restore_round_trip` |
-| Jobs that change the server or its backup repository run one at a time, and a dashboard change made meanwhile answers busy | `bench:concurrent_backup_lock_contention`, `bench:daily_chain_step_list` |
-| An emergency patch moves a service only to a release within its policy that a host scan shows free of the vulnerability | `threat:CV16` |
-| The applications are in their backup mode for the whole nightly backup and out of it after a failed one | `bench:daily_chain_quiesce_invoked` |
-| A backup-mode command that outlives its time has ended before the next one runs | `bench:app_declarations_travel_with_the_app#stage-6b-a-backup-mode-past-its-time-ends-first` |
-| The external heartbeat calls out while the monitors answer, names a silent one, and stops when turned off | `bench:external_heartbeat_round_trip` |
+| This repository ships no timer, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
+| A converged host schedules no lane but the vulnerability watch | `bench:backup_schedule_applied#stage-1-only-the-watch-is-scheduled-by-default`, `bench:community_free_schedules#stage-1-only-the-watch-is-enabled` |
+| A converged host enables the port reconcile, the dashboard and Gatus syncs, the hourly reboot probe, licence check and application verify, and the five-minute error reports; none spends object storage | **no bench yet** |
+| A lane turns on only where the edition covers it, at the cadence saved in the dashboard | `bench:backup_schedule_applied#stage-3-enable-applies`, `bench:community_free_schedules#stage-2-every-other-lane-refused` |
+| A host with no paid edition schedules only the backup, at most weekly, and the vulnerability watch, at most daily, and refuses a faster cadence | `bench:community_free_schedules` |
+| A host that loses its paid edition keeps those two lanes, at their default time when the saved one is faster | `bench:ee_lapse#stage-3-host-lapsed`, `bench:community_free_schedules#stage-6-a-faster-saved-backup-runs-weekly` |
+| A host that loses its paid edition turns every other timer off, and keeps the saved choice | **no bench yet** |
+| A backup runs by hand on every host, whatever its schedule | `bench:ce_backup_deferred#stage-2-backup-now-overrides` |
+| The updates, the converge, the engine upgrade and the restart run by hand on every host | **no bench yet** |
+| A dashboard update applies the configuration its new image carries with a converge, and puts the previous dashboard back when that converge fails | `bench:catena_admin_self_update#stage-2-self-update`, `bench:catena_admin_self_update#stage-5-failed-converge-puts-it-back` |
+| A release moves each service Catena runs to the version it ships, with its data, and a release whose update fails or whose health falls after the converge puts the previous versions back with their data | `bench:release_moves_dependencies#stage-4-every-service-on-the-release`, `bench:release_moves_dependencies#stage-6-the-failed-release-is-rolled-back`, `bench:release_moves_dependencies#stage-7-a-regression-after-the-converge` |
+| The backup lane starts at its set time, with no random delay, and its runs never overlap | `bench:backup_quarter_hourly#stage-3-the-lane-starts-on-the-quarter-hour`, `bench:backup_quarter_hourly#stage-5-the-cadence-holds` |
+| Every other timer starts at its set time with no random delay, except the licence check, at a fixed minute of its own on each host | **no bench yet** |
+| A run still going at its next set time is not doubled, and the lane starts again at the first set time after it ends | **no bench yet** |
+| The lanes' local Healthchecks checks follow their schedules, and a lane that is off or not covered has its checks paused | `bench:backup_schedule_applied#stage-3b-checks-follow-the-lane`, `bench:backup_schedule_applied#stage-4b-checks-paused-with-the-lane`, `bench:community_free_schedules#stage-4-lane-checks-follow-the-lanes` |
+| The external heartbeat ships off; while on, it calls the outside monitoring address saved in the dashboard, names a monitor that stopped answering, and stops when turned off | `bench:fi_o5_deadman_off_by_default#stage-1-heartbeat-shipped-and-off`, `bench:external_heartbeat_round_trip` |
+| The heartbeat is the one call that leaves the server, and only while the licence is active | **no bench yet** |
+| Each application that declares a backup mode is in it for the whole nightly backup and out of it after, also after a failed backup | `bench:daily_chain_quiesce_invoked#stage-2-backup-mode-around-the-backup`, `bench:daily_chain_quiesce_invoked#stage-3-backup-fails`, `bench:rocketchat_backup_mode_round_trip#stage-3-night-with-the-backup`, `bench:rocketchat_backup_mode_round_trip#stage-7-failed-backup-releases-the-lock`, `bench:actualbudget_backup_mode_round_trip#stage-3-night-with-the-backup` |
+| An application held in its backup mode for minutes keeps its tasks, and a sign-in begun during the hold completes once it is released | `bench:mailserver_webmail_backup_mode#stage-3-night-with-the-hold`, `bench:mailserver_webmail_backup_mode#stage-4-answers-after-the-release` |
+| A resumed run takes applications out of their backup mode before it backs up again | **no bench yet** |
+| Backup-mode commands run inside the application's own container | `bench:app_declarations_travel_with_the_app#stage-3-backup-mode-with-the-catalog-gone`, `bench:app_declarations_travel_with_the_app#stage-6-hand-deployed-stack-gets-its-backup-mode` |
+| No backup-mode command runs outside its application's container | **no bench yet** |
+| A backup-mode command that outlives its time and ends within its grace has ended before the next one runs | `bench:app_declarations_travel_with_the_app#stage-6b-a-backup-mode-past-its-time-ends-first` |
+| A command still running after as long again as its time, two minutes at most, is stopped before the next one runs, and is named in the maintenance log with any application left in its backup mode | **no bench yet** |
+| An update holds an application's commands to their time: a command stopped before the update refuses it, and a stopped migration rolls it back | **no bench yet** |
+| The daily chain applies updates on a server with no backup configured, and the maintenance log says no backup stands behind them | `bench:daily_chain_updates_without_backup#stage-1-no-backup-updates-run` |
+| The dashboard warns on every page while no backup is configured | **no bench yet** |
+| While backups wait after a restore, the chain still takes its updates | **no bench yet** |
+| The daily chain walks its steps in order to the end, clears its saved state, and records the night as done | `bench:daily_chain_full_pass#stage-3-chain-runs-to-done`, `bench:daily_chain_full_pass#stage-4-history-entry`, `bench:daily_chain_full_pass#stage-5-status-idle-after-done`, `bench:ee_daily_cycle#stage-3-run-chain`, `bench:ee_daily_cycle#stage-4-status-history` |
+| A failed container update does not stop the chain: the later steps run and the night ends done | `bench:daily_chain_container_rollback#stage-2-chain-reaches-done-despite-container-fail`, `bench:daily_chain_container_rollback#stage-3-state-cleared-on-done` |
+| A night with too little free disk stops at its first step, before the backup, and records the disk as low | `bench:daily_chain_preflight_aborts_low_disk#stage-2-chain-aborts-at-preflight`, `bench:daily_chain_preflight_aborts_low_disk#stage-3-state-preserved`, `bench:daily_chain_preflight_aborts_low_disk#stage-4-report-records-disk-low` |
+| While the daily lane is on, a chain cut short by a restart resumes at boot from its saved state | `bench:daily_chain_resumes_after_reboot#stage-1-lane-on-enables-resume-at-boot`, `bench:daily_chain_resumes_after_reboot#stage-4-chain-resumed-to-done`, `bench:daily_chain_resumes_after_reboot#stage-5-lane-off-unlinks-resume` |
+| A damaged chain state starts the night from its first step, and the log shows what it found | `bench:daily_state_corrupt_fallback#stage-2-corrupted-state-starts-new-night` |
+| The chain stops before any update while a service the monitoring probes is failing, and names it | `bench:ee_daily_cycle#stage-5-gate-stops-on-a-red-endpoint` |
+| A server that never chose its steps runs all but the vulnerability watch and the restore test, and a night runs only the steps kept on | `bench:daily_chain_step_list#stage-1-defaults-rendered-en-fr`, `bench:daily_chain_step_list#stage-3-night-runs-only-the-chosen-steps` |
+| The restore test and the vulnerability watch each run on their own lane or as a step of the chain, never both | `bench:daily_chain_step_list#stage-9b-restore-test-step-or-lane`, `bench:daily_chain_step_list#stage-9-cve-watch-step-or-lane` |
+| The restore test restores the latest backup into a scratch area and checks it | **no bench yet** |
+| Weekly, the restore test starts the restored databases and each application that declares a start check, and checks that each opens | `bench:verify_hot_bootprobe_weekly#stage-3-forced-bootprobe-runs`, `bench:erpnext_restore_round_trip#stage-16-boot-probe-lists-erpnexts-database` |
+| It starts them on a network of their own with no published port | **no bench yet** |
+| The offsite copy runs only behind the retention removal and a passing repository check and, when the option is on, a passing restore test of the newest backup | `bench:offsite_copy_refuses_an_unchecked_backup#stage-2-repository-check-refuses`, `bench:offsite_copy_refuses_an_unchecked_backup#stage-4-option-on-refusals`, `bench:worm_round_trip#stage-0b-dropped-backups-stay-out-of-the-copy` |
+| Leaving out the backup, its repository check, the restore test or the health check before the updates is allowed with a warning, and updates without the backup step warn on every page | `bench:daily_chain_step_list#stage-5-updates-without-backup-warn`, `bench:daily_chain_step_list#stage-6-health-gate-left-out-warns`, `bench:daily_chain_step_list#stage-8-backup-without-its-check-warns`, `bench:daily_chain_step_list#stage-9a-untested-backup-means-no-restore-test-scheduled` |
+| Leaving out the offsite check is allowed with a warning | **no bench yet** |
+| A failed offsite check stops the chain before any update while the host requires a good offsite copy for updates, and lets them run when it does not | `bench:daily_chain_verify_cold_fail_configurable#stage-2-require-true-aborts`, `bench:daily_chain_verify_cold_fail_configurable#stage-3-state-preserved-on-abort`, `bench:daily_chain_verify_cold_fail_configurable#stage-4-require-false-continues`, `bench:daily_chain_verify_cold_blocks_mirror#stage-2-chain-aborts-on-cold-fail` |
+| While the last offsite check failed, the offsite copy of the backup repository refuses to run and a copy of an application's bucket is not held back; the failure clears once the check passes | `bench:daily_chain_verify_cold_blocks_mirror#stage-3-sentinel-written-fail`, `bench:daily_chain_verify_cold_blocks_mirror#stage-4-repository-copy-refuses`, `bench:daily_chain_verify_cold_blocks_mirror#stage-5-unrelated-copy-not-gated`, `bench:daily_chain_verify_cold_blocks_mirror#stage-6-sentinel-cleared-on-recovery` |
+| A failed restore test or repository check stops the chain before any update | `bench:daily_chain_verify_hot_fail_aborts_updates#stage-4-update-tail-skipped`, `bench:restic_check_subset_weekly#stage-8-night-stops-before-the-updates` |
+| A failed backup ends the night failed at the backup | `bench:rocketchat_backup_mode_round_trip#stage-7-failed-backup-releases-the-lock`, `bench:daily_chain_quiesce_invoked#stage-3-backup-fails` |
+| A failed backup stops the chain before any update, unless the backup step is left out | **no bench yet** |
+| The engine upgrade moves the container engine to the version pinned here, and puts the previous one back when the new one does not come up | `bench:docker_engine_upgrade_round_trip#stage-2-a-new-engine-that-does-not-start-goes-back`, `bench:docker_engine_upgrade_round_trip#stage-3-the-new-engine-holds` |
+| In the chain, the engine upgrade runs after the container updates | `bench:ee_daily_cycle#stage-3-run-chain` |
+| In the chain, the engine upgrade stays within the major version the engine runs | **no bench yet** |
+| The chain's last step restarts the host when an update needs one, also after a night that stopped before any change, and checks that every service came back | `bench:daily_chain_reboot_round_trip#stage-3-the-chain-restarts-the-host`, `bench:daily_chain_reboot_round_trip#stage-4-everything-came-back`, `bench:daily_chain_step_list#stage-14-stopped-night-still-restarts` |
+| The chain reports to its own alert check and records its result, or the step that failed, in the maintenance log | `bench:daily_chain_step_list#stage-3-night-runs-only-the-chosen-steps`, `bench:daily_chain_step_list#stage-10-failed-step-recorded`, `bench:daily_umbrella_healthchecks#stage-1-success-path-pings-start-and-succeeded`, `bench:daily_umbrella_healthchecks#stage-2-abort-path-pings-fail`, `bench:nightly_update_real#stage-3-after-the-night` |
+| Jobs that change the server or its backup repository take the host lock one at a time; a scheduled job waits, and a dashboard change meanwhile answers busy | `bench:concurrent_backup_lock_contention#stage-1-units-take-the-host-lock`, `bench:concurrent_backup_lock_contention#stage-5-settings-answers-busy`, `bench:daily_chain_step_list#stage-13-night-waits-then-holds-the-lock`, `bench:ee_daily_cycle#stage-6-night-lends-the-host-lock` |
+| A night that cannot take the lock is skipped, reported, and runs again the next night | `bench:daily_chain_step_list#stage-12-night-skipped-while-the-lock-is-held` |
+| A night waits up to an hour for the lock | **no bench yet** |
+| The vulnerability watch runs on every host with no licence, against a fresh vulnerability database and the list of vulnerabilities known to be exploited | `bench:community_security_alerts#stage-2-the-watch-runs-with-no-licence`, `bench:cve_watch_emergency_patch#stage-3-database-downloaded-into-place` |
+| It alerts once per vulnerability, on every edition, for one known to be exploited, with or without a fixed version, naming the fix | `bench:community_security_alerts#stage-3-a-fixable-vulnerability-alerts-once`, `bench:community_security_alerts#stage-4-an-exploited-one-with-no-fix-alerts-once`, `bench:community_security_alerts#stage-5-no-second-alert` |
+| It alerts for a critical vulnerability published in the last 30 days that has a fixed version | **no bench yet** |
+| The residual vulnerability scan writes a well-formed report, also when it finds nothing | `bench:cve_residual_emits_findings#stage-2-cve-scan-shape`, `bench:cve_residual_emits_findings#stage-4-rerun-preserves-shape` |
+| The vulnerabilities page, the software inventory and the emergency patch need a paid edition | `bench:community_security_alerts#stage-8-the-pro-surface-stays-pro`, `bench:cve_watch_emergency_patch#stage-16-lapsed-licence-refuses` |
+| The emergency patch's automatic mode needs a paid edition | **no bench yet** |
+| An emergency patch moves a service to the oldest release its update policy allows that a scan on the host shows free of the vulnerability, and rolls back when health falls | `bench:cve_watch_emergency_patch#stage-13-patched-to-oldest-free-release`, `bench:cve_watch_emergency_patch#stage-12-regression-rolls-back`, `threat:CV16` |
+| The automatic mode patches only an exploited vulnerability, never a service kept off the updates, never while updates are paused | `bench:cve_watch_emergency_patch#stage-14-automatic-moves-only-what-it-may` |
+| An emergency patch runs behind the update's own copies | **no bench yet** |
+| unattended-upgrades applies OS packages on every host, licensed or not, from the security suite, stable updates, point releases and the private-network client's own repository | `bench:ce_validate#stage-1-ce-validate`, `bench:reconcile_repairs_host_upkeep#stage-3-restored` |
+| A service left running on a replaced library restarts after the update; the container engine waits for a restart of the host | `bench:reboot_required_notified#stage-6-replaced-libraries` |
+| A host that needs a restart shows it on the dashboard until it is taken, and without a licence waits for a person | `bench:reboot_required_notified#stage-3-pending-reboot-reported`, `bench:reboot_required_notified#stage-5-host-was-not-rebooted` |
 
 ### The release manifest -- written last, by both converge paths
 
-Every converge, from `converge.yml` or `reconcile.yml`, records what it
-delivered. Before that, it prunes files an earlier converge installed and this
-one no longer ships, provided the file is unchanged and the payload manifest
-(`/var/lib/catena/payload-manifest.json`) does not claim it.
+Every converge, from `converge.yml` or `reconcile.yml`, records what it delivered,
+after pruning what it withdrew. `/var/lib/catena/payload-manifest.json` lists the
+files the payload claims.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Every converge records what it delivered | `bench:converge_suite#stage-7a-the-action-is-back` |
-| Withdrawn files are removed, and Community files are not pruned as though they were licensed | `bench:payload_prune_respects_ce` |
-| A converge never prunes a file the payload claims | `workflow:ci.yml#installer` |
+| Every converge records what it delivered | `bench:converge_suite#stage-1-manifest-describes-this-converge`, `bench:converge_suite#stage-7a-the-action-is-back`, `bench:reconcile_is_a_noop#stage-1-first-reconcile` |
+| A converge removes an unchanged file an earlier one installed and it no longer ships, and leaves a changed one | `bench:install_rerun#stage-4b-withdrawn-pruned-drift-reported`, `bench:payload_prune_respects_ce#stage-2-withdrawn-removed` |
+| Community files are not pruned as though they were licensed, and a converge never prunes a file the payload claims | `bench:payload_prune_respects_ce#stage-1-coexistence`, `bench:payload_prune_respects_ce#stage-3-foreign-copy-survives`, `workflow:ci.yml#installer` |
 
 ### The version stamp -- written first, by both converge paths
 
-`/etc/catena/version.txt` names the version of this repository a converge
-applied, as `git describe`, from the provenance the release image records beside its
-tree: the image the install fetched, or the one the dashboard runs on a
-converge the host runs itself. A tree with no such record stamps nothing and
-leaves the previous stamp standing. It is the first thing either path writes,
-and it rides
-the backup, so every snapshot names the version that produced its data.
-
-A restore compares the snapshot's stamp with the host's: a newer snapshot is
-refused, because a newer database directory does not open under an older
-database; an older one needs an explicit upgrade; two stamps that cannot be
-ordered are refused. An upgrade runs each restored application's declared
-migration once its data is back, and never stops one part-way, since a half
-migration cannot be undone: it waits for it, half an hour at least, and
-reports one still running then. A move between two servers is refused unless
-both run the same version.
-
-## Applications
-
-The dashboard deploys applications from a catalogue resolved per host: domain
-names, sign-on, and a password per application generated on the host. Per-app
-compose and wiring live in `catena-templates`: each application's own hooks
-configure it after every deploy, update and restore, and one application reads
-what another provides (antivirus, office editing) by declaring it. This
-repository holds no application's wiring.
-
-An application can live in its own folder on the server,
-`/srv/catena/compose/<stack>`: its compose file, its `.env` and a record of
-where it came from, owned by root and private to it. The host's `catena-apps`
-deploys it as a swarm stack with `docker stack deploy`, run by root with the
-`.env` values as the only environment. The `.env` is read with compose's own
-rules and never run by a shell, so a value holding `$(...)`, a backtick or a
-line break arrives as text and runs nothing, and the keys that steer the
-Docker client or the loader (`DOCKER_*`, `PATH`, `HOME`, `LD_*`, the proxy
-variables) are refused. The app checker runs before every deploy, and the host
-network and the container engine's socket reach an application only when its
-file is an unchanged file of Catena's catalogue that declares them. Each backup
-holds the folders with the data, and a restore of the data brings them back.
-
-An application is added from a git repository on the server's list, Catena's
-catalogue unless the list says otherwise. The host reads the application's tags
-and its folder with git, run as the system user `catena-git`, which has no login
-and no home, over https only. Root then reads the result as data, refuses links,
-folders outside the application's folder and oversized folders, and writes the
-folder only when the checker accepts it. A repository's token is kept where
-only root reads it, and is never listed.
-
-The settings of a folder application come from the `x-catena` block of its
-compose file: values a person gives, secrets minted on the host, and values the
-host fills in from its own facts. A secret of the on-box store reaches an
-application only when its block lists it, only for an unchanged file of
-Catena's catalogue, and never one that opens the host (the backup,
-Cloudflare, licence and admin credentials). The block can also declare
-commands the host runs with `docker exec` in a running container of the
-service: one after every deploy, and one that verifies the application, run
-hourly, whose failure is named once in the maintenance log.
-
-The host judges each folder application against what it last deployed: the
-hashes of its files, the fingerprint of each service and the services in its
-stack. An application changed by hand or through another tool, stopped, or
-holding a person's own version of the file is not matched, and the daily chain
-leaves it alone.
-
-The host's sync lane, which sets up each application's sign-in and keeps
-mailboxes in line with the sign-on groups, reaches the identity provider
-through the dashboard on the host's loopback rather than through the public
-edge, so both keep working while the tunnel is down. The dashboard forwards
-only the calls that lane makes, behind the catalogue's per-host token, and adds
-no credential of its own.
-
-Settings > Outgoing mail is the source of the server's mail settings. A
-converge writes them into the sign-in realm while the realm still holds the
-settings Catena wrote; settings changed in the realm's own Email tab stay.
-Alerts for scheduled jobs and services reach the admin email by default,
-through the outgoing mail; with outgoing mail off they reach only the channels
-added in Healthchecks.
-
-Each shared service answers on `<subdomain>.<domain>`: `auth` (the sign-on),
-`dash` (the dashboard), `gatus`, `healthchecks` and `beszel`. Each
-subdomain is a setting in the dashboard; a host with none stored uses that
-name. Gatus names each service it monitors without its version, so a service
-keeps its history across updates; the dashboard shows administrators the
-versions.
+`/etc/catena/version.txt` names, as `git describe`, the version of this repository
+a converge applied, from the provenance the release image records beside its
+tree. It rides the backup.
 
 | Invariant | Enforced by |
 | --- | --- |
-| An application deploys from its folder, and a settings value arrives literally | `bench:apps_folder_round_trip` |
-| An application changed outside the dashboard is not updated, and the dashboard says so | `bench:app_origin_update` |
-| An update rolls back automatically while the application's writes are held | `bench:app_database_upgrade` |
+| Both converge paths stamp the version of the image whose tree they ran | `bench:reconcile_is_a_noop#stage-1-first-reconcile`, `bench:update_from_previous_release#stage-3-one-version-after-the-update` |
+| Every snapshot names the version that produced its data | `bench:recovery_readme_manual_restore#stage-2-readable-from-snapshot` |
+| The stamp is the first thing a converge writes; a tree with no provenance stamps nothing and leaves the previous stamp | **no bench yet** |
+| A restore refuses a newer snapshot before it changes anything, and restores an older one only when the upgrade is asked for | `bench:inplace_restore_suite#skew-abort-stage-2-restore-refuses`, `bench:inplace_restore_suite#skew-abort-stage-3-zero-side-effects`, `bench:inplace_restore_suite#skew-upgrade-stage-2-refused-without-the-flag`, `bench:inplace_restore_suite#skew-upgrade-stage-4-upgrade-permits-this-direction` |
+| A restore refuses two stamps that cannot be ordered | **no bench yet** |
+| An upgrade runs each restored application's declared migration once its data is back, never stops one part-way, waits half an hour at least, and reports one still running then | **no bench yet** |
+| A move between two servers is refused unless both run the same version | **no bench yet** |
+
+## Applications
+
+The dashboard deploys applications from a catalogue resolved per host. Each
+application lives in its own folder, `/srv/catena/compose/<stack>`, with its
+compose file, its `.env` and a record of where it came from, and the host's
+`catena-apps` deploys it as a swarm stack. The `x-catena` block of its compose
+file declares its settings and its commands. Per-app compose files and wiring
+live in `catena-templates`. Shared services answer on `auth`, `dash`, `gatus`,
+`healthchecks` and `beszel` under the domain. Each sign-in entry admits one
+tier, administrators or staff; Catena's sign-on extension
+(`ansible/reconcile/roles/keycloak/provider`) refuses an account outside it.
+
+| Invariant | Enforced by |
+| --- | --- |
+| Each catalogue application is routed on its own address | `bench:catalog_apps_read_green_in_gatus#stage-1-routed`, `bench:scheduler_easyappointments#stage-2-http-readiness` |
+| An application can publish several addresses, each routed, watched and gated on its own; an address another application holds, or one of Catena's, is refused, and an application's own proxy labels route nothing | `bench:app_several_addresses#stage-1-a-route-per-address`, `bench:app_several_addresses#stage-3-access-per-address`, `bench:app_several_addresses#stage-4-a-cookie-opens-its-own-address-alone`, `bench:app_several_addresses#stage-5-a-status-card-per-address`, `bench:app_several_addresses#stage-6-a-taken-host-is-refused`, `bench:app_several_addresses#stage-9-catena-addresses-refused`, `bench:app_several_addresses#stage-10-traefik-labels-route-nothing` |
+| An application that asks for single sign-on gets its own sign-in entry, kept in step with its labels and removed with the application; entries made by hand are left alone | `bench:oidc_label_client_provisioned`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `threat:CV13` |
+| Catalogue applications that offer single sign-on in their free edition sign in with the suite's account | `bench:catalog_app_sign_in` |
+| An account outside a sign-in entry's tier is refused on the sign-on page, also when it signs in through an external identity provider, and a refusal on tier counts no failed sign-in | `bench:catalog_app_sign_in#stage-client-tier-refused`, `bench:catalog_app_sign_in#stage-broker-tier-check`, `threat:CV2` |
+| Every identity provider runs the tier check from the moment it is added, an organization's included, and a converge keeps the sign-in flows as they are | `bench:catalog_app_sign_in#stage-broker-before-converge`, `bench:catalog_app_sign_in#stage-broker-organization-provider`, `bench:catalog_app_sign_in#stage-broker-converge-keeps-the-flows`, `workflow:ci.yml#keycloak-provider` |
+| Each application gets a password generated on the host | **no bench yet** |
+| An application's hooks configure it after every deploy, and a further deploy changes nothing | `bench:suite_wiring_commands#stage-talk-hpb-wired`, `bench:wordpress_install_and_mail#stage-6-a-converge-changes-nothing`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `bench:nextcloud_versions_retention_applied#stage-1-occ-reads-retention`, `bench:nextcloud_versions_retention_applied#stage-2-occ-reads-trash-retention` |
+| A certificate an application declares is issued by the host into its volume and loaded, and the scheduled renewal replaces a due one and has the application serve it | `bench:fi_c7_coturn_cert_expired#stage-1-renewal-job-renews`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `bench:app_declared_needs#stage-1-needs-met-before-the-deploy` |
+| An application's hooks configure it after every update and every restore | **no bench yet** |
+| An application that reads what another provides is redeployed with it once the provider is added | `bench:host_network_app_ports#stage-5-reader-redeployed` |
+| Antivirus and office editing reach the applications that declare them | **no bench yet** |
+| An application deploys from its folder, which holds its compose file, its `.env` and its origin | `bench:apps_folder_round_trip#stage-1-private-repository-needs-its-token` |
+| The folder is owned by root and private to it | **no bench yet** |
+| A settings value arrives literally, `$(...)` and backticks included, and runs nothing | `bench:apps_folder_round_trip#stage-2-settings-arrive-as-typed` |
+| A settings value holding a line break is refused, and the setting keeps its value | `bench:apps_folder_round_trip#stage-2-settings-arrive-as-typed` |
+| `catena-apps` runs `docker stack deploy` as root with the `.env` values as the only environment, and refuses the keys that steer the Docker client or the loader (`DOCKER_*`, `PATH`, `HOME`, `LD_*`, the proxy variables) | **no bench yet** |
+| The app checker runs before every deploy, and a file it rejects is not deployed | `bench:app_checker_catalog#stage-4-deployed-file-counted-on-its-tile`, `bench:host_network_app_ports#stage-6-hand-copy-refused` |
 | A compose file that does not load is rejected before it reaches a host | `bench:fi_u1_compose_lint_reject` |
 | A broken template is repairable in place | `bench:repair_broken_template_round_trip` |
-| The overlay network heals itself | `bench:swarm_overlay_selfheal` |
-| Monitoring reports a service that is down rather than assuming it is up | `bench:fi_u3_gatus_baseline_down` |
-| Single sign-on secrets rotate without breaking the suite | `bench:keycloak_signing_keys_rotation_round_trip`, `bench:oauth2_proxy_cookie_rotation_round_trip` |
-| Every admin surface sits behind the identity gate | `threat:CV2` |
-| The dashboard dispatches its actions without a converge, and refuses an action it does not know | `bench:ce_admin_smoke`, `bench:ce_admin_actions`, `bench:admin_action_unknown_rejected` |
-| The record of administrative actions can be exported and checked off the box: an edited or shortened trail fails verification | `bench:audit_chain_tamper_evident`, `threat:CV10` |
-| Application sign-in provisioning and each application's user sync keep running while the Cloudflare tunnel is down | `bench:mailbox_sync_ownership#stage-5-sync-without-the-tunnel` |
-| An application that asks for single sign-on gets its own sign-in entry, kept in step with its labels and removed with the application; entries made by hand are left alone | `bench:oidc_label_client_provisioned`, `threat:CV13` |
-| Catalogue applications that offer single sign-on in their free edition sign in with the suite's account | `bench:catalog_app_sign_in` |
+| The host network reaches an application only when its file is an unchanged catalogue file that declares it | `bench:host_network_app_ports#stage-2-ports-open`, `bench:host_network_app_ports#stage-6-hand-copy-refused` |
+| The container engine's socket reaches an application only when its file is an unchanged catalogue file that declares it | **no bench yet** |
+| Each backup holds the application folders, and a restore brings them back | `bench:app_declarations_travel_with_the_app#stage-5-restore-brings-the-block-back`, `bench:inplace_restore_suite#app-restore-stage-5-definition-rolled-back` |
+| An application keeps the backup mode, update steps and restore steps it was deployed with; the server needs no catalogue to back it up, update it or restore it | `bench:app_declarations_travel_with_the_app` |
+| An application is added from a repository on the server's list, a private one only with its token, which is never shown | `bench:app_origin_update#stage-1-added-on-release-one`, `bench:apps_folder_round_trip#stage-1-private-repository-needs-its-token` |
+| The server's list is Catena's catalogue unless it says otherwise | **no bench yet** |
+| The host fetches a repository with git as `catena-git` over https only; root reads the result as data, refuses links, folders outside the application's folder and oversized folders, and keeps the token where only root reads it | **no bench yet** |
+| A folder application's settings come from values a person gives and from the host's own facts | `bench:apps_folder_round_trip#stage-2-settings-arrive-as-typed`, `bench:app_declared_needs#stage-1-needs-met-before-the-deploy`, `bench:oidc_label_client_provisioned#stage-1-entry-created`, `bench:mailserver_after_domain#stage-6-relay-password-reaches-the-mail-server`, `bench:mailserver_after_domain#stage-7-spamhaus-key-reaches-rspamd` |
+| A secret of the on-box store reaches an application only when its block lists it, only for an unchanged catalogue file, and never one that opens the host (the backup, Cloudflare, licence and admin credentials) | **no bench yet** |
+| A declared verify command answers for its application | `bench:host_network_app_ports#stage-3-verify-hook-ok` |
+| The verify runs hourly, and its failure is named once in the maintenance log | **no bench yet** |
+| An application changed by hand, or holding a person's own version of its file, is not updated, and the dashboard says so | `bench:apps_folder_round_trip#stage-4-a-changed-folder-is-held`, `bench:app_origin_update#stage-5-changed-folder-is-held` |
+| A stopped application, or one changed through another tool, is left alone by the daily chain | **no bench yet** |
+| An update moves every service of an application that shares an image together, runs its declared migration once the application answers, and keeps the new version | `bench:nextcloud_update_migrates#stage-4-updated-and-migrated`, `bench:zammad_update_migrates#stage-5-moved-and-migrated`, `bench:erpnext_helpdesk_update_migrates`, `bench:erpnext_update_migrates` |
+| The nightly update moves an application to a newer build its policy allows, and the maintenance log names it | `bench:nightly_update_real#stage-3-after-the-night` |
+| An application pinned on a nightly build moves onto its newest stable release under the major policy, all its images in one deploy | `bench:tag_scheme_migration#stage-3-moved-together` |
+| A failed update of an application or of a service Catena runs puts the previous version and its data back by itself | `bench:outline_update_migrates`, `bench:actualbudget_failed_update_rolls_back`, `bench:nextcloud_failed_migrate_rolls_back`, `bench:erpnext_failed_migrate_rolls_back`, `bench:mailserver_webmail_failed_update_rolls_back#stage-4-rolled-back`, `bench:espocrm_custom_survives_update#stage-5-rolled-back`, `bench:infra_stack_update_rollback#stage-3-auto-recovery`, `bench:infra_stack_update_rollback#stage-4-keycloak-rolls-back-with-its-data`, `bench:infra_stack_update_rollback#stage-7-a-connector-that-never-connects`, `bench:control_plane_update_rollback#stage-3-auto-recovery` |
+| A rolled-back update is recorded with its version, which is quarantined once and kept out of every later update | `bench:fi_u5_persistent_quarantine#stage-3-durable-quarantine`, `bench:fi_u6_full_rollback_state#stage-3-state-records-rollback`, `bench:control_plane_update_rollback#stage-3-auto-recovery` |
+| A good update of a service Catena runs keeps its data, and the next converge leaves it on the new version | `bench:infra_stack_update_rollback#stage-5-keycloak-keeps-a-good-bump` |
+| What a person built inside an application survives an update, and a rollback | `bench:espocrm_custom_survives_update#stage-5-rolled-back`, `bench:espocrm_custom_survives_update#stage-8-moved-and-intact` |
+| A service its template keeps off the automatic updates moves only when an admin of a paid server confirms the version the nightly check names, keeps its data and its exemption, goes back with its data when health falls, and is neither offered nor moved without a licence | `bench:pinned_service_update#stage-2-nightly-names-the-newest`, `bench:pinned_service_update#stage-4-moved`, `bench:pinned_service_update#stage-7-lapsed`, `bench:pinned_service_update#stage-9-rolled-back` |
+| An application's writes are held while its database moves to a new major version, and an admin can revert it to the previous files and data | `bench:app_database_upgrade` |
+| The monitoring names a monitor that stops answering | `bench:external_heartbeat_round_trip#stage-3-a-silent-monitor-is-named` |
+| Monitoring probes each shared service, Beszel's hub included | `bench:gatus_probes_beszel_hub` |
+| Single sign-on secrets rotate without breaking the suite | `bench:keycloak_signing_keys_rotation_round_trip`, `bench:oauth2_proxy_cookie_rotation_round_trip`, `bench:fi_a2_oidc_secret_rotation#stage-1-rotate-secret-reconverges`, `bench:fi_a2_oidc_secret_rotation#stage-2-keycloak-client-secret-rotated` |
+| Every admin surface sits behind the identity gate, and the dashboard refuses a staff member every admin page and action | `bench:app_container_cannot_claim_an_identity`, `bench:gatus_probes_beszel_hub#stage-1-hub-sends-anonymous-to-sign-in`, `bench:fi_a5_wrong_group_assignment#stage-2-admin-host-rejects-staff`, `bench:fi_a5_wrong_group_assignment#stage-3-staff-host-allows-staff`, `bench:admin_staff_cannot_reach_admin_routes#stage-1-admin-pages-refuse-staff`, `bench:admin_staff_cannot_reach_admin_routes#stage-2-admin-actions-refuse-staff`, `threat:CV2` |
+| The Apps tab shows a staff member only the tiles their groups open and no admin tab, and an admin every tile and tab | `bench:admin_apps_tab_admin_full#stage-1-every-tile`, `bench:admin_apps_tab_admin_full#stage-2-every-tab`, `bench:admin_apps_tab_staff_filtered#stage-1-staff-tiles`, `bench:admin_apps_tab_staff_filtered#stage-2-no-admin-tab` |
+| Groups made in the dashboard are honoured by the sign-in gates; a destructive group change applies only once the impact shown is confirmed, a post from a sibling subdomain is refused, and the sign-in tiers cannot be renamed | `bench:identity_group_gates_access#stage-4-stale-confirmation-refused`, `bench:identity_group_gates_access#stage-5-a-sibling-subdomain-cannot-post`, `bench:identity_group_gates_access#stage-6-rename-through-the-edge`, `bench:identity_group_gates_access#stage-9-sign-in-tiers-keep-their-names`, `bench:identity_group_gates_access#stage-10-matching-confirmation-applies` |
+| A changed admin email moves the admin's accounts in the sign-on service and the monitors to the new address, keeping the password | `bench:admin_email_change_follows#stage-2-one-administrator-moved`, `bench:admin_email_change_follows#stage-3-keeps-its-password`, `bench:admin_email_change_follows#stage-4-monitors-follow` |
+| The sign-on service's own admin account locks out repeated wrong passwords with a growing pause and is asked to set up a one-time code; a converge keeps both, and the documented server commands lift a lockout or a lost code | `bench:keycloak_master_realm_hardening#stage-1-master-realm-posture`, `bench:keycloak_master_realm_hardening#stage-2-wrong-passwords-lock-with-a-growing-pause`, `bench:keycloak_master_realm_hardening#stage-3-lockout-lifted-from-the-server`, `bench:keycloak_master_realm_hardening#stage-5-next-sign-in-asks-for-the-code`, `bench:keycloak_master_realm_hardening#stage-6-converge-through-the-automation-client`, `bench:keycloak_master_realm_hardening#stage-7-lost-code-asked-again` |
+| An admin locked out of mail and of the second factor mints a new named sign-on admin from the server | `bench:keycloak_admin_email_loss_recovery#stage-2-recovery-admin-authenticates`, `bench:keycloak_admin_email_loss_recovery#stage-3-second-factor-asked-when-required` |
+| A user who lost their password or second factor is reset from the server and sets a new one at the next sign-in | `bench:user_recovery_kcadm_temp_password`, `bench:user_recovery_2fa_reset` |
+| A client application's container cannot forge frames at a Catena service on the network they share, and the app checker reports a file keeping the raw-packet capability | `bench:client_container_raw_network#stage-1-no-link-layer-forgery-on-the-shared-network`, `bench:client_container_raw_network#stage-2-hand-deployed-file-is-flagged` |
 | A sign-in cookie a client application or another admin tool sees opens no admin tool | `bench:app_container_cannot_claim_an_identity`, `threat:CV2` |
 | No sign-in gate shows its credentials in its service definition | `bench:oauth2_proxy_cookie_rotation_round_trip`, `threat:CV7` |
-| An application keeps the backup mode, update steps and restore steps it was deployed with; the server needs no catalogue to back it up, update it or restore it | `bench:app_declarations_travel_with_the_app` |
-| Monitoring probes each shared service, Beszel's hub included | `bench:gatus_probes_beszel_hub` |
-| Mail settings changed in the sign-in realm's own Email tab survive a converge and a change of the panel's outgoing mail | `bench:realm_hand_edits_survive_converge` |
+| The dashboard dispatches an action with no converge, and refuses an action it does not know | `bench:payload_action_dispatches_without_converge#stage-3-new-name-no-converge`, `bench:admin_action_unknown_rejected`, `bench:ce_admin_actions` |
+| The record of administrative actions can be exported and checked off the box: an edited or shortened trail fails verification | `bench:audit_chain_tamper_evident`, `threat:CV10` |
+| Each application's user sync reaches the identity provider through the dashboard on the host's loopback, and keeps running while the tunnel is down | `bench:mailbox_sync_ownership#stage-5-sync-without-the-tunnel` |
+| Application sign-in provisioning keeps running while the tunnel is down | **no bench yet** |
+| The dashboard forwards to the identity provider only the calls that sync makes, behind the catalogue's per-host token, and adds no credential of its own | **no bench yet** |
+| Settings > Outgoing mail sets the sign-in realm's mail while the realm holds what Catena wrote; settings changed in the realm's own Email tab survive a converge and a change of the outgoing mail | `bench:ce_install_suite#stage-4h1-realm-mail-from-the-store`, `bench:realm_hand_edits_survive_converge#stage-2f-mail-save-keeps-the-email-tab` |
+| Alerts reach the admin email through the outgoing mail | `bench:ce_install_suite#stage-4h2-alerts-reach-the-admin-by-email` |
+| With outgoing mail off, alerts reach only the channels added in Healthchecks | **no bench yet** |
+| A shared service's subdomain is a dashboard setting, its default name when none is stored; changing it moves every route to it | `bench:infra_subdomain_change#stage-0b-an-untouched-save-stores-no-default`, `bench:infra_subdomain_change#stage-1-settings-takes-the-new-name`, `bench:panel_renames_itself#stage-2-change-the-name-through-the-panel`, `bench:panel_renames_itself#stage-4-converge-onto-the-new-name`, `bench:panel_renames_itself#stage-5-the-new-address-answers`, `bench:panel_renames_itself#stage-6-the-old-name-routes-nowhere` |
+| A new dashboard address saved in Settings is named on the page before the dashboard moves, and none is named while nothing moves | `bench:panel_renames_itself#stage-1-nothing-is-announced-while-nothing-moves`, `bench:panel_renames_itself#stage-3-the-page-names-where-it-is-going` |
+| Admins see the version each application and service runs | `bench:versions_shown_to_administrators#stage-3-system-tab-names-the-versions` |
+| The System tab shows the server's own processor readings and links out to the resource monitor | `bench:catena_admin_resources_tab_links_beszel#stage-1-resources-redirects-into-system`, `bench:catena_admin_resources_tab_links_beszel#stage-2-system-links-the-monitor`, `bench:catena_admin_resources_tab_links_beszel#stage-3-system-shows-this-servers-readings` |
+| Gatus names each service without its version, so its history survives updates | **no bench yet** |
+
+## Paid features
+
+How the dashboard features a paid edition unlocks behave. Which edition
+unlocks which is on the website's
+[edition comparison](https://catena.run/en/#pricing).
+
+| Invariant | Enforced by |
+| --- | --- |
+| Each licensed maintenance button dispatches its own action | `bench:ee_named_buttons#stage-1-audit-export`, `bench:ee_named_buttons#stage-3-verify-backup`, `bench:ee_named_buttons#stage-4-daily-run-now` |
+| Each administrative action reaches the central collector intact, and is in the host's own hash chain | `bench:ee_audit_ship#stage-3-loki-assert`, `bench:ee_audit_ship#stage-4-dual-sink` |
+| The monthly compliance attestation is signed from the host's own evidence, carries its audit chain's head and key, verifies against the published key, and a tampered one is refused | `bench:ee_attest#stage-1.5-host-audit-digest`, `bench:ee_attest#stage-2-sign`, `bench:ee_attest#stage-3-verify` |
+| The compliance panel lists every control of its registry in English and French and filters them by framework; its attestations form a hash chain that verifies, it refuses an attestation of a control Catena measures and a post from another site, and its records survive a redeploy, ride the backup and export | `bench:ee_compliance_panel#stage-2-panel-renders-en-fr`, `bench:ee_compliance_panel#stage-3-framework-filter`, `bench:ee_compliance_panel#stage-5-attest-manual-control`, `bench:ee_compliance_panel#stage-8-cross-origin-refused`, `bench:ee_compliance_panel#stage-9-persists-across-redeploy`, `bench:ee_compliance_panel#stage-10-covered-by-backup`, `bench:ee_compliance_panel#stage-11-export-carries-the-chain` |
+| The monthly report shows, in English and French, the month's backups, restore tests, updates, vulnerabilities, availability and alerts from the server's own records, and names what the server does not record | `bench:monthly_report_renders#stage-3-the-report` |
+| The identity posture probe reports unhealthy while multi-factor sign-in is off, and healthy once the dashboard turns it on | `bench:ee_identity_probe#stage-2-drift`, `bench:ee_identity_probe#stage-3-healthy` |
 
 ## CI
 
-| Workflow | Jobs | Gates |
-| --- | --- | --- |
-| `ci.yml` | `installer`, `entry-points`, `syntax`, `duplication`, `sentences`, `prose` | the Ansible tree's and the installer's unit tests, the one entry point a client runs (`catena-installer`) with its locks and its wheel, Ansible syntax, copy-paste against a ratchet threshold, duplicate sentences, comment prose, and the application names in core code against a debt file that only shrinks |
-| `publish-installer.yml` | `publish` | on a release tag on main, the installer's tests, then its wheel published to PyPI as `catena-installer` through trusted publishing, versioned from the tag |
-| `security.yml` | `scanctl` | secrets, dependency vulnerabilities, static analysis, and the container images pinned in role defaults. A finding in this tree fails every run; a CVE in a pinned image fails the change that introduces it, and the weekly scheduled run whenever a fix exists, until a bump clears it or the committed baseline accepts it until a date. A pin that stops matching fails the scan |
-
-Every workflow runs on each pull request and on each push, except pushes to
-the Renovate and engine-bump branches, whose pull requests test every push.
-
-Images pinned in role defaults move through the catena-admin update engine,
-run nightly from catena-admin's engine-bump workflow (seven-day soak, CVE
-gate, upgrade stops), one pull request per defaults file. Every other
+`ci.yml` runs the Ansible tree's and the installer's unit tests, the entry
+point and its wheel, the sign-on extension's build, Ansible syntax, and the
+copy-paste, sentence and prose ratchets. `security.yml` runs scanctl.
+`publish-installer.yml` publishes the installer to PyPI from a release tag.
+Pinned images move through catena-admin's nightly engine bump; every other
 dependency follows [renovate](https://github.com/catenahq/renovate) and
-[renovate-config](https://github.com/catenahq/renovate-config) under a
-seven-day cooldown, with GitHub Actions pinned by digest. The container
-engine's version pin follows the same path under a fourteen-day cooldown; a
-new major version is merged by hand, after a rehearsal proves it.
+[renovate-config](https://github.com/catenahq/renovate-config), and
 [scanctl](https://github.com/catenahq/scanctl) scans each update before it
 merges.
 
 | Invariant | Enforced by |
 | --- | --- |
+| Every workflow runs on each pull request and on each push, except pushes to the Renovate, engine-bump and scanctl branches, whose pull requests test every push | `workflow:ci.yml`, `workflow:security.yml` |
 | No secret is in the tree or its history | `scanctl:gitleaks`, `workflow:security.yml#scanctl`, `threat:CP1` |
+| No env file is tracked, and `.gitignore` carries the env rule | `workflow:ci.yml#prose` |
 | No licensed source and no Go in this tree | `audit:check-port`, `audit:check-grid`, `threat:CP3` |
-| Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:trivy`, `workflow:security.yml#scanctl` |
+| Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:trivy`, `workflow:security.yml#scanctl`, `threat:CP5` |
 | A CVE with a fix in a pinned image fails the weekly scheduled scan until a bump clears it or a dated acceptance covers it | `scanctl:trivy`, `workflow:security.yml#scanctl` |
 | Static analysis runs on every change | `scanctl:semgrep`, `scanctl:zizmor` |
+| GitHub Actions are pinned by digest, and a moved tag is not adopted by itself | `scanctl:zizmor`, `threat:CP6` |
 | The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication`, `workflow:ci.yml#sentences` |
+| A release tag on main publishes the installer, tested, as `catena-installer` through trusted publishing, versioned from the tag | `workflow:publish-installer.yml#publish` |
+| The sign-on extension passes its tests and builds reproducibly: two builds give the same bytes | `workflow:ci.yml#keycloak-provider` |
 | Code comments describe the tree as it stands, not its history | `workflow:ci.yml#prose` |
 | Core code names no application beyond a recorded debt that only shrinks | `workflow:ci.yml#prose` |
 | Public prose names no system Catena does not ship | `audit:check-banned-words` |
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
 | This file cannot drift from reality | `audit:check-public-specs`, `threat:CP7` |
 
-Gate pointers: `bench:<scenario>` is a rehearsal scenario on disposable
-virtual machines driving the real product; `audit:<gate>` is a static gate of
-the maintainers' audit graph, run in CI and before every rehearsal;
-`workflow:<file>#<job>` is a CI job in this repository; `scanctl:<tool>` is a
-scanner of the bundled security workflow; `threat:<ID>` is an invariant in the
-maintainers' threat-model register. A pointer that does not resolve, or names
-a retired invariant, fails the build.
+## Gate pointers
+
+`bench:<scenario>` is a rehearsal scenario on disposable virtual machines
+driving the real product, and `bench:<scenario>#<stage>` the stage of it that
+makes the claim; `audit:<gate>` is a static gate of the maintainers' audit
+graph, run in CI and before every rehearsal; `workflow:<file>#<job>` is a CI job
+in this repository; `scanctl:<tool>` is a scanner of the bundled security
+workflow; `threat:<ID>` is an invariant in the maintainers' threat-model
+register. A pointer that does not resolve or names a retired invariant fails
+the build, and so does a scenario this file does not name.
 
 ## Declared, not yet built
 
@@ -697,10 +547,44 @@ None.
 ## Installation
 
 A server needs at least 4 GB of memory: 6 GB for light applications with few
-users, 8 GB for heavier ones with many users.
-Catena's own services take about 2 GB. See [README.md](README.md).
+users, 8 GB for heavier ones with many users. Catena's own services take about
+2 GB. See [README.md](README.md).
 
 | Invariant | Enforced by |
 | --- | --- |
 | The suite installs and runs on a server with less than 8 GB of memory, and the shared antivirus scanner reloads its signatures without holding two copies in memory | `bench:ce_install_suite`, `bench:clamd_reload_on_a_small_host`, `workflow:ci.yml#installer` |
 | The heavier applications are rehearsed on an 8 GB server | `bench:erpnext_update_migrates`, `bench:immich_extra_disk_round_trip` |
+
+## Scenarios outside the invariants
+
+Every rehearsal scenario is named in this file. These prove no invariant: a
+`skipped` scenario never runs its checks, and an `na` scenario checks the bench,
+a mock or a third-party tool rather than the product.
+
+| Scenario | Status | Why |
+| --- | --- | --- |
+| `bench:cloudflare_api_rotation_round_trip` | skipped | Needs a fresh Cloudflare token minted for the run |
+| `bench:tailscale_oauth_rotation_round_trip` | skipped | Needs a new private-network OAuth client minted for the run |
+| `bench:smtp_rotation_round_trip` | skipped | Needs a fresh mail-provider key minted for the run |
+| `bench:rotate_all_secrets_sequencer` | skipped | Waits for every single rotation scenario to run |
+| `bench:dev_to_prod_cutover_round_trip` | skipped | Waits for per-application address reconciliation |
+| `bench:debian_major_upgrade_restore` | skipped | Needs virtual machine images on two Debian major releases |
+| `bench:pg_major_version_cross_restore` | skipped | Needs virtual machine images on two Postgres major versions |
+| `bench:healthchecks_self_host_loss` | skipped | Waits for stages that wipe the job monitor and watch the outside heartbeat |
+| `bench:fi_t3_start_sweep_failure` | skipped | Covered by the bench's unit tests |
+| `bench:measure_converge` | na | Measures converge time |
+| `bench:mixed_template_negative_restore` | na | Checks the bench's fixture engine |
+| `bench:fi_c8_nextcloud_init_loop` | na | Checks the bench's diagnostics |
+| `bench:fi_o4_hosts_yml_malformed` | na | Checks the YAML parser |
+| `bench:fi_s2_input_truncated` | na | Checks the bench's configuration loader |
+| `bench:fi_n2_cf_tunnel_down` | na | Checks the bench's Cloudflare preflight |
+| `bench:fi_a3_keycloak_unreachable` | na | Checks a probe against a mock |
+| `bench:fi_b6_healthchecks_down` | na | Checks a probe against a mock |
+| `bench:fi_n3_dns_propagation_lag` | na | Checks a probe against a mock |
+| `bench:fi_u3_gatus_baseline_down` | na | Checks a probe against a mock |
+| `bench:fi_u4_ovh_rate_limited` | na | Checks a probe against a mock |
+| `bench:fi_v2_external_scan_blocked` | na | Checks a probe against a mock |
+| `bench:fi_s7_smtp_creds_invalid` | na | Checks the mail relay's refusal of a bad login |
+| `bench:fi_b4_locked_pack_rotation` | na | Checks object lock on the bench's storage server |
+| `bench:worm_object_lock_expiry_edge` | na | Checks object lock expiry on the bench's storage server |
+| `bench:fi_d7_restic_corrupt_pack` | na | Checks restic's own data check |

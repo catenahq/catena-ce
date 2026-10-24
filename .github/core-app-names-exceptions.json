@@ -1,0 +1,29 @@
+{
+  "reasons": {
+    "generated": "Rendered by ops audit --write-public-specs from the bench scenarios' first sentences; a scenario about an app names it.",
+    "legal": "Licence text: the source licence of a component, and examples of applications that carry their own licence.",
+    "sample": "A test of generic code; the app is its realistic sample, under its real names, images and volumes."
+  },
+  "files": {
+    "LICENSE": {
+      "names": ["n8n", "nextcloud", "onlyoffice", "rocket.chat"],
+      "reason": "legal"
+    },
+    "TEST_SCENARIOS.md": {
+      "names": ["*"],
+      "reason": "generated"
+    },
+    "ansible/tests/unit/test_catena_container_lookup.py": {
+      "names": ["nextcloud"],
+      "reason": "sample"
+    },
+    "ansible/tests/unit/test_swarm_naming.py": {
+      "names": ["nextcloud"],
+      "reason": "sample"
+    },
+    "ansible/tests/unit/test_the_tree_needs_no_collections.py": {
+      "names": ["jitsi", "jvb"],
+      "reason": "sample"
+    }
+  }
+}
