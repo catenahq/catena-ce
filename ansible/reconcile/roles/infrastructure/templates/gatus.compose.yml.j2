@@ -7,7 +7,7 @@ x-catena:
   schema: 2
   data:
     app:
-      volume: gatus-data
+      volume: {{ gatus_data_volume }}
       upgrade: in_place
 
 services:
@@ -33,7 +33,7 @@ services:
       GATUS_WEB_PORT: "{{ gatus_internal_port }}"
     volumes:
       - {{ gatus_host_config_dir }}:/config:ro
-      - gatus-data:/data
+      - {{ gatus_data_volume }}:/data
     # Host-mode publish so gatus-sync (runs on the host, not in
     # catena-network) can reach /api/v1/endpoints/statuses on
     # {{ gatus_host_localhost_port }}. Long syntax with mode: host is
@@ -71,7 +71,7 @@ services:
     # except a failure mode.
 
 volumes:
-  gatus-data:
+  {{ gatus_data_volume }}:
 
 networks:
   catena-network:

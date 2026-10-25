@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# The SQLite databases catena-backup-run copies whole before the snapshot. One
+# absolute path per line, blank lines and `#` comments ignored. Built from
+# infrastructure_sqlite_databases in reconcile/roles/infrastructure/defaults/main.yml.
+{% for db in infrastructure_sqlite_databases %}
+{{ storage_mount_point }}/docker/volumes/{{ db }}
+{% endfor %}

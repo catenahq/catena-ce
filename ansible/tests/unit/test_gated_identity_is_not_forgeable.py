@@ -118,6 +118,9 @@ def _compose(name: str, **extra) -> dict:
         gatus_host_config_dir="/etc/catena/gatus",
         gatus_host_localhost_port=18080,
         gatus_network_alias="gatus",
+        gatus_data_volume="gatus-data",
+        healthchecks_data_volume="healthchecks-data",
+        healthchecks_sqlite_file="hc.sqlite",
     )
     variables.update(extra)
     return yaml.safe_load(_env().from_string((INFRA / name).read_text()).render(**variables))

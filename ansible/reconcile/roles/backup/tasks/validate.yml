@@ -20,6 +20,7 @@
     _assert_paths:
       - { path: /etc/catena/backup-paths, mode: "0644" }
       - { path: /etc/catena/backup-exclude-patterns, mode: "0644" }
+      - { path: /etc/catena/backup-sqlite, mode: "0644" }
       - { path: /etc/catena/backup-coverage.paths, mode: "0644" }
 
 # Assert when the payload is EXPECTED here -- either this deployment installs it

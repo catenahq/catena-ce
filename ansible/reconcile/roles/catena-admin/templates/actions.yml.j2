@@ -177,10 +177,12 @@ actions:
     # shown is the journal of that fresh run alone, selected by the
     # invocation id of the unit after its start returns.
     #
-    # Both syncs change the server, so the press holds /run/catena.lock (fd 9)
-    # for its whole run, as every job that changes the server does. While
-    # another job holds it, `flock -n -E 75` answers 75 at once and the log
-    # says the server is busy.
+    # The dashboard sync changes routes and applications, so its start runs
+    # under the host lock, lent to catena-dashboard-sync.service as the tick
+    # does: its catena-apps calls run inside the hold. While another job
+    # holds the lock, host-lock answers 75 at once and the press says the
+    # server is busy. gatus-sync runs beside it with no lock, as its timer
+    # runs it.
     #
     # Backgrounded + `wait` gives the union of runtimes (~10-15s), not
     # the sum. Dispatcher runs with `set -euo pipefail`, so capturing
@@ -188,30 +190,30 @@ actions:
     # `wait; RC=$?` aborts on errexit before the assignment.
     shell: |
       set +e
-      exec 9>/run/catena.lock
-      /usr/bin/flock -n -E 75 9
-      if [ $? -eq 75 ]; then
-        echo "The server is busy with another job, such as a backup or an update. Nothing was synchronised; try again in a moment."
-        echo "Le serveur est occupé par une autre tâche, comme une sauvegarde ou une mise à jour. Rien n'a été synchronisé ; réessayez dans un instant."
-        exit 75
-      fi
       LOGDIR=$(mktemp -d)
       sync_fresh() {
-        while [ "$(systemctl is-active "$1")" = activating ]; do sleep 1; done
-        systemctl start --wait "$1"
+        unit=$1; shift
+        while [ "$(systemctl is-active "$unit")" = activating ]; do sleep 1; done
+        "$@" systemctl start --wait "$unit"
         rc=$?
-        id=$(systemctl show -p InvocationID --value "$1")
+        id=$(systemctl show -p InvocationID --value "$unit")
         if [ -n "$id" ]; then
-          journalctl "_SYSTEMD_INVOCATION_ID=$id" --no-pager -n 80 > "$LOGDIR/$1" 2>&1
+          journalctl "_SYSTEMD_INVOCATION_ID=$id" --no-pager -n 80 > "$LOGDIR/$unit" 2>&1
         else
-          journalctl -u "$1" --no-pager -n 20 > "$LOGDIR/$1" 2>&1
+          journalctl -u "$unit" --no-pager -n 20 > "$LOGDIR/$unit" 2>&1
         fi
         return $rc
       }
-      sync_fresh catena-dashboard-sync.service & PID_DASH=$!
+      sync_fresh catena-dashboard-sync.service /usr/local/bin/catena-recovery host-lock -w 0 -lend catena-dashboard-sync.service -- & PID_DASH=$!
       sync_fresh gatus-sync.service & PID_GATUS=$!
       wait "$PID_DASH"; RC_DASH=$?
       wait "$PID_GATUS"; RC_GATUS=$?
+      if [ "$RC_DASH" -eq 75 ]; then
+        rm -rf "$LOGDIR"
+        echo "The server is busy with another job, such as a backup or an update, so the applications were not synchronised; try again in a moment."
+        echo "Le serveur est occupé par une autre tâche, comme une sauvegarde ou une mise à jour : les applications n'ont pas été synchronisées ; réessayez dans un instant."
+        exit 75
+      fi
       cat "$LOGDIR/catena-dashboard-sync.service" "$LOGDIR/gatus-sync.service"
       rm -rf "$LOGDIR"
       echo

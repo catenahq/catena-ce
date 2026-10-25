@@ -35,7 +35,7 @@
 
 storage:
   type: sqlite
-  path: /data/gatus.db
+  path: /data/{{ gatus_sqlite_file }}
 
 ui:
   title: "{{ cloudflare_zone }} -- {{ _labels.service_status }}"

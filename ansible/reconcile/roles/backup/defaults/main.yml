@@ -285,40 +285,10 @@ backup_exclude_patterns:
   # excluded -- it is restored RAW (see the "Postgres data on this stack"
   # note above; the store-derived superuser password makes a byte-for-byte
   # restore correct, so no logical-replay dance and no exclusion).
-  # Gatus per-minute probe history (sqlite at /data/gatus.db, see
-  # reconcile/roles/infrastructure/templates/gatus-base.yaml.j2). Probed every
-  # minute against every internal alias + public URL, so the on-disk
-  # bytes shift continuously and defeat restic's content-defined-
-  # chunking dedup -- each nightly snapshot brings ~all-new chunks for
-  # this volume. Disposable telemetry: a fresh container repopulates
-  # the dashboard from live probes within one cycle.
-  - "*/docker/volumes/gatus-data"
-  - "*/docker/volumes/gatus-data/*"
-  # Healthchecks ping history (sqlite at /data/hc.sqlite, see
-  # reconcile/roles/infrastructure/templates/healthchecks.compose.yml.j2). Same
-  # high-churn-defeats-CDC failure mode as gatus-data -- every Gatus
-  # alert flow + every backup run + every auto-update tick writes a
-  # row. Check + project + channel definitions are re-seeded by
-  # ansible/scripts/healthchecks-seed.py on every
-  # converge, so excluding the volume only loses ping history (not
-  # auth, routing, or notification config).
-  - "*/docker/volumes/healthchecks-data"
-  - "*/docker/volumes/healthchecks-data/*"
-  # Beszel resource-monitor history (SQLite/PocketBase at /beszel_data,
-  # see reconcile/roles/infrastructure/templates/beszel-hub.compose.yml.j2). Same
-  # disposable-telemetry rationale as gatus-data/healthchecks-data:
-  # per-poll metric writes churn the bytes and defeat restic dedup, and
-  # backing the history up is client-paid bloat. Reconstructs from live
-  # agents within a cycle after restore -- and the converge re-reads the
-  # regenerated hub key + re-seeds the universal token + redeploys the
-  # agent, so only the charts reset.
-  - "*/docker/volumes/beszel-hub-data"
-  - "*/docker/volumes/beszel-hub-data/*"
   # The copies catena-stack-update-managed takes of the data of Catena's own
   # services before an image moves (/var/lib/catena/prebump/infra-<run>, with
-  # its record). They hold the volumes listed above, Beszel's history among
-  # them, and are removed after 14 days without waiting on a backup that
-  # carries them.
+  # its record). They hold copies of volumes the backup already carries, and
+  # are removed after 14 days without waiting on a backup that carries them.
   - "*/prebump/infra-*"
   - "*/prebump/infra-*/*"
   # An application's own regenerable volume is not listed here: its compose

@@ -12,10 +12,11 @@ back. You need ordinary programs: `restic` (reads the backup), `docker`
 
 | What | Where in the snapshot |
 | --- | --- |
-| Application data (files, uploads, mailboxes) | `{{ storage_mount_point }}/docker/volumes/<name>/_data/` |
+| Application data (files, uploads, mailboxes) and the monitoring history (Gatus, Healthchecks, Beszel) | `{{ storage_mount_point }}/docker/volumes/<name>/_data/` |
 | Application definitions (one folder per app: its compose file, its settings in `.env`, and where the file came from) | `{{ storage_mount_point }}/compose/<app-name>/` |
 | PostgreSQL database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
 | MariaDB database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
+| Copies of the monitoring databases (Gatus, Healthchecks, Beszel), each taken whole while it ran | `{{ storage_mount_point }}/backup-staging/sqlite/<volume-name>/<file>` |
 | Files stored outside a volume | `{{ storage_mount_point }}/apps/` |
 | Your settings and passwords | `/etc/catena/config.json` |
 | The software version this server ran | `/etc/catena/version.txt` |
@@ -28,9 +29,9 @@ format, and nothing requires our software to open.
 - **Application images.** These are downloaded fresh from their public
   sources. Storing them would multiply the size of every backup for no
   benefit, since the exact versions are recorded in each compose file.
-- **Monitoring history** (Gatus, Healthchecks, Beszel) **and the volumes an
-  application marks as rebuildable.** These rebuild themselves within
-  minutes and change constantly, which would inflate every backup.
+- **The volumes an application marks as rebuildable.** These rebuild
+  themselves within minutes and change constantly, which would inflate
+  every backup.
 - **The server's own SSH identity keys.** A rebuilt server generates its
   own. Carrying the old ones forward would be a security problem, not a
   convenience.
@@ -65,6 +66,20 @@ Copy the data into place:
 docker volume create <volume-name>
 cp -a /recovered{{ storage_mount_point }}/docker/volumes/<volume-name>/_data/. \
       /var/lib/docker/volumes/<volume-name>/_data/
+```
+
+Gatus, Healthchecks and Beszel keep SQLite databases, and each backup holds a
+copy of each one taken whole while it ran. For one of them, also add
+`--include '{{ storage_mount_point }}/backup-staging/sqlite/<volume-name>'` to
+the restore above, then, before you start it, delete the database's journal
+files and put the copy in place of the database file:
+
+```
+rm -f /var/lib/docker/volumes/<volume-name>/_data/<file>-wal \
+      /var/lib/docker/volumes/<volume-name>/_data/<file>-shm \
+      /var/lib/docker/volumes/<volume-name>/_data/<file>-journal
+cp /recovered{{ storage_mount_point }}/backup-staging/sqlite/<volume-name>/<file> \
+   /var/lib/docker/volumes/<volume-name>/_data/<file>
 ```
 
 On a machine that does not run Docker swarm yet, prepare it once. The

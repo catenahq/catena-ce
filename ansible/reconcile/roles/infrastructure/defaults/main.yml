@@ -53,6 +53,8 @@ gatus_image: >-
   {{ ('twinproduction/gatus:' ~ gatus_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
 gatus_compose_name: "gatus"
+gatus_data_volume: "gatus-data"
+gatus_sqlite_file: "gatus.db"
 gatus_network_alias: "gatus"
 gatus_internal_port: 8080
 gatus_host_config_dir: "/etc/catena/gatus"
@@ -82,12 +84,15 @@ gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 # --- Healthchecks (self-hosted, cron/dead-man monitoring) ----------------
 # The OSS project behind healthchecks.io. One container, SQLite, no
 # metrics firehose and no healthchecks.io SaaS dependency.
-# Named Docker volume -> backed up by restic along with other volumes.
+# Named Docker volume -> backed up by restic along with other volumes; the
+# backup also copies the database whole before each snapshot.
 healthchecks_image_tag: "v4.4"
 healthchecks_image: >-
   {{ ('healthchecks/healthchecks:' ~ healthchecks_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
 healthchecks_compose_name: "healthchecks"
+healthchecks_data_volume: "healthchecks-data"
+healthchecks_sqlite_file: "hc.sqlite"
 healthchecks_network_alias: "healthchecks"
 healthchecks_internal_port: 8000
 # Healthchecks' credentials, as swarm secrets rather than service environment,
@@ -171,6 +176,17 @@ beszel_hub_internal_port: 8090
 #   - the beszel-agent (on the host network) dialling HUB_URL
 beszel_hub_host_localhost_port: 18190
 beszel_hub_data_volume: "beszel-hub-data"
+# PocketBase's own names in the hub's data folder, which a deployment does not
+# set.
+beszel_hub_sqlite_files: ["data.db", "auxiliary.db"]
+# The SQLite databases of the three monitoring stacks, one
+# <stack>_<volume>/_data/<file> per database. catena-admin's backup copies each
+# one whole before the snapshot and a whole-server restore puts the copy back
+# (catena-admin payload/engines/recovery/backuprun.go, restore.go).
+infrastructure_sqlite_databases: >-
+  {{ ['%s_%s/_data/%s' | format(gatus_compose_name, gatus_data_volume, gatus_sqlite_file),
+      '%s_%s/_data/%s' | format(healthchecks_compose_name, healthchecks_data_volume, healthchecks_sqlite_file)]
+     + (beszel_hub_sqlite_files | map('regex_replace', '^', beszel_hub_compose_name ~ '_' ~ beszel_hub_data_volume ~ '/_data/') | list) }}
 beszel_agent_compose_name: "beszel-agent"
 # Agent listens on this port for the hub handshake. The agent runs on the host
 # network (canonical upstream shape for host + docker metrics) so it reaches
