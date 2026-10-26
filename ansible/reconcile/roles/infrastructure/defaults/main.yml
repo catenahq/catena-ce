@@ -158,11 +158,11 @@ infrastructure_smtp: >-
 # Always deployed: Beszel is part of the base plane. Pinned tags
 # (Renovate-managed); the agent reads docker.sock, so it has the docker
 # daemon's blast radius on a single-tenant VPS.
-beszel_image_tag: "0.21.0"
+beszel_image_tag: "0.21.1"
 beszel_image: >-
   {{ ('henrygd/beszel:' ~ beszel_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
-beszel_agent_image_tag: "0.21.0"
+beszel_agent_image_tag: "0.21.1"
 beszel_agent_image: >-
   {{ ('henrygd/beszel-agent:' ~ beszel_agent_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
