@@ -79,20 +79,19 @@
         max-size: "{{ docker_log_max_size }}"
         max-file: "{{ docker_log_max_files | string }}"
       live-restore: "{{ docker_live_restore | bool }}"
-    # When a pull-through mirror URL is configured, add registry-mirrors
-    # plus (for http:// mirrors) the matching insecure-registries entry.
-    # Splits the scheme off the URL because insecure-registries takes
-    # plain host:port -- feeding it the full http:// URL silently does
-    # nothing and the daemon falls through to direct docker.io pulls, with
-    # the test bench's mirror sitting unused. This task rewrites the whole
-    # daemon.json, cloud-init's copy included, so a mirror survives only by
-    # being rebuilt correctly here.
-    _docker_mirror_host: "{{ docker_registry_mirror_url | regex_replace('^https?://', '') }}"
+    # docker_registry_mirror_url is one URL or several separated by commas
+    # (spaces around a comma are ignored). They become registry-mirrors in
+    # the given order, and every http:// entry also becomes an
+    # insecure-registries entry. That entry is the plain host:port: feeding it
+    # the full http:// URL silently does nothing and the daemon falls through
+    # to direct docker.io pulls, with the mirror sitting unused. This task
+    # rewrites the whole daemon.json, cloud-init's copy included, so a mirror
+    # survives only by being rebuilt correctly here.
+    _docker_mirrors: "{{ docker_registry_mirror_url.split(',') | map('trim') | reject('equalto', '') | list }}"
     _docker_mirror_extras:
-      registry-mirrors:
-        - "{{ docker_registry_mirror_url }}"
-      insecure-registries: "{{ [_docker_mirror_host] if docker_registry_mirror_url.startswith('http://') else [] }}"
-    _docker_daemon_config: "{{ _docker_daemon_base | combine(_docker_mirror_extras if docker_registry_mirror_url else {}) }}"
+      registry-mirrors: "{{ _docker_mirrors }}"
+      insecure-registries: "{{ _docker_mirrors | select('match', 'http://') | map('regex_replace', '^http://', '') | list }}"
+    _docker_daemon_config: "{{ _docker_daemon_base | combine(_docker_mirror_extras if _docker_mirrors else {}) }}"
   notify: restart docker
 
 # ─── install packages ────────────────────────────────────────────────────
