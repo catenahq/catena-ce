@@ -5,13 +5,12 @@
 
 # Test scenarios
 
-The 209 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 204 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
 | `activate_ee` | A Community host becomes a licensed host when a key Polar grants is saved in its Settings, and unlocks nothing for a key Polar refuses. |
 | `actualbudget_backup_mode_round_trip` | A budget synced while the nightly backup runs comes back from the backup whole: the server's data opens without corruption, every file synced before the backup is there as sent, and the server answers once the release that follows the restore ends. |
-| `actualbudget_failed_update_rolls_back` | When an Actual Budget update fails, the previous version and the data volume it ran on are put back, the budget server starts on them with its accounts and its password intact, and the failed version is held back. |
 | `admin_action_unknown_rejected` | The administrative action dispatcher refuses a request for an action it does not carry, exits non-zero, and names nothing it might have run. |
 | `admin_apps_tab_admin_full` | An administrator signed in to the panel sees every application tile, those hidden or reserved to others included, and every administrator tab. |
 | `admin_apps_tab_staff_filtered` | A staff member signed in to the panel sees the application tiles their groups open, none of those reserved to administrators, and no administrator tab. |
@@ -153,7 +152,6 @@ The 209 scenarios the maintainers' test bench carries, and the behaviour each on
 | `mailbox_sync_ownership` | A mailbox made by hand survives the mail server's users hook, and a mailbox the hook made is closed when its owner is in neither the staff nor the client group. |
 | `mailserver_after_domain` | A mail server deployed from the catalog on a server that already has its domain is wired by the deploy alone: its certificate is in the mail-certs volume and loaded, the postmaster mailbox is in its account registry, the address record of its host exists, and its sign-in client exists. |
 | `mailserver_webmail_backup_mode` | The webmail stays up through a long backup of the mail server, a sign-in made during the hold completes when the hold ends, the mail server accepts mail meanwhile, and the webmail's database comes back from the backup whole and signs in again. |
-| `mailserver_webmail_failed_update_rolls_back` | When a webmail update fails, the previous Roundcube version and its database from before the update are put back, the webmail signs in again, the mail server runs again, and the failed version is held back. |
 | `measure_converge` | Measures, on a converged server, how much of the on-host reconcile is spent outside its 25 slowest tasks. |
 | `migrate` | A host is replaced end to end by another machine, with the source quiesced and the destination serving what it served. |
 | `migrate_lane_auth_denied` | The migration endpoint refuses every unauthenticated and unauthorised caller, and is absent entirely on a host that is not migrating. |
@@ -168,7 +166,6 @@ The 209 scenarios the maintainers' test bench carries, and the behaviour each on
 | `offsite_copy_refuses_an_unchecked_backup` | The offsite copy of the host's own backup repository refuses to run while the repository check fails, and, when the client asks for it, until the newest backup has passed a restore test. |
 | `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone, and a destination holding another repository or a changed file is refused rather than written over. |
 | `oidc_label_client_provisioned` | An application that asks for single sign-on in its labels gets its own sign-in entry, receives that entry's values in its settings, follows a secret change, and loses the entry when it is removed, while entries made by hand are left alone. |
-| `outline_update_migrates` | An Outline update runs the migration its application file declares and the wiki answers on the new build, and an update whose migration fails puts the previous build and its database back and holds the failed build back. |
 | `panel_renames_itself` | The dashboard renames itself from its own Settings page, and it says where it is going before it goes. |
 | `payload_action_dispatches_without_converge` | An administrative action can arrive with a new image and dispatch immediately, without waiting for a converge to render it. |
 | `payload_prune_respects_ce` | Installing the licensed payload deletes what it withdraws and leaves everything owned by the public installer in place. |
@@ -198,7 +195,6 @@ The 209 scenarios the maintainers' test bench carries, and the behaviour each on
 | `s3_backup_keys_rotation_offsite_copy` | Rotating the backup's object-store key pair leaves the offsite copy of the backup repository working once the copy's own source keys are updated to the new pair. |
 | `s3_backup_keys_rotation_round_trip` | The backup's object-store key pair is replaced in the panel's settings and the old pair revoked, and backups keep running on the new pair while neither secret ever shows on a panel page or in a server log. |
 | `s3_reconcile_orphan_cleanup` | A database row whose object-store file is missing is reported rather than passed over in silence. |
-| `scheduler_easyappointments` | The default appointment scheduler deploys from the catalogue and serves its public booking page. |
 | `security_scan` | A converged host is scanned from outside for exposed services and common web vulnerabilities, and the findings are held to the declared baseline. |
 | `smtp_rotation_round_trip` | Outbound mail credentials are rotated on the planned cycle and a live send confirms the new ones work. |
 | `snapshot_export_round_trip` | A snapshot is exported to a single portable archive that unpacks away from the host with its content intact. |
@@ -217,4 +213,3 @@ The 209 scenarios the maintainers' test bench carries, and the behaviour each on
 | `wordpress_install_and_mail` | A WordPress site that has just been installed gets its curated plugins and cache options from the next deploy of the app, takes the outgoing mail chosen in Settings (a message goes out through the provider), follows the provider when it changes without taking back an edit its administrator made in WP Mail SMTP, and a further deploy changes nothing. |
 | `worm_object_lock_expiry_edge` | Backup data whose immutability window expired while the repository still references it is reported as a gap rather than silently degrading. |
 | `worm_round_trip` | A full recovery is performed from the immutable offsite copy alone. |
-| `zammad_update_migrates` | A Zammad update moves every Zammad process to the new build together, its setup step migrates the database on the new build and stays up, and the help desk answers again. |
