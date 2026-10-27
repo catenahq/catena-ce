@@ -17,6 +17,12 @@ permissions:
   contents: read
   security-events: write
 
+# A newer push to the branch, or a newer commit of the pull request, cancels the
+# run it supersedes; the weekly run is in a group of its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   scanctl:
     # @main on purpose: first-party reusable workflow, auto-updating, gated

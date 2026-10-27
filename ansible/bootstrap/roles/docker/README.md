@@ -25,9 +25,10 @@ configures it.
   the installer reaches the host at.
 - `docker_daemon_control_timeout` -- bound on a `systemctl` call
   against a wedged daemon; defaults to 120.
-- `docker_registry_mirror_url` -- optional pull-through mirror; adds
-  `registry-mirrors` (and, for `http://`, the matching
-  `insecure-registries` entry) to `daemon.json`.
+- `docker_registry_mirror_url` -- optional registry mirrors: one URL or
+  several separated by commas. Adds `registry-mirrors` in the given order
+  (and, for each `http://` URL, the matching `insecure-registries` entry) to
+  `daemon.json`.
 
 ## Side effects
 

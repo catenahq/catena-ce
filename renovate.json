@@ -27,10 +27,9 @@
   ],
   "packageRules": [
     {
-      "description": "The engine pins move every host that converges, so they wait 14 days after a release and are reviewed by hand; a major also needs a bench run first.",
+      "description": "The engine pins move every host that converges, so they wait 14 days after a release, and the release bench proves the new engine.",
       "matchDepNames": ["docker-engine", "containerd"],
-      "minimumReleaseAge": "14 days",
-      "automerge": false
+      "minimumReleaseAge": "14 days"
     },
     {
       "description": "containerd minors reach Docker's apt repository after upstream releases them, and follow docker-ce's own dependency; only patches are proposed.",

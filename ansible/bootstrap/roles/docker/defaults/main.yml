@@ -73,12 +73,12 @@ docker_plugin_packages:
   - docker-buildx-plugin
   - docker-compose-plugin
 
-# Optional pull-through Docker Hub mirror. Empty string = no mirror
-# (direct docker.io pulls). Set to the mirror base URL
-# (e.g. http://10.72.185.1:5000) to route registry-mirrors entries
-# through it. The test bench sets this via its DOCKER_REGISTRY_MIRROR_URL
-# dotenv key so VMs cache docker.io pulls on the host. The matching
-# insecure-registries entry (plain host:port, no scheme) is derived
-# automatically when the URL is http:// (lab use); https:// mirrors
-# need no insecure-registries listing.
+# Optional registry mirrors for docker.io pulls. Empty string = no mirror
+# (direct docker.io pulls). Set to one mirror base URL
+# (e.g. http://10.72.185.1:5000) or several separated by commas; they are
+# written to registry-mirrors in the given order, and docker tries the next
+# one when a mirror does not have the image. The test bench sets this via its
+# DOCKER_REGISTRY_MIRROR_URL dotenv key. The matching insecure-registries
+# entry (plain host:port, no scheme) is derived automatically for each
+# http:// URL (lab use); https:// mirrors need no insecure-registries listing.
 docker_registry_mirror_url: "{{ cfg_docker_registry_mirror_url | default('') }}"

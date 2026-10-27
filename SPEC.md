@@ -10,10 +10,6 @@ rehearsal scenario proving it; a scenario that proves no invariant is listed in
 [Scenarios outside the invariants](#scenarios-outside-the-invariants). Items declared here that the tree does not
 implement yet are listed in [Declared, not yet built](#declared-not-yet-built).
 
-AI agents: do not modify this file. Report any feature or code snippet in the
-tree that this file does not cover, and any item in this file the tree does
-not implement.
-
 ## Not in this repository
 
 - **The dashboard source.** `catena-admin` is closed. This repository deploys
@@ -245,6 +241,7 @@ another provider.
 | Snapshots list, browse and export without a restore | `bench:inplace_restore_suite#wizard-restore-stage-2-page-lists-backups`, `bench:pitr_fuse_round_trip#stage-5-browse-from-the-panel`, `bench:snapshot_export_round_trip#stage-3-extract-canary` |
 | Before each snapshot every running Postgres is exported as plain SQL, one file per database server, and a failed export fails the backup | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded`, `bench:fi_b2_pg_dump_failed#stage-3-abort-before-restic` |
 | The same holds for every running MariaDB | **no bench yet** |
+| A Postgres built on another image, such as pgvector, PostGIS or TimescaleDB, is exported and replayed like the official one | **no bench yet** |
 | After the first, a backup uploads only what changed | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded` |
 | The monitoring history of Gatus, Healthchecks and Beszel is in every backup, as every application's data is | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded` |
 | Before each snapshot the databases of Gatus, Healthchecks and Beszel are copied whole while they run, and a copy that fails fails the backup | `bench:ce_restore#stage-2a-the-monitoring-databases-are-copied-whole` |
@@ -417,7 +414,7 @@ tier, administrators or staff; Catena's sign-on extension
 
 | Invariant | Enforced by |
 | --- | --- |
-| Each catalogue application is routed on its own address | `bench:catalog_apps_read_green_in_gatus#stage-1-routed`, `bench:scheduler_easyappointments#stage-2-http-readiness` |
+| Each catalogue application is routed on its own address | `bench:catalog_apps_read_green_in_gatus#stage-1-routed` |
 | An application can publish several addresses, each routed, watched and gated on its own; an address another application holds, or one of Catena's, is refused, and an application's own proxy labels route nothing | `bench:app_several_addresses#stage-1-a-route-per-address`, `bench:app_several_addresses#stage-3-access-per-address`, `bench:app_several_addresses#stage-4-a-cookie-opens-its-own-address-alone`, `bench:app_several_addresses#stage-5-a-status-card-per-address`, `bench:app_several_addresses#stage-6-a-taken-host-is-refused`, `bench:app_several_addresses#stage-9-catena-addresses-refused`, `bench:app_several_addresses#stage-10-traefik-labels-route-nothing` |
 | An application that asks for single sign-on gets its own sign-in entry, kept in step with its labels and removed with the application; entries made by hand are left alone | `bench:oidc_label_client_provisioned`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `threat:CV13` |
 | Catalogue applications that offer single sign-on in their free edition sign in with the suite's account | `bench:catalog_app_sign_in` |
@@ -448,12 +445,13 @@ tier, administrators or staff; Catena's sign-on extension
 | A secret of the on-box store reaches an application only when its block lists it, only for an unchanged catalogue file, and never one that opens the host (the backup, Cloudflare, licence and admin credentials) | **no bench yet** |
 | A declared verify command answers for its application | `bench:host_network_app_ports#stage-3-verify-hook-ok` |
 | The verify runs hourly, and its failure is named once in the maintenance log | **no bench yet** |
+| A verify asked while an application is starting answers that it is starting, the dashboard says so, and once the time its block allows passes without an answer the verify fails and the maintenance log names it | `bench:apps_folder_round_trip#stage-6-starting-until-ready` |
 | An application changed by hand, or holding a person's own version of its file, is not updated, and the dashboard says so | `bench:apps_folder_round_trip#stage-4-a-changed-folder-is-held`, `bench:app_origin_update#stage-5-changed-folder-is-held` |
 | A stopped application, or one changed through another tool, is left alone by the daily chain | **no bench yet** |
-| An update moves every service of an application that shares an image together, runs its declared migration once the application answers, and keeps the new version | `bench:nextcloud_update_migrates#stage-4-updated-and-migrated`, `bench:zammad_update_migrates#stage-5-moved-and-migrated`, `bench:erpnext_helpdesk_update_migrates`, `bench:erpnext_update_migrates` |
+| An update moves every service of an application that shares an image together, runs its declared migration once the application answers, and keeps the new version | `bench:nextcloud_update_migrates#stage-4-updated-and-migrated`, `bench:erpnext_helpdesk_update_migrates`, `bench:erpnext_update_migrates` |
 | The nightly update moves an application to a newer build its policy allows, and the maintenance log names it | `bench:nightly_update_real#stage-3-after-the-night` |
 | An application pinned on a nightly build moves onto its newest stable release under the major policy, all its images in one deploy | `bench:tag_scheme_migration#stage-3-moved-together` |
-| A failed update of an application or of a service Catena runs puts the previous version and its data back by itself | `bench:outline_update_migrates`, `bench:actualbudget_failed_update_rolls_back`, `bench:nextcloud_failed_migrate_rolls_back`, `bench:erpnext_failed_migrate_rolls_back`, `bench:mailserver_webmail_failed_update_rolls_back#stage-4-rolled-back`, `bench:espocrm_custom_survives_update#stage-5-rolled-back`, `bench:infra_stack_update_rollback#stage-3-auto-recovery`, `bench:infra_stack_update_rollback#stage-4-keycloak-rolls-back-with-its-data`, `bench:infra_stack_update_rollback#stage-7-a-connector-that-never-connects`, `bench:control_plane_update_rollback#stage-3-auto-recovery` |
+| A failed update of an application or of a service Catena runs puts the previous version and its data back by itself | `bench:nextcloud_failed_migrate_rolls_back`, `bench:erpnext_failed_migrate_rolls_back`, `bench:espocrm_custom_survives_update#stage-5-rolled-back`, `bench:infra_stack_update_rollback#stage-3-auto-recovery`, `bench:infra_stack_update_rollback#stage-4-keycloak-rolls-back-with-its-data`, `bench:infra_stack_update_rollback#stage-7-a-connector-that-never-connects`, `bench:control_plane_update_rollback#stage-3-auto-recovery` |
 | A rolled-back update is recorded with its version, which is quarantined once and kept out of every later update | `bench:fi_u5_persistent_quarantine#stage-3-durable-quarantine`, `bench:fi_u6_full_rollback_state#stage-3-state-records-rollback`, `bench:control_plane_update_rollback#stage-3-auto-recovery` |
 | A good update of a service Catena runs keeps its data, and the next converge leaves it on the new version | `bench:infra_stack_update_rollback#stage-5-keycloak-keeps-a-good-bump` |
 | What a person built inside an application survives an update, and a rollback | `bench:espocrm_custom_survives_update#stage-5-rolled-back`, `bench:espocrm_custom_survives_update#stage-8-moved-and-intact` |

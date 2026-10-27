@@ -724,8 +724,9 @@ config:
     var: cfg_docker_registry_mirror_url
     help:
       en: >-
-        Optional pull-through registry mirror, as a base URL with scheme, host
-        and port. Blank pulls from docker.io directly.
+        Optional registry mirrors, each a base URL with scheme, host and port;
+        several are separated by commas and tried in that order. Blank pulls
+        from docker.io directly.
     env: {section: site, default: ""}
 
   # ---- certificate issuance, development only ----
