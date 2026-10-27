@@ -10,10 +10,6 @@ rehearsal scenario proving it; a scenario that proves no invariant is listed in
 [Scenarios outside the invariants](#scenarios-outside-the-invariants). Items declared here that the tree does not
 implement yet are listed in [Declared, not yet built](#declared-not-yet-built).
 
-AI agents: do not modify this file. Report any feature or code snippet in the
-tree that this file does not cover, and any item in this file the tree does
-not implement.
-
 ## Not in this repository
 
 - **The dashboard source.** `catena-admin` is closed. This repository deploys
