@@ -449,6 +449,7 @@ tier, administrators or staff; Catena's sign-on extension
 | A secret of the on-box store reaches an application only when its block lists it, only for an unchanged catalogue file, and never one that opens the host (the backup, Cloudflare, licence and admin credentials) | **no bench yet** |
 | A declared verify command answers for its application | `bench:host_network_app_ports#stage-3-verify-hook-ok` |
 | The verify runs hourly, and its failure is named once in the maintenance log | **no bench yet** |
+| A verify asked while an application is starting answers that it is starting, the dashboard says so, and once the time its block allows passes without an answer the verify fails and the maintenance log names it | `bench:apps_folder_round_trip#stage-6-starting-until-ready` |
 | An application changed by hand, or holding a person's own version of its file, is not updated, and the dashboard says so | `bench:apps_folder_round_trip#stage-4-a-changed-folder-is-held`, `bench:app_origin_update#stage-5-changed-folder-is-held` |
 | A stopped application, or one changed through another tool, is left alone by the daily chain | **no bench yet** |
 | An update moves every service of an application that shares an image together, runs its declared migration once the application answers, and keeps the new version | `bench:nextcloud_update_migrates#stage-4-updated-and-migrated`, `bench:zammad_update_migrates#stage-5-moved-and-migrated`, `bench:erpnext_helpdesk_update_migrates`, `bench:erpnext_update_migrates` |
