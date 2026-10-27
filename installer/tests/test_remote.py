@@ -1,7 +1,8 @@
 """remote.py against a real SSH server in this process (paramiko's own server
 side): the host key trusted on first contact and refused once it changes, a
 login with the key or not at all, a command's output streamed back, files
-sent, and the panel forward.
+sent, the provider's password login that changes an expired password, and the
+panel forward.
 
 Run: uv run pytest installer/tests/test_remote.py
 """
@@ -72,13 +73,92 @@ class _Server(paramiko.ServerInterface):
         channel.close()
 
 
-def _serve(host_key, client_key, files) -> int:
+class _Typed:
+    """What the installer types into a terminal, line by line."""
+
+    def __init__(self, chan, echo: bool):
+        self.chan, self.echo, self.pending = chan, echo, b""
+
+    def line(self) -> str:
+        while b"\n" not in self.pending:
+            data = self.chan.recv(1024)
+            if not data:
+                raise EOFError
+            if self.echo:
+                self.chan.send(data.replace(b"\n", b"\r\n"))
+            self.pending += data
+        line, self.pending = self.pending.split(b"\n", 1)
+        return line.decode()
+
+    def echo_the_rest(self, seconds: float) -> None:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if self.chan.recv_ready():
+                self.pending += self.chan.recv(1024)
+            time.sleep(0.01)
+        self.chan.send(self.pending.replace(b"\n", b"\r\n"))
+
+
+class _ProviderLogin(_Server):
+    """debian's first login with an expired password, as OpenSSH gives it
+    (session.c do_pwchange): passwd on the terminal, which echoes what was
+    typed after the retype, runs none of it and ends the session. The next
+    login, with the new password, gets a shell."""
+
+    def __init__(self, state: dict):
+        super().__init__(None, {})
+        self.state = state
+
+    def get_allowed_auths(self, username):
+        return "password"
+
+    def check_auth_password(self, username, password):
+        if username == "debian" and password == self.state["password"]:
+            return paramiko.AUTH_SUCCESSFUL
+        return paramiko.AUTH_FAILED
+
+    def check_channel_pty_request(self, *args):
+        return True
+
+    def check_channel_shell_request(self, channel):
+        session = self._passwd if self.state["expired"] else self._shell
+        threading.Thread(target=session, args=(channel,), daemon=True).start()
+        return True
+
+    def _passwd(self, chan):
+        typed = _Typed(chan, echo=False)
+        chan.send(b"WARNING: Your password has expired.\r\n"
+                  b"Changing password for debian.\r\nCurrent password: ")
+        current = typed.line()
+        chan.send(b"\r\nNew password: ")
+        new = typed.line()
+        chan.send(b"\r\nRetype new password: ")
+        if current == self.state["password"] and typed.line() == new:
+            typed.echo_the_rest(0.3)
+            self.state.update(password=new, expired=False)
+            chan.send(b"\r\npasswd: password updated successfully\r\n")
+        chan.send_exit_status(0)
+        chan.close()
+
+    def _shell(self, chan):
+        typed = _Typed(chan, echo=True)
+        while (line := typed.line()) != "exit":
+            if ">> ~/.ssh/authorized_keys" in line:
+                self.state["appended"] += 1
+            command, _, marker = line.rpartition("; echo ")
+            if command:
+                chan.send(marker.replace("''", "").encode() + b"\r\n")
+        chan.send_exit_status(0)
+        chan.close()
+
+
+def _serve(host_key, make_iface) -> int:
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(8)
 
     def connection(conn):
-        iface = _Server(client_key, files)
+        iface = make_iface()
         transport = paramiko.Transport(conn)
         transport.add_server_key(host_key)
         try:
@@ -121,7 +201,8 @@ def client_key(tmp_path) -> Path:
 def server(tmp_path, client_key):
     host_key = paramiko.RSAKey.generate(2048)
     files: dict = {}
-    port = _serve(host_key, remote.load_key(client_key), files)
+    key = remote.load_key(client_key)
+    port = _serve(host_key, lambda: _Server(key, files))
     return {"port": port, "files": files, "host_key": host_key,
             "known": tmp_path / "known_hosts"}
 
@@ -263,6 +344,18 @@ def test_nothing_listening_is_a_remote_error(tmp_path, client_key):
 def test_a_key_with_a_passphrase_is_named_as_such(tmp_path):
     with pytest.raises(remote.RemoteError, match="passphrase"):
         remote.load_key(_keygen(tmp_path / "locked", "secret"))
+
+
+def test_an_expired_provider_password_is_changed_then_the_key_added(tmp_path):
+    """The session passwd ends is logged into again with the new password:
+    its echo of what was typed after the retype is not a shell answering."""
+    state = {"password": "from-the-provider", "expired": True, "appended": 0}
+    port = _serve(paramiko.RSAKey.generate(2048), lambda: _ProviderLogin(state))
+    remote.install_key_with_password("127.0.0.1", port, "debian", state["password"],
+                                     "ssh-ed25519 AAAA catena",
+                                     known_hosts=tmp_path / "known_hosts")
+    assert not state["expired"] and state["password"] != "from-the-provider"
+    assert state["appended"] == 1
 
 
 def test_the_forward_reaches_the_servers_loopback(server, client_key):

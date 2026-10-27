@@ -295,13 +295,20 @@ class _Terminal:
     def send(self, line: str) -> None:
         self.chan.send(line + "\n")
 
+    def run(self, command: str, timeout: float = 30) -> None:
+        """Type `command` and wait until a shell has run it. The marker it
+        prints is typed split by an empty quote, so only the shell's output
+        matches, never the terminal's echo of the typed line, which passwd
+        ending a session also shows."""
+        token = secrets.token_hex(6)
+        self.send(f"{command}; echo __CATENA_''{token}__")
+        self.expect([rf"__CATENA_{token}__\r?\n"], timeout)
+
     def sync(self, timeout: float = 60) -> None:
-        """Wait until the shell runs what it is given, whatever banner and
-        prompt came before: echo a marker and wait for it."""
-        marker = "__CATENA_" + secrets.token_hex(6) + "__"
+        """Wait until a shell runs what it is given, whatever banner and
+        prompt came before."""
         self.send("")
-        self.send(f"echo {marker}")
-        self.expect([re.escape(marker) + r"\r?\n"], timeout)
+        self.run(":", timeout)
 
 
 def _random_password() -> str:
@@ -411,9 +418,7 @@ def _append_key(term: _Terminal, user: str, public_line: str) -> None:
         f"rm -f {keyfile}",
     ]
     for command in commands:
-        marker = "__CATENA_" + secrets.token_hex(6) + "__"
-        term.send(f"{command}; echo {marker}")
-        term.expect([re.escape(marker) + r"\r?\n"], timeout=30)
+        term.run(command)
     term.send("exit")
 
 
