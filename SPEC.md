@@ -245,6 +245,7 @@ another provider.
 | Snapshots list, browse and export without a restore | `bench:inplace_restore_suite#wizard-restore-stage-2-page-lists-backups`, `bench:pitr_fuse_round_trip#stage-5-browse-from-the-panel`, `bench:snapshot_export_round_trip#stage-3-extract-canary` |
 | Before each snapshot every running Postgres is exported as plain SQL, one file per database server, and a failed export fails the backup | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded`, `bench:fi_b2_pg_dump_failed#stage-3-abort-before-restic` |
 | The same holds for every running MariaDB | **no bench yet** |
+| A Postgres built on another image, such as pgvector, PostGIS or TimescaleDB, is exported and replayed like the official one | **no bench yet** |
 | After the first, a backup uploads only what changed | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded` |
 | The monitoring history of Gatus, Healthchecks and Beszel is in every backup, as every application's data is | `bench:backup_quarter_hourly#stage-6-only-the-change-is-uploaded` |
 | Before each snapshot the databases of Gatus, Healthchecks and Beszel are copied whole while they run, and a copy that fails fails the backup | `bench:ce_restore#stage-2a-the-monitoring-databases-are-copied-whole` |
