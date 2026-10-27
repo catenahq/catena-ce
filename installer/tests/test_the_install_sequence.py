@@ -264,6 +264,33 @@ def test_the_address_is_the_runs_then_the_inventorys(inventory):
     assert (server.name, server.host) == ("clientco1", "100.64.0.9")
 
 
+def test_the_address_names_where_it_came_from(inventory):
+    env = inventory / ".env"
+    assert install.Server.of(inventory).source == f"HOST_PUBLIC_IP in {env}"
+    assert install.Server.of(inventory, "100.64.0.5").source == "--address"
+    with env.open("a") as fh:
+        fh.write("HOST_SSH_ADDRESS=100.64.0.9\n")
+    assert install.Server.of(inventory).source == f"HOST_SSH_ADDRESS in {env}"
+    (inventory / "hosts.yml").write_text(
+        "all:\n  children:\n    vps:\n      hosts:\n        clone1:\n"
+        "          ansible_host: 10.0.0.7\n")
+    assert install.Server.of(inventory).source == (
+        f"the ansible_host of clone1 in {inventory / 'hosts.yml'}")
+
+
+def test_an_address_nothing_answers_at_names_its_source(monkeypatch, inventory):
+    def unreachable(host, port, user, key, **_kw):
+        raise remote.Unreachable(f"nothing answers SSH at {host}: [Errno 101] "
+                                 "Network is unreachable")
+    monkeypatch.setattr(remote, "connect_key", unreachable)
+    rc, lines, _ = _run(inventory)
+    assert rc == 1
+    assert lines == ["catena-installer: nothing answers SSH at 203.0.113.10: [Errno 101] "
+                     f"Network is unreachable (address from HOST_PUBLIC_IP in {inventory / '.env'})"]
+    with pytest.raises(remote.Unreachable, match="address from HOST_PUBLIC_IP"):
+        install.connect(inventory)
+
+
 def test_the_markers_are_the_servers():
     script = (ANSIBLE / "install-host.sh").read_text()
     assert f'KEYSET_BEGIN="{install.KEYSET_BEGIN}"' in script
