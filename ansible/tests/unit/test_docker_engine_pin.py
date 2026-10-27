@@ -77,7 +77,7 @@ def test_the_held_list_is_the_engine_trio_and_uninstall_releases_it():
     assert "['apt-mark', 'unhold'] + catena_held_engine_packages" in uninstall
 
 
-def test_renovate_proposes_the_pins_after_fourteen_days_by_hand():
+def test_renovate_proposes_the_pins_after_fourteen_days():
     cfg = json.loads((ANSIBLE.parent / "renovate.json").read_text())
     tracked = {m["depNameTemplate"]: m for m in cfg["customManagers"]}
     assert "docker_version" in tracked["docker-engine"]["matchStrings"][0]
@@ -85,7 +85,7 @@ def test_renovate_proposes_the_pins_after_fourteen_days_by_hand():
     rules = cfg["packageRules"]
     age = next(r for r in rules if "minimumReleaseAge" in r)
     assert set(age["matchDepNames"]) == {"docker-engine", "containerd"}
-    assert age["minimumReleaseAge"] == "14 days" and age["automerge"] is False
+    assert age["minimumReleaseAge"] == "14 days" and "automerge" not in age
     held_back = next(r for r in rules if r.get("enabled") is False)
     assert held_back["matchDepNames"] == ["containerd"]
     assert set(held_back["matchUpdateTypes"]) == {"minor", "major"}
