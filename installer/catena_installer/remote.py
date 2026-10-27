@@ -41,6 +41,10 @@ class RemoteError(Exception):
     """The server could not be reached or used as the install needs."""
 
 
+class Unreachable(RemoteError):
+    """Nothing answers SSH at the address."""
+
+
 class AuthRefused(RemoteError):
     """The server answered and refused the login."""
 
@@ -120,7 +124,7 @@ def _transport(host: str, port: int, *, known_hosts: Path, reinstalled: bool,
     try:
         sock = socket.create_connection((host, port), timeout=TIMEOUT)
     except OSError as exc:
-        raise RemoteError(f"nothing answers SSH at {name}: {exc}") from exc
+        raise Unreachable(f"nothing answers SSH at {name}: {exc}") from exc
     transport = paramiko.Transport(sock)
     if trusted and not reinstalled:
         # Ask for a key type this machine holds, as OpenSSH does: a server

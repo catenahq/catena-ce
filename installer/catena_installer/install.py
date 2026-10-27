@@ -61,25 +61,42 @@ class Server:
     ops_user: str
     key: Path
     public_ip: str
+    source: str = ""
 
     @classmethod
     def of(cls, inv_dir: Path, address: str = "") -> "Server":
         """The address is `address`, else a literal one hosts.yml gives its
-        vps host, else HOST_SSH_ADDRESS, else HOST_PUBLIC_IP."""
-        env = tree.seed().read_existing_env(inv_dir / ".env")
+        vps host, else HOST_SSH_ADDRESS, else HOST_PUBLIC_IP; `source` says
+        which."""
+        env_file = inv_dir / ".env"
+        env = tree.seed().read_existing_env(env_file)
         name, listed = _vps_host(inv_dir)
+        name = name or f"{inv_dir.name}1"
         port = (env.get("HOST_SSH_PORT") or "22").strip() or "22"
+        public_ip = (env.get("HOST_PUBLIC_IP") or "").strip()
+        host, source = next(((h, s) for h, s in (
+            (address, "--address"),
+            (listed, f"the ansible_host of {name} in {inv_dir / 'hosts.yml'}"),
+            ((env.get("HOST_SSH_ADDRESS") or "").strip(), f"HOST_SSH_ADDRESS in {env_file}"),
+            (public_ip, f"HOST_PUBLIC_IP in {env_file}"),
+        ) if h), ("", ""))
         return cls(
             inventory=inv_dir,
-            name=name or f"{inv_dir.name}1",
-            host=(address or listed or (env.get("HOST_SSH_ADDRESS") or "").strip()
-                  or (env.get("HOST_PUBLIC_IP") or "").strip()),
+            name=name,
+            host=host,
             port=int(port),
             initial_user=(env.get("HOST_INITIAL_USER") or "root").strip() or "root",
             ops_user=(env.get("OPS_USER") or "ops").strip() or "ops",
             key=Path(env.get("SSH_PRIVATE_KEY") or keys.DEFAULT_KEY).expanduser(),
-            public_ip=(env.get("HOST_PUBLIC_IP") or "").strip(),
+            public_ip=public_ip,
+            source=source,
         )
+
+    def explain(self, exc: Exception) -> str:
+        """`exc`, and where the address came from when nothing answered at it."""
+        if isinstance(exc, remote.Unreachable):
+            return f"{exc} (address from {self.source})"
+        return str(exc)
 
 
 def _vps_host(inv_dir: Path) -> tuple[str, str]:
@@ -259,7 +276,7 @@ def run(inv_dir: Path, opts: Options, out: Output) -> int:
     except (remote.HostKeyChanged, PasswordNeeded):
         raise
     except (remote.RemoteError, keys.KeyPairError, OSError) as exc:
-        out.line(f"catena-installer: {exc}")
+        out.line(f"catena-installer: {server.explain(exc)}")
         return 1
 
 
@@ -275,7 +292,7 @@ def uninstall(inv_dir: Path, opts: Options, line: Callable[[str], None]) -> int:
         finally:
             session.close()
     except (remote.RemoteError, keys.KeyPairError, OSError) as exc:
-        line(f"catena-installer: {exc}")
+        line(f"catena-installer: {server.explain(exc)}")
         return 1
 
 
@@ -283,5 +300,8 @@ def connect(inv_dir: Path, address: str = "") -> remote.Forward:
     """The panel, forwarded to this machine through the panel account, which can
     do nothing but that."""
     server = Server.of(inv_dir, address)
-    session = remote.connect_key(server.host, server.port, PANEL_USER, server.key)
+    try:
+        session = remote.connect_key(server.host, server.port, PANEL_USER, server.key)
+    except remote.Unreachable as exc:
+        raise remote.Unreachable(server.explain(exc)) from exc
     return remote.Forward(session, [PANEL_PORT])

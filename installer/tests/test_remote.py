@@ -255,7 +255,7 @@ def test_nothing_listening_is_a_remote_error(tmp_path, client_key):
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     sock.close()
-    with pytest.raises(remote.RemoteError):
+    with pytest.raises(remote.Unreachable, match="nothing answers SSH at"):
         remote.connect_key("127.0.0.1", port, "ops", client_key,
                            known_hosts=tmp_path / "known_hosts")
 
