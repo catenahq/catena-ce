@@ -56,7 +56,8 @@ def test_an_installed_engine_is_left_where_it_is():
     installed one is catena-engine-upgrade's, behind its health check."""
     install = _task("Install the pinned container engine")
     assert install["ansible.builtin.apt"]["name"] == "{{ docker_engine_packages }}"
-    assert "install ok installed" in install["when"]
+    # The engine is held after install, so dpkg reports "hold ok installed".
+    assert "' ok installed' not in" in install["when"]
 
 
 def test_the_engine_is_held_after_every_install_path():
