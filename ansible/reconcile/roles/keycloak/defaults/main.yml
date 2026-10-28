@@ -99,6 +99,10 @@ keycloak_realm_seed_dir: "{{ keycloak_config_dir }}/seed"
 # (tasks/realm_bootstrap.yml).
 keycloak_admin_email_record: "/var/lib/catena/keycloak-realm-admin-email"
 
+# Present once the realm administrator has been given the realm-admin role
+# (tasks/realm_bootstrap.yml); a role removed by hand afterwards stays removed.
+keycloak_realm_admin_role_marker: "/var/lib/catena/keycloak-realm-admin-role-granted"
+
 # Realm name owning all per-VPS clients + groups + users. Single-realm
 # per VPS today; Phase Two Organizations (multi-tenancy inside one
 # realm) is the upgrade path when a client wants sub-tenants.

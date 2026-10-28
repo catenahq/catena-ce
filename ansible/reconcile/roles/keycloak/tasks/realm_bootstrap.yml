@@ -890,6 +890,33 @@
   register: _keycloak_admin_rejoin
   changed_when: "'joined:' in _keycloak_admin_rejoin.stdout"
 
+# The realm admin opens the realm's own admin console through the realm-admin
+# role, which the seed gives a new realm. A host seeded before it gets the role
+# here, once: the marker is written when the account holds it, so a role an
+# administrator removes by hand stays removed. Only adds. No account yet leaves
+# the marker unwritten for the next converge.
+- name: "Keycloak realm: the realm admin holds the realm-admin role once"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    admin={{ admin_email | quote }}
+    user=$(kc get users -r "$realm" -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
+    if [ -z "$user" ]; then
+      exit 0
+    fi
+    held=$(kc get-roles -r "$realm" --uusername "$admin" --cclientid realm-management --fields name --format csv --noquotes)
+    if ! grep -qxF realm-admin <<<"$held"; then
+      kc add-roles -r "$realm" --uusername "$admin" --cclientid realm-management --rolename realm-admin
+      echo "granted: realm-admin to $admin"
+    fi
+    : > {{ keycloak_realm_admin_role_marker | quote }}
+  args:
+    executable: /bin/bash
+    creates: "{{ keycloak_realm_admin_role_marker }}"
+  register: _keycloak_admin_console_role
+  changed_when: "'granted:' in _keycloak_admin_console_role.stdout"
+
 # The administrator's first and last name are the person's own data, seeded once
 # from the store: a name is written only while empty, so one changed in the
 # Account Console stays. The vps realm's user profile requires both names, and

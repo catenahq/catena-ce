@@ -214,6 +214,11 @@ users:
       - /admin
     realmRoles:
       - default-roles-{{ keycloak_realm }}
+    # realm-admin lets this account open the realm's own admin console, which
+    # the panel's Keycloak tile links to.
+    clientRoles:
+      realm-management:
+        - realm-admin
 {% endif %}
 
 # Realm-level SMTP config, from the outgoing mail chosen in the panel's

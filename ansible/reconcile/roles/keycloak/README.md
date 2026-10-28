@@ -57,7 +57,10 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      (`catena-tier-admin`, `catena-tier-staff`) and grants each to its group
      (`/admin`, `/staff`), adds the scopes applications need to the realm's
      default client scopes, puts the realm admin back in `/admin` when
-     `/admin` has no member, and fails the converge naming each identity
+     `/admin` has no member, gives the realm admin the `realm-admin` role of
+     the realm-management client once (the realm's own admin console opens
+     for it; the seed gives it to a new realm, and a marker under
+     `/var/lib/catena` keeps a role removed by hand removed), and fails the converge naming each identity
      provider that names no post-broker-login flow. It reports a realm switched off,
      moves the sign-in page name to a new domain (below), then reads the two
      sign-in flows' ids (`keycloak_signin_flows`), which dashboard-sync's env
@@ -125,6 +128,9 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
   the realm admin's account, and the realm's Enabled switch: a realm an
   administrator switched off stays off, and the converge completes on it and
   says so.
+- The realm admin's `realm-admin` role is given once, by the seed or by the
+  converge step that writes `keycloak_realm_admin_role_marker`; a role removed
+  by hand afterwards stays removed.
 - The administrator's first and last name are written into the admin's account
   in the master realm and in the realm while that name is empty; a name set in
   Keycloak stays. A name the realm's profile refuses is a warning.
