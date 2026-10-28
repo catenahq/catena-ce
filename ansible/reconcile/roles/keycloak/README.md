@@ -72,7 +72,10 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      to, which dashboard-sync marks with the client scope named after the
      entry's flow (`catena-signin-admin`, `catena-signin-staff`). Both checks
      end in the extension's `catena-tier-refusal` step, which refuses without
-     counting toward the lockout. The extension's `catena-tier-binding` names
+     counting toward the lockout, and admits instead a user who is a direct
+     member of a top-level group named in the comma list in the entry's client
+     attribute `catena.access.groups` (written by dashboard-sync, which holds
+     `manage-clients`; the panel's credential cannot). The extension's `catena-tier-binding` names
      the flow on each provider that names none, when an administrator creates,
      updates or imports one and for the providers present when Keycloak starts;
      the converge first checks that Keycloak lists both providers.

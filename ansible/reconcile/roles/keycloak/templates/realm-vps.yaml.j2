@@ -278,7 +278,10 @@ attributes:
 # the tier roles the flow admits. That step is catena-tier-refusal, from the
 # extension JAR in Keycloak's providers directory (provider/): it refuses like
 # Keycloak's deny-access step, with the access-denied page, and does not count
-# toward the lockout, so a refusal by tier never locks the account.
+# toward the lockout, so a refusal by tier never locks the account. The step
+# admits instead the direct members of the top-level groups named in the comma
+# list of the client attribute catena.access.groups, which dashboard-sync alone
+# writes; an entry without the attribute admits by tier only.
 #
 # An account that signs in through an external identity provider finishes in
 # Keycloak's broker flows and never returns to these (IdentityBrokerService).
