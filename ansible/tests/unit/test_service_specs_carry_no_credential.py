@@ -165,6 +165,7 @@ def test_the_beszel_hub_spec_carries_no_credential():
         "beszel_hub_data_volume": "beszel-hub-data",
         "beszel_hub_host_localhost_port": 18190,
         "beszel_network": "catena-beszel",
+        "beszel_gate_network": "catena-beszel-gate",
     }))
     env = doc["services"]["app"]["environment"]
     assert not {"USER_EMAIL", "USER_PASSWORD"} & set(env)

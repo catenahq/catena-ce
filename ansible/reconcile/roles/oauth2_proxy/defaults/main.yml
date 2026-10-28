@@ -187,13 +187,21 @@ oauth2_proxy_apps:
   # its Keycloak sign-in creates a hub account for any realm user who reaches
   # it (USER_CREATION in reconcile/roles/infrastructure/templates/
   # beszel-hub.compose.yml.j2), so the group filter here is what limits who
-  # gets one, and the hub is on beszel_network only: this instance joins it,
-  # no client app does. upstream_alias is the hub's alias there
-  # (beszel_hub_network_alias), 8090 its internal port.
+  # gets one. This instance and the hub alone are on beszel_gate_network, and
+  # the hub signs in as the email this gate sets only for peers on it
+  # (TRUSTED_AUTH_HEADER in the hub's compose), so no other service, and no
+  # skip-auth route or --skip-auth-strip-headers, may be added here.
+  # upstream_alias is the hub's alias there (beszel_hub_network_alias), 8090
+  # its internal port.
   - slug: "beszel"
     host_var: "beszel_hostname"
     upstream_alias: "beszel-hub"
     upstream_port: 8090
     allowed_groups: ["admin"]
     cookie_secret_var: "beszel_gate_cookie_secret"
-    networks: ["{{ beszel_network }}"]
+    networks: ["{{ beszel_gate_network }}"]
+    # The hub signs in whoever sends a request with no token, and this gate's
+    # cookie is lax, so Traefik refuses /api/ calls the hub's own page did not
+    # make (templates/app-oauth2-proxy.yml.j2). The agents reach the hub on the
+    # host loopback, not through Traefik.
+    cross_site_api_refused: true

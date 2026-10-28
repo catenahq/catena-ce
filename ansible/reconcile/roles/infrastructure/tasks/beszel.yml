@@ -73,13 +73,40 @@
     - _beszel_ports_fragment.changed
     - catena_public_ports_installed | default(true) | bool
 
+# The hub trusts the sign-in header from peers inside this subnet. Beszel
+# trusts EVERY peer when the allowlist is empty, so the converge stops unless
+# the network carries exactly one IPv4 CIDR no wider than /8.
+- name: "Beszel: read the gate network's subnet"
+  ansible.builtin.command:
+    argv: [docker, network, inspect, "{{ beszel_gate_network }}"]
+  register: _beszel_gate_inspect
+  changed_when: false
+
+- name: "Beszel: the gate network has exactly one valid subnet"
+  ansible.builtin.assert:
+    that:
+      - _beszel_gate_configs | length == 1
+      - _beszel_gate_configs[0].Subnet | default('') is match(_beszel_cidr_pattern)
+    fail_msg: >-
+      {{ beszel_gate_network }} must carry exactly one IPv4 subnet (found
+      {{ _beszel_gate_configs | map(attribute='Subnet', default='') | list }}).
+      Without a valid one the hub would trust the sign-in header from any peer,
+      so it is not deployed.
+  vars:
+    _beszel_gate_configs: "{{ (_beszel_gate_inspect.stdout | from_json)[0].IPAM.Config | default([], true) }}"
+    _beszel_cidr_pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/([89]|1[0-9]|2[0-9]|30)$'
+
+- name: "Beszel: pin the gate network's subnet as a fact"
+  ansible.builtin.set_fact:
+    _beszel_gate_subnet: "{{ (_beszel_gate_inspect.stdout | from_json)[0].IPAM.Config[0].Subnet }}"
+
 - name: "Beszel: deploy hub as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ beszel_hub_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hub.compose.yml.j2') }}"
-    # No route of its own: the hub is on beszel_network, which Traefik is
-    # not, so its one public path is its gate's route.
+    # No route of its own: the hub is on beszel_network and beszel_gate_network,
+    # which Traefik is not, so its one public path is its gate's route.
     svc_domain_host: ""
     # Public readiness (302 through oauth2-proxy) is verified by the
     # aggregate post-role probe in main.yml. The pubkey read + seed below
