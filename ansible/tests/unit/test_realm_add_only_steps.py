@@ -72,13 +72,13 @@ FAKE_DOCKER = textwrap.dedent('''\
         fields = dict(kc[i + 1].split("=", 1) for i, a in enumerate(kc) if a == "-s")
         state["roles"][fields["name"]] = fields["description"]
         done()
-    if verb == "get-roles" and "--uusername" in kc:
+    if verb == "get-roles" and "--uid" in kc:
         assert opt("--cclientid") == "realm-management" and opt("--fields") == "name"
-        print("\\n".join(state["user_roles"].get(opt("--uusername"), [])))
+        print("\\n".join(state["user_roles"].get(opt("--uid"), [])))
         done()
-    if verb == "add-roles" and "--uusername" in kc:
+    if verb == "add-roles" and "--uid" in kc:
         assert opt("--cclientid") == "realm-management" and opt("--rolename") == "realm-admin", kc
-        state["user_roles"].setdefault(opt("--uusername"), []).append(opt("--rolename"))
+        state["user_roles"].setdefault(opt("--uid"), []).append(opt("--rolename"))
         done()
     if verb == "get-roles":
         assert opt("--fields") == "name" and opt("--format") == "csv" and "--noquotes" in kc
@@ -351,14 +351,14 @@ def test_the_console_step_is_guarded_by_the_marker_it_writes():
 
 def test_a_host_seeded_before_the_role_gets_it_and_the_marker(tmp_path):
     (_, out, _, changed), state, marked = _console(tmp_path, _realm(users={ADMIN: "u-admin"}))
-    assert state["user_roles"] == {ADMIN: ["realm-admin"]}
+    assert state["user_roles"] == {"u-admin": ["realm-admin"]}
     assert out == f"granted: realm-admin to {ADMIN}\n" and changed and marked
 
 
 def test_a_fresh_host_holding_the_role_only_gets_the_marker(tmp_path):
-    realm = _realm(users={ADMIN: "u-admin"}, user_roles={ADMIN: ["realm-admin"]})
+    realm = _realm(users={ADMIN: "u-admin"}, user_roles={"u-admin": ["realm-admin"]})
     (_, out, _, changed), state, marked = _console(tmp_path, realm)
-    assert state["user_roles"] == {ADMIN: ["realm-admin"]}
+    assert state["user_roles"] == {"u-admin": ["realm-admin"]}
     assert "add-roles" not in _verbs(state)
     assert out == "" and not changed and marked
 

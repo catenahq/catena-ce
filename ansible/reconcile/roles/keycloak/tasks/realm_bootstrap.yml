@@ -958,7 +958,8 @@
 # role, which the seed gives a new realm. A host seeded before it gets the role
 # here, once: the marker is written when the account holds it, so a role an
 # administrator removes by hand stays removed. Only adds. No account yet leaves
-# the marker unwritten for the next converge.
+# the marker unwritten for the next converge. The role calls name the account by
+# id: kcadm's --uusername lookup finds no username holding a '+'.
 - name: "Keycloak realm: the realm admin holds the realm-admin role once"
   ansible.builtin.shell: |
     set -euo pipefail
@@ -969,9 +970,9 @@
     if [ -z "$user" ]; then
       exit 0
     fi
-    held=$(kc get-roles -r "$realm" --uusername "$admin" --cclientid realm-management --fields name --format csv --noquotes)
+    held=$(kc get-roles -r "$realm" --uid "$user" --cclientid realm-management --fields name --format csv --noquotes)
     if ! grep -qxF realm-admin <<<"$held"; then
-      kc add-roles -r "$realm" --uusername "$admin" --cclientid realm-management --rolename realm-admin
+      kc add-roles -r "$realm" --uid "$user" --cclientid realm-management --rolename realm-admin
       echo "granted: realm-admin to $admin"
     fi
     : > {{ keycloak_realm_admin_role_marker | quote }}
