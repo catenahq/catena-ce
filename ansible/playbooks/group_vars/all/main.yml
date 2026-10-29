@@ -383,7 +383,7 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 #   catena_admin_extra_actions:
 #     - name: acme-refresh-prices
 #       title: "Refresh ACME prices"
-#       icon: "&#128176;"   # 💰
+#       icon: "coin"
 #       timeout: 60
 #       shell: "sudo -u acme /opt/acme/bin/refresh-prices"
 #
