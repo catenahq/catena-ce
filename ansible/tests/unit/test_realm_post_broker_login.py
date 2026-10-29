@@ -6,7 +6,7 @@ the application's browser flow, so the tier check of catena-signin-admin and
 catena-signin-staff does not run for it; a provider runs a post-broker-login
 flow when it names one, and the realm has no default for it
 (IdentityBrokerService finishOrRedirectToPostBrokerLogin, Keycloak 26.6.7).
-realm-vps.yaml.j2 declares catena-post-broker-login: per tier, a conditional
+realm-vps.yaml.j2 declares catena-post-broker-login-v<hex>: per tier, a conditional
 sub-flow that holds at an entry carrying the client scope named after the
 tier's flow (conditional-client-scope reads the entry's default scopes,
 TokenManager getRequestedClientScopes) for an account holding none of the roles
@@ -36,9 +36,9 @@ from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
 from test_realm_bootstrap_settles import BOOTSTRAP, _render
-from test_realm_signin_flows import ADMITTED, REFUSAL
+from test_realm_signin_flows import ADMITTED, REFUSAL, _aliases
 
-FLOW = "catena-post-broker-login"
+FLOW = _aliases()["catena-post-broker-login"]
 BIND = "every identity provider runs the tier check after a brokered sign-in"
 CT = "keycloak_server.1.abc"
 ROLES = ["catena-tier-admin", "catena-tier-staff"]
@@ -85,7 +85,7 @@ def _post_broker_refuses(realm, scopes: set, roles: set) -> bool:
 
 def _browser_refuses(realm, tier: str, roles: set) -> bool:
     flows, configs = _flows(realm), _configs(realm)
-    return _conditions_hold(flows[f"catena-signin-{tier} tier check"], configs, set(), roles)
+    return _conditions_hold(flows[f"{_aliases()[f'catena-signin-{tier}']} tier check"], configs, set(), roles)
 
 
 # --- the flow ------------------------------------------------------------------
@@ -195,7 +195,8 @@ FAKE_DOCKER = textwrap.dedent('''\
         print(p["alias"] + "," + (p.get("post") or ""))
 ''')
 
-LISTED = {"authenticator": {"providers": {"catena-tier-refusal": {}}},
+LISTED = {"authenticator": {"providers": {"catena-tier-refusal": {},
+                                          "catena-client-email-code": {}}},
           "eventsListener": {"providers": {"catena-tier-binding": {}}}}
 
 
@@ -274,14 +275,17 @@ def test_a_keycloak_listing_both_providers_passes(tmp_path):
     assert state["calls"] == [["get", "serverinfo"]]
 
 
-@pytest.mark.parametrize("missing", ["authenticator", "eventsListener"])
-def test_a_keycloak_missing_either_provider_stops_the_converge(tmp_path, missing):
-    listed = {spi: info for spi, info in LISTED.items() if spi != missing}
+@pytest.mark.parametrize("spi, provider", [
+    ("authenticator", "catena-tier-refusal"),
+    ("authenticator", "catena-client-email-code"),
+    ("eventsListener", "catena-tier-binding")])
+def test_a_keycloak_missing_any_provider_stops_the_converge(tmp_path, spi, provider):
+    listed = {name: {"providers": {pid: {} for pid in info["providers"]
+                                   if not (name == spi and pid == provider)}}
+              for name, info in LISTED.items()}
     proc, _ = _loaded(tmp_path, listed)
     assert proc.returncode != 0
-    wanted = {"authenticator": "authenticator/catena-tier-refusal",
-              "eventsListener": "eventsListener/catena-tier-binding"}[missing]
-    assert wanted in proc.stderr and "not loaded" in proc.stderr
+    assert f"{spi}/{provider}" in proc.stderr and "not loaded" in proc.stderr
 
 
 def test_the_extension_is_checked_before_the_import_that_needs_it():

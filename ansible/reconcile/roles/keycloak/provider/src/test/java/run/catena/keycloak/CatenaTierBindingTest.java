@@ -39,6 +39,7 @@ import org.mockito.ArgumentCaptor;
 class CatenaTierBindingTest {
 
     private static final String FLOW_ID = "flow-id";
+    private static final String FLOW_ALIAS = "catena-post-broker-login-v0123abcd";
     private static final String ADMIN_REALM_ID = "admin-realm-id";
 
     private KeycloakSession session;
@@ -83,7 +84,8 @@ class CatenaTierBindingTest {
         if (holdsFlow) {
             AuthenticationFlowModel flow = new AuthenticationFlowModel();
             flow.setId(FLOW_ID);
-            when(r.getFlowByAlias(CatenaTierBindingListener.FLOW_ALIAS)).thenReturn(flow);
+            when(r.getAttribute(CatenaTierBindingListener.FLOW_ATTRIBUTE)).thenReturn(FLOW_ALIAS);
+            when(r.getFlowByAlias(FLOW_ALIAS)).thenReturn(flow);
         }
         return r;
     }
@@ -252,6 +254,26 @@ class CatenaTierBindingTest {
     @Test
     void aRealmWithoutTheFlowChangesNothing() {
         realm = realm("corp", false);
+        when(providers.getByIdOrAlias("idp-alias")).thenReturn(cached(null));
+
+        listener.onEvent(providerEvent(OperationType.CREATE, "idp-alias", ADMIN_REALM_ID, "caller"), false);
+
+        verify(providers, never()).update(any());
+    }
+
+    @Test
+    void aRealmWhoseAttributeNamesNoFlowChangesNothing() {
+        when(realm.getAttribute(CatenaTierBindingListener.FLOW_ATTRIBUTE)).thenReturn(" ");
+        when(providers.getByIdOrAlias("idp-alias")).thenReturn(cached(null));
+
+        listener.onEvent(providerEvent(OperationType.CREATE, "idp-alias", ADMIN_REALM_ID, "caller"), false);
+
+        verify(providers, never()).update(any());
+    }
+
+    @Test
+    void aRealmWhoseAttributeNamesAMissingFlowChangesNothing() {
+        when(realm.getAttribute(CatenaTierBindingListener.FLOW_ATTRIBUTE)).thenReturn("catena-post-broker-login");
         when(providers.getByIdOrAlias("idp-alias")).thenReturn(cached(null));
 
         listener.onEvent(providerEvent(OperationType.CREATE, "idp-alias", ADMIN_REALM_ID, "caller"), false);

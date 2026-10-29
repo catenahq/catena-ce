@@ -1,0 +1,32 @@
+---
+# Reads top-level sign-in flows through kcadm, for realm_bootstrap.yml.
+# Parameters:
+#
+#   kc_flow_aliases    the flows to read
+#   kc_flow_container  the Keycloak container, signed in to the master realm
+#
+# Registers _kc_flow_executions: one line per alias, the alias, a tab, and
+# {"flow": the flow's own record, "executions": its executions at every level}
+# as one line of JSON, or `null` for a flow Keycloak does not return.
+# keycloak_flow_digests (playbooks/filter_plugins/keycloak_signin_flows.py)
+# turns it into digests.
+- name: "Keycloak realm: read the executions of the sign-in flows"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ kc_flow_container | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    flows=$(kc get authentication/flows -r "$realm" --fields id,alias)
+    for alias in {{ kc_flow_aliases | map('quote') | join(' ') }}; do
+      id=$(printf '%s' "$flows" | ALIAS="$alias" python3 -I -c 'import json, os, sys; print(next((f["id"] for f in json.load(sys.stdin) if f["alias"] == os.environ["ALIAS"]), ""))')
+      if [ -n "$id" ] && flow=$(kc get "authentication/flows/$id" -r "$realm" 2>/dev/null) \
+          && body=$(kc get "authentication/flows/$alias/executions" -r "$realm" 2>/dev/null); then
+        line=$(FLOW="$flow" BODY="$body" python3 -I -c 'import json, os; print(json.dumps({"flow": json.loads(os.environ["FLOW"]), "executions": json.loads(os.environ["BODY"])}))')
+        printf '%s\t%s\n' "$alias" "$line"
+      else
+        printf '%s\tnull\n' "$alias"
+      fi
+    done
+  args:
+    executable: /bin/bash
+  register: _kc_flow_executions
+  changed_when: false

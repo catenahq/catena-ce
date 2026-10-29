@@ -120,6 +120,14 @@ keycloak_realm: "vps"
 keycloak_realm_display_name: "{{ cloudflare_zone }}"
 keycloak_realm_display_name_attribute: "catenaDisplayName"
 
+# The realm attribute naming the post-broker-login flow the extension binds
+# identity providers to (provider/.../CatenaTierBindingListener.java).
+keycloak_realm_post_broker_attribute: "catenaPostBrokerLoginFlow"
+
+# Per-flow digests of the sign-in flows the last successful import built, and
+# the generation they were built under (playbooks/filter_plugins/keycloak_signin_flows.py).
+keycloak_flows_record: "/var/lib/catena/keycloak-flows.json"
+
 # Nightly realm-export OnCalendar. Default 03:30 host-local --
 # spaced from the backup window (default 02:00) and any auto-update
 # fire window. Override per inventory if the host has unusual

@@ -1,1 +1,2 @@
+run.catena.keycloak.CatenaClientEmailCodeAuthenticatorFactory
 run.catena.keycloak.CatenaTierRefusalAuthenticatorFactory
