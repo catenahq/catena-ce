@@ -409,8 +409,10 @@ compose file, its `.env` and a record of where it came from, and the host's
 file declares its settings and its commands. Per-app compose files and wiring
 live in `catena-templates`. Shared services answer on `auth`, `dash`, `gatus`,
 `healthchecks` and `beszel` under the domain. Each sign-in entry admits one
-tier, administrators or staff; Catena's sign-on extension
-(`ansible/reconcile/roles/keycloak/provider`) refuses an account outside it.
+tier, administrators or staff, or every account when the application's labels
+open it to clients; an entry also admits the members of the access groups its
+application declares. Catena's sign-on extension
+(`ansible/reconcile/roles/keycloak/provider`) refuses everybody else.
 
 | Invariant | Enforced by |
 | --- | --- |
@@ -418,8 +420,10 @@ tier, administrators or staff; Catena's sign-on extension
 | An application can publish several addresses, each routed, watched and gated on its own; an address another application holds, or one of Catena's, is refused, and an application's own proxy labels route nothing | `bench:app_several_addresses#stage-1-a-route-per-address`, `bench:app_several_addresses#stage-3-access-per-address`, `bench:app_several_addresses#stage-4-a-cookie-opens-its-own-address-alone`, `bench:app_several_addresses#stage-5-a-status-card-per-address`, `bench:app_several_addresses#stage-6-a-taken-host-is-refused`, `bench:app_several_addresses#stage-9-catena-addresses-refused`, `bench:app_several_addresses#stage-10-traefik-labels-route-nothing` |
 | An application that asks for single sign-on gets its own sign-in entry, kept in step with its labels and removed with the application; entries made by hand are left alone | `bench:oidc_label_client_provisioned`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `threat:CV13` |
 | Catalogue applications that offer single sign-on in their free edition sign in with the suite's account | `bench:catalog_app_sign_in` |
-| An account outside a sign-in entry's tier is refused on the sign-on page, also when it signs in through an external identity provider, and a refusal on tier counts no failed sign-in | `bench:catalog_app_sign_in#stage-client-tier-refused`, `bench:catalog_app_sign_in#stage-broker-tier-check`, `threat:CV2` |
+| An account outside a sign-in entry's tier and its access groups is refused on the sign-on page, also when it signs in through an external identity provider, and a refusal on tier counts no failed sign-in | `bench:catalog_app_sign_in#stage-client-tier-refused`, `bench:catalog_app_sign_in#stage-broker-tier-check`, `workflow:ci.yml#keycloak-provider`, `threat:CV2` |
 | Every identity provider runs the tier check from the moment it is added, an organization's included, and a converge keeps the sign-in flows as they are | `bench:catalog_app_sign_in#stage-broker-before-converge`, `bench:catalog_app_sign_in#stage-broker-organization-provider`, `bench:catalog_app_sign_in#stage-broker-converge-keeps-the-flows`, `workflow:ci.yml#keycloak-provider` |
+| A client may sign in with a code emailed to the address they type, in place of the password, while outgoing mail is set; every address gets the same answer, staff, administrators, disabled and unknown accounts are sent no code and cannot use one, a code that does not sign in counts toward the lockout, and the code never creates an account | `workflow:ci.yml#keycloak-provider` |
+| A changed sign-in flow is built whole under a new name before the realm is bound to it, so a failed converge leaves sign-in working on the previous version; a flow edited by hand is replaced by a new version, and versions nothing names are removed | `workflow:ci.yml#installer` |
 | Each application gets a password generated on the host | **no bench yet** |
 | An application's hooks configure it after every deploy, and a further deploy changes nothing | `bench:suite_wiring_commands#stage-talk-hpb-wired`, `bench:wordpress_install_and_mail#stage-6-a-converge-changes-nothing`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `bench:nextcloud_versions_retention_applied#stage-1-occ-reads-retention`, `bench:nextcloud_versions_retention_applied#stage-2-occ-reads-trash-retention` |
 | A certificate an application declares is issued by the host into its volume and loaded, and the scheduled renewal replaces a due one and has the application serve it | `bench:fi_c7_coturn_cert_expired#stage-1-renewal-job-renews`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `bench:app_declared_needs#stage-1-needs-met-before-the-deploy` |
@@ -486,6 +490,11 @@ tier, administrators or staff; Catena's sign-on extension
 | Admins see the version each application and service runs | `bench:versions_shown_to_administrators#stage-3-system-tab-names-the-versions` |
 | The System tab shows the server's own processor readings and links out to the resource monitor | `bench:catena_admin_resources_tab_links_beszel#stage-1-resources-redirects-into-system`, `bench:catena_admin_resources_tab_links_beszel#stage-2-system-links-the-monitor`, `bench:catena_admin_resources_tab_links_beszel#stage-3-system-shows-this-servers-readings` |
 | Gatus names each service without its version, so its history survives updates | **no bench yet** |
+| The installer's administrator opens the sign-on realm's own admin console; a role removed by hand stays removed | `bench:keycloak_master_realm_hardening#stage-8-realm-admin-opens-the-realm-console` |
+| The resource monitor opens signed in for an administrator who passed its sign-in gate, refuses a call from another site, and keeps its own password sign-in for when the sign-on service is down | `bench:gatus_probes_beszel_hub#stage-6-the-gate-signs-the-admin-in`, `bench:gatus_probes_beszel_hub#stage-7-a-forged-email-signs-no-one-in`, `bench:gatus_probes_beszel_hub#stage-8-a-cross-site-call-is-refused`, `threat:CV2` |
+| Each Settings section shows whether its last check passed after its last save; a value changed outside the dashboard clears it | **no bench yet** |
+| Outgoing mail sends a test message to the admin address on request | **no bench yet** |
+| With Catena Business, each change made through the panel appears in the Log tab with who made it and whether it was refused | **no bench yet** |
 
 ## Paid features
 
