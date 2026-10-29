@@ -19,13 +19,15 @@ and Beszel, and the `catena-network-nudge` self-heal.
 - `docker node update --label-add catena.role=<label>`, only when the label
   differs. The label lives in the swarm raft, which no snapshot carries.
 - `docker network create --driver overlay` for `healthchecks_network`,
-  and `beszel_network`, each when it is absent.
+  `beszel_network` and `beszel_gate_network`, each when it is absent.
   Healthchecks takes the signed-in user from a header anyone who reaches it
   can set, so it is on its network instead of `catena-network`, with only the
   services that call it: its sign-in gate, the panel, Gatus and the Beszel
   alert shim. Beszel's hub signs in any realm user who reaches it and its
   superuser holds the shared admin password, so the hub and its alert shim are
-  on theirs, with the hub's gate and Gatus.
+  on theirs, with Gatus. The hub takes the signed-in email from its gate's
+  header only over `beszel_gate_network`, which only the gate and the hub join;
+  Docker picks its subnet.
   Not attachable, so no standalone
   container joins any of them.
 - Installs `/usr/local/bin/catena-network-nudge`, its unit, and the

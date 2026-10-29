@@ -12,10 +12,9 @@
 
 realm: {{ keycloak_realm }}
 
-# The tiers an application's own sign-in button can be limited to, each with
-# the tier roles it admits (the sign-in flows at the end of this file).
-{% set signin_tiers = {'admin': ['catena-tier-admin'],
-                       'staff': ['catena-tier-admin', 'catena-tier-staff']} %}
+# The tiers an application's own sign-in button can be limited to (the sign-in
+# flows at the end of this file, built by keycloak_signin_flows).
+{% set signin_tiers = ['admin', 'staff'] %}
 
 # ─── Asserted on EVERY converge: security posture, not preference ────────
 #
@@ -214,6 +213,11 @@ users:
       - /admin
     realmRoles:
       - default-roles-{{ keycloak_realm }}
+    # realm-admin lets this account open the realm's own admin console, which
+    # the panel's Keycloak tile links to.
+    clientRoles:
+      realm-management:
+        - realm-admin
 {% endif %}
 
 # Realm-level SMTP config, from the outgoing mail chosen in the panel's
@@ -263,17 +267,33 @@ attributes:
 # binds that client's browser flow to one of the two flows below:
 # catena-signin-admin for an application limited to administrators,
 # catena-signin-staff for one open to staff. An application whose labels name
-# the client group keeps the realm's browser flow, which admits every account.
-# realm_bootstrap.yml reads the two flow ids for dashboard-sync after the import.
+# the client group keeps the realm's browser flow, catena-browser below, which
+# admits every account. realm_bootstrap.yml reads the two flow ids for
+# dashboard-sync after the import.
 #
-# Each flow runs the steps of the realm's built-in browser flow inside a
+# The flows come from keycloak_signin_flows (playbooks/filter_plugins), which
+# gives every top-level flow the alias <name>-v<8 hex> that its sub-flows and
+# configs embed; the version follows the flow's steps and the generation
+# realm_bootstrap.yml settles. A changed flow is therefore a new flow, built
+# whole before the realm's browser flow is bound to it.
+#
+# Each tier flow runs the steps of the realm's built-in browser flow inside a
 # required sub-flow (cookie, Kerberos, identity provider redirector,
-# organization identity-first login, the login form with its conditional second
-# factor), then a conditional sub-flow that denies an account holding none of
-# the tier roles the flow admits. That step is catena-tier-refusal, from the
+# organization identity-first login, the login form), then a conditional
+# sub-flow that denies an account holding none of the tier roles the flow
+# admits; catena-browser lists the same steps without that check. The login
+# form is one screen: username and password, or, as an alternative a client
+# reaches through Try Another Way, a code emailed to the address they type
+# (catena-client-email-code, from the extension JAR; it signs in only a client
+# the realm may mail, and answers every other address as it answers a client),
+# then the conditional second factor. The administrators' flow offers the
+# password only. The deny step is catena-tier-refusal, from the
 # extension JAR in Keycloak's providers directory (provider/): it refuses like
 # Keycloak's deny-access step, with the access-denied page, and does not count
-# toward the lockout, so a refusal by tier never locks the account.
+# toward the lockout, so a refusal by tier never locks the account. The step
+# admits instead the direct members of the top-level groups named in the comma
+# list of the client attribute catena.access.groups, which dashboard-sync alone
+# writes; an entry without the attribute admits by tier only.
 #
 # An account that signs in through an external identity provider finishes in
 # Keycloak's broker flows and never returns to these (IdentityBrokerService).
@@ -283,186 +303,18 @@ attributes:
 # the tier admits, then a step that admits everybody else, without which a flow
 # whose conditions all fail would not succeed (AuthenticationProcessor). A
 # provider runs it when it names it as its post-login flow. The extension names
-# it on every provider that names none, and realm_bootstrap.yml fails the
-# converge on any provider still naming none.
+# on every provider that names none the flow the realm attribute
+# catenaPostBrokerLoginFlow holds, which realm_bootstrap.yml sets to the current
+# version after the import, and the converge fails on any provider still naming
+# none.
 #
-# keycloak-config-cli leaves a flow that matches this file as it is, and
-# rebuilds one that differs under the same id, keeping every client and
-# provider bound to it. Configuration aliases are unique in a realm, so each
-# copy has its own.
-authenticationFlows:
-{% for tier, admitted in signin_tiers.items() %}
-{%   set flow = 'catena-signin-' ~ tier %}
-  - alias: "{{ flow }}"
-    description: "Browser sign-in for applications open to the {{ tier }} tier."
-    providerId: basic-flow
-    topLevel: true
-    builtIn: false
-    authenticationExecutions:
-      - flowAlias: "{{ flow }} sign-in"
-        requirement: REQUIRED
-        priority: 10
-        authenticatorFlow: true
-      - flowAlias: "{{ flow }} tier check"
-        requirement: CONDITIONAL
-        priority: 20
-        authenticatorFlow: true
-  - alias: "{{ flow }} sign-in"
-    description: "The steps of the realm's browser flow."
-    providerId: basic-flow
-    topLevel: false
-    builtIn: false
-    authenticationExecutions:
-      - authenticator: auth-cookie
-        requirement: ALTERNATIVE
-        priority: 10
-      - authenticator: auth-spnego
-        requirement: DISABLED
-        priority: 20
-      - authenticator: identity-provider-redirector
-        requirement: ALTERNATIVE
-        priority: 25
-      - flowAlias: "{{ flow }} organization"
-        requirement: ALTERNATIVE
-        priority: 26
-        authenticatorFlow: true
-      - flowAlias: "{{ flow }} forms"
-        requirement: ALTERNATIVE
-        priority: 30
-        authenticatorFlow: true
-  - alias: "{{ flow }} organization"
-    description: "Organization identity-first login."
-    providerId: basic-flow
-    topLevel: false
-    builtIn: false
-    authenticationExecutions:
-      - flowAlias: "{{ flow }} conditional organization"
-        requirement: CONDITIONAL
-        priority: 10
-        authenticatorFlow: true
-  - alias: "{{ flow }} conditional organization"
-    description: "Whether the organization identity-first login applies."
-    providerId: basic-flow
-    topLevel: false
-    builtIn: false
-    authenticationExecutions:
-      - authenticator: conditional-user-configured
-        requirement: REQUIRED
-        priority: 10
-      - authenticator: organization
-        requirement: ALTERNATIVE
-        priority: 20
-  - alias: "{{ flow }} forms"
-    description: "Username, password, otp and other auth forms."
-    providerId: basic-flow
-    topLevel: false
-    builtIn: false
-    authenticationExecutions:
-      - authenticator: auth-username-password-form
-        requirement: REQUIRED
-        priority: 10
-      - flowAlias: "{{ flow }} conditional 2FA"
-        requirement: CONDITIONAL
-        priority: 20
-        authenticatorFlow: true
-  - alias: "{{ flow }} conditional 2FA"
-    description: "Whether a second factor is required."
-    providerId: basic-flow
-    topLevel: false
-    builtIn: false
-    authenticationExecutions:
-      - authenticator: conditional-user-configured
-        requirement: REQUIRED
-        priority: 10
-      - authenticator: conditional-credential
-        authenticatorConfig: "{{ flow }}-conditional-credential"
-        requirement: REQUIRED
-        priority: 20
-      - authenticator: auth-otp-form
-        requirement: ALTERNATIVE
-        priority: 30
-      - authenticator: webauthn-authenticator
-        requirement: DISABLED
-        priority: 40
-      - authenticator: auth-recovery-authn-code-form
-        requirement: DISABLED
-        priority: 50
-  - alias: "{{ flow }} tier check"
-    description: "Denies an account holding none of the tier roles this flow admits."
-    providerId: basic-flow
-    topLevel: false
-    builtIn: false
-    authenticationExecutions:
-{%   for role in admitted %}
-      - authenticator: conditional-user-role
-        authenticatorConfig: "{{ flow }}-without-{{ role }}"
-        requirement: REQUIRED
-        priority: {{ loop.index * 10 }}
-{%   endfor %}
-      - authenticator: catena-tier-refusal
-        requirement: REQUIRED
-        priority: {{ (admitted | length + 1) * 10 }}
-{% endfor %}
-  - alias: "catena-post-broker-login"
-    description: "After a sign-in through an external identity provider: the tier check of the application's sign-in flow."
-    providerId: basic-flow
-    topLevel: true
-    builtIn: false
-    authenticationExecutions:
-{% for tier in signin_tiers %}
-      - flowAlias: "catena-post-broker-login {{ tier }}"
-        requirement: CONDITIONAL
-        priority: {{ loop.index * 10 }}
-        authenticatorFlow: true
-{% endfor %}
-      - authenticator: allow-access-authenticator
-        requirement: REQUIRED
-        priority: {{ (signin_tiers | length + 1) * 10 }}
-{% for tier, admitted in signin_tiers.items() %}
-  - alias: "catena-post-broker-login {{ tier }}"
-    description: "Denies an account holding none of the tier roles catena-signin-{{ tier }} admits, at an application bound to it."
-    providerId: basic-flow
-    topLevel: false
-    builtIn: false
-    authenticationExecutions:
-      - authenticator: conditional-client-scope
-        authenticatorConfig: "catena-post-broker-login-{{ tier }}-scope"
-        requirement: REQUIRED
-        priority: 10
-{%   for role in admitted %}
-      - authenticator: conditional-user-role
-        authenticatorConfig: "catena-post-broker-login-{{ tier }}-without-{{ role }}"
-        requirement: REQUIRED
-        priority: {{ (loop.index + 1) * 10 }}
-{%   endfor %}
-      - authenticator: catena-tier-refusal
-        requirement: REQUIRED
-        priority: {{ (admitted | length + 2) * 10 }}
-{% endfor %}
+# keycloak-config-cli leaves a flow that matches this file as it is. Configuration
+# aliases are unique in a realm, so each flow's configs carry its alias.
+browserFlow: {{ keycloak_signin.aliases.browser }}
+authenticationFlows: {{ keycloak_signin.authenticationFlows | to_json }}
 
 # The second-factor condition skips the one-time code after a passkey sign-in,
 # as the realm's browser flow does. Each role condition is true for an account
 # WITHOUT the role, each scope condition for an entry carrying the scope, and
 # the conditions of one sub-flow must all be true for its deny step to run.
-authenticatorConfig:
-{% for tier, admitted in signin_tiers.items() %}
-  - alias: "catena-signin-{{ tier }}-conditional-credential"
-    config:
-      credentials: webauthn-passwordless
-{%   for role in admitted %}
-  - alias: "catena-signin-{{ tier }}-without-{{ role }}"
-    config:
-      condUserRole: {{ role }}
-      negate: "true"
-{%   endfor %}
-  - alias: "catena-post-broker-login-{{ tier }}-scope"
-    config:
-      client_scope: "catena-signin-{{ tier }}"
-      negate: "false"
-{%   for role in admitted %}
-  - alias: "catena-post-broker-login-{{ tier }}-without-{{ role }}"
-    config:
-      condUserRole: {{ role }}
-      negate: "true"
-{%   endfor %}
-{% endfor %}
+authenticatorConfig: {{ keycloak_signin.authenticatorConfig | to_json }}

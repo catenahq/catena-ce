@@ -42,10 +42,14 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      converge: the four-tier groups (`admin`, `staff`, `client`,
      `visitor`), the `groups` client scope, the
      two sign-in flows applications are bound to by tier with a client scope
-     named after each, the post-broker-login flow, the security
+     named after each, the realm's browser flow `catena-browser` (the same
+     steps without the tier check, which the realm's `browserFlow` names), the
+     post-broker-login flow, the security
      posture and MFA enforcement, all from the on-box store, and the realm's
      mail settings from it while the realm holds the ones Catena wrote
-     (below).
+     (below). The four flows come from `keycloak_signin_flows`
+     (`playbooks/filter_plugins`), each under the alias `<name>-v<8 hex>`
+     that its sub-flows and configs embed (see "Sign-in flow versions").
    - After the import, with kcadm, it turns the master realm's lockout on (a
      growing pause after repeated wrong passwords, capped at 15 minutes, as in
      this realm) and asks the master admin to set up a one-time code at their
@@ -57,11 +61,17 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      (`catena-tier-admin`, `catena-tier-staff`) and grants each to its group
      (`/admin`, `/staff`), adds the scopes applications need to the realm's
      default client scopes, puts the realm admin back in `/admin` when
-     `/admin` has no member, and fails the converge naming each identity
+     `/admin` has no member, gives the realm admin the `realm-admin` role of
+     the realm-management client once (the realm's own admin console opens
+     for it; the seed gives it to a new realm, and a marker under
+     `/var/lib/catena` keeps a role removed by hand removed), and fails the converge naming each identity
      provider that names no post-broker-login flow. It reports a realm switched off,
-     moves the sign-in page name to a new domain (below), then reads the two
+     moves the sign-in page name to a new domain (below), names the current
+     post-broker-login flow in the realm attribute `catenaPostBrokerLoginFlow`
+     and moves the providers that name no flow, or an older version of it, to it before the check of the providers, then reads the two
      sign-in flows' ids (`keycloak_signin_flows`), which dashboard-sync's env
-     file carries, and fails the converge when either is missing.
+     file carries, and fails the converge when either is missing. Last it
+     records the flows and deletes the versions nothing names.
    - An account signing in through an external identity provider finishes in
      Keycloak's broker flows, never in an application's sign-in flow, so
      `catena-post-broker-login` runs its tier check after the provider's
@@ -69,10 +79,34 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      to, which dashboard-sync marks with the client scope named after the
      entry's flow (`catena-signin-admin`, `catena-signin-staff`). Both checks
      end in the extension's `catena-tier-refusal` step, which refuses without
-     counting toward the lockout. The extension's `catena-tier-binding` names
-     the flow on each provider that names none, when an administrator creates,
-     updates or imports one and for the providers present when Keycloak starts;
-     the converge first checks that Keycloak lists both providers.
+     counting toward the lockout, and admits instead a user who is a direct
+     member of a top-level group named in the comma list in the entry's client
+     attribute `catena.access.groups` (written by dashboard-sync, which holds
+     `manage-clients`; the panel's credential cannot). The extension's
+     `catena-tier-binding` names the flow the realm attribute
+     `catenaPostBrokerLoginFlow` holds on each provider that names none,
+     when an administrator creates, updates or imports one and for the
+     providers present when Keycloak starts; the converge first checks that
+     Keycloak lists the extension's three providers.
+   - The login form of the three browser flows is one screen, username and
+     password. In every flow but `catena-signin-admin` a client can choose Try
+     Another Way and sign in with a code emailed by the extension's
+     `catena-client-email-code` step instead, then the conditional second
+     factor (the code takes the password's place, never the second factor's).
+     The step asks for an address and answers every address alike: the page,
+     the status and the time are the same for a client, a staff member, an
+     administrator, a disabled or locked account and an address with no
+     account. A background job, not the sign-in request, looks the address up and
+     mails the code only to an enabled person's account with an email that
+     holds no tier role and no realm-management role, while the realm holds
+     both tier roles and an outgoing mail host. A code that does not sign in
+     (wrong, expired, or for an account the step does not serve) gets the one
+     invalid-code answer and counts toward the lockout of the account the
+     address names, whatever the password form wrote since; unknown addresses,
+     address posts and resends count nothing. Five wrong posts drop the code, so
+     a new one is needed. A code signs in only the account its address names:
+     when the flow already holds another user, it is refused. A new code waits
+     30 seconds and a sign-in allows 5. The step never creates an account.
    - The realm admin's account and the realm's tunable settings are a seed:
      rendered into `/etc/catena/keycloak/seed`, imported while a bootstrap
      marker under `/var/lib/catena` or the realm itself is missing, then
@@ -83,6 +117,28 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
    once (`migrate_groups.yml`).
 5. Export the live realm to backup-staging on every converge
    (`realm_export.yml`).
+
+## Sign-in flow versions
+
+A top-level flow's version is a hash of its steps and configs, aliases left
+out, and the generation. keycloak-config-cli creates a flow under an alias it
+does not hold as a new flow and binds the realm's browser flow only after every
+flow exists, so an import that fails or is killed leaves the realm on the
+previous complete version; the next converge builds the unbound version again
+in place and then binds it. A changed flow therefore gets a new id: the entries
+dashboard-sync bound stay on the previous version until its next run moves them
+(the tier flows' ids are read by their versioned alias), and the converge moves
+identity providers bound to an older post-broker-login version to the current
+one, leaving a provider bound to another flow alone.
+
+After a successful import the converge writes `/var/lib/catena/keycloak-flows.json`:
+the generation and a digest of each top-level flow's own record and executions
+(descriptions included) as Keycloak returns them. The next converge reads the same listing for each recorded flow
+before it renders; a different digest, or a missing flow, is a hand edit, and
+that converge builds all four flows under the next generation, new aliases that
+the edit does not touch. Last, each Catena flow no version, realm binding,
+entry or provider names is deleted; one still named, or one Keycloak refuses to
+delete, stays with a note, for a later converge.
 
 ## Inputs
 
@@ -108,9 +164,11 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
   (`IMPORT_USERS_MERGE_*`). Inside a declared object it is exact, so the files
   declare only what Catena owns, and the next converge reverts a hand edit
   there:
-  - the two sign-in flows, the post-broker-login flow and their step
-    settings, which decide who may sign in to an application limited to staff
-    or administrators;
+  - the two sign-in flows, `catena-browser` and the realm's binding to it (a
+    hand edit of a flow is replaced by a new version, above), the
+    post-broker-login flow and their step settings, which decide who may sign
+    in to an application limited to staff or administrators and how everybody
+    signs in;
   - the `groups` client scope's mapper: the group claim every gate compares;
   - the settings each client file declares for its own client, its return
     addresses among them, and each service account's client roles, which
@@ -125,6 +183,9 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
   the realm admin's account, and the realm's Enabled switch: a realm an
   administrator switched off stays off, and the converge completes on it and
   says so.
+- The realm admin's `realm-admin` role is given once, by the seed or by the
+  converge step that writes `keycloak_realm_admin_role_marker`; a role removed
+  by hand afterwards stays removed.
 - The administrator's first and last name are written into the admin's account
   in the master realm and in the realm while that name is empty; a name set in
   Keycloak stays. A name the realm's profile refuses is a warning.

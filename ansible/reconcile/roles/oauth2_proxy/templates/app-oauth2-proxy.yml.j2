@@ -27,7 +27,33 @@ http:
       middlewares:
         - oauth2-force-https-proto
       service: {{ _app.slug }}-oauth2-proxy-svc
+{% if _app.cross_site_api_refused | default(false) | bool %}
+    # An upstream that signs in whoever reaches it by the gate's header takes
+    # the gate's cookie as authority for every API call a browser is made to
+    # send, from any site. So a browser call to /api/ that does not come from
+    # the upstream's own page (Sec-Fetch-Site: same-origin) is answered 403
+    # here, before the gate. noop@internal is Traefik's service for a router
+    # whose middleware answers; the allowlist below admits no address, so it
+    # always does. Priority 200 outranks the route above.
+    {{ _app.slug }}-oauth2-proxy-cross-site-api:
+      rule: "Host(`{{ _app_hostname }}`) && PathPrefix(`/api/`) && !Header(`Sec-Fetch-Site`, `same-origin`)"
+      priority: 200
+      entryPoints:
+        - web
+      middlewares:
+        - {{ _app.slug }}-cross-site-api-refused
+      service: noop@internal
+{% endif %}
 
+{% if _app.cross_site_api_refused | default(false) | bool %}
+  middlewares:
+    {{ _app.slug }}-cross-site-api-refused:
+      ipAllowList:
+        sourceRange:
+          - "0.0.0.0/32"
+        rejectStatusCode: 403
+
+{% endif %}
   services:
     {{ _app.slug }}-oauth2-proxy-svc:
       loadBalancer:

@@ -8,6 +8,7 @@ import org.keycloak.events.EventListenerProvider;
 import org.keycloak.events.admin.AdminEvent;
 import org.keycloak.events.admin.OperationType;
 import org.keycloak.events.admin.ResourceType;
+import org.keycloak.models.AuthenticationFlowModel;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.IdentityProviderQuery;
@@ -17,12 +18,14 @@ import org.keycloak.models.RealmModel;
 
 /**
  * Names the post-broker-login flow on an identity provider that has none,
- * when an administrator creates or updates the provider. The model update
+ * when an administrator creates or updates the provider. The flow is the one
+ * the realm attribute catenaPostBrokerLoginFlow names. The model update
  * keeps the provider's organization links and publishes no admin event.
  */
 public class CatenaTierBindingListener implements EventListenerProvider {
 
-    static final String FLOW_ALIAS = "catena-post-broker-login";
+    /** The realm attribute naming the alias of the flow providers are bound to. */
+    static final String FLOW_ATTRIBUTE = "catenaPostBrokerLoginFlow";
 
     /** Path prefix of the events Partial import raises for each identity provider it writes. */
     static final String PARTIAL_IMPORT_PATH = "identity-provider-settings/";
@@ -72,7 +75,7 @@ public class CatenaTierBindingListener implements EventListenerProvider {
         RealmModel previous = session.getContext().getRealm();
         session.getContext().setRealm(realm);
         try {
-            if (realm.getFlowByAlias(FLOW_ALIAS) == null) {
+            if (flowOf(realm) == null) {
                 return;
             }
             bind(session, realm, session.identityProviders().getByIdOrAlias(key));
@@ -81,6 +84,12 @@ public class CatenaTierBindingListener implements EventListenerProvider {
                 session.getContext().setRealm(previous);
             }
         }
+    }
+
+    /** The flow the realm attribute names, or null when it names none or the realm holds no such flow. */
+    static AuthenticationFlowModel flowOf(RealmModel realm) {
+        String alias = realm.getAttribute(FLOW_ATTRIBUTE);
+        return alias == null || alias.isBlank() ? null : realm.getFlowByAlias(alias);
     }
 
     /** An identity provider event, or the Partial import event of one, which has the realm as its resource. */
@@ -127,14 +136,14 @@ public class CatenaTierBindingListener implements EventListenerProvider {
         if (stored == null) {
             return;
         }
-        stored.setPostBrokerLoginFlowId(realm.getFlowByAlias(FLOW_ALIAS).getId());
+        stored.setPostBrokerLoginFlowId(flowOf(realm).getId());
         session.identityProviders().update(stored);
     }
 
     /** Binds every unbound user-authentication provider of the realm when the realm holds the flow. */
     static void bindUnbound(KeycloakSession session, String realmId) {
         RealmModel realm = session.realms().getRealm(realmId);
-        if (realm == null || realm.getFlowByAlias(FLOW_ALIAS) == null) {
+        if (realm == null || flowOf(realm) == null) {
             return;
         }
         session.getContext().setRealm(realm);

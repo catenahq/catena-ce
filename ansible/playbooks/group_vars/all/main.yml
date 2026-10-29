@@ -179,11 +179,16 @@ beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 # The overlay Beszel's hub and its alert shim are on, instead of catena-network.
 # The hub's own sign-in creates an account for any realm user, and its
 # superuser's password is the shared admin password; the shim turns any request
-# into a Healthchecks ping. So only their callers join: the hub's sign-in gate
-# (reconcile/roles/oauth2_proxy), the panel (reconcile/roles/catena-admin) and
-# Gatus (reconcile/roles/infrastructure). reconcile/roles/swarm creates it
-# beside healthchecks_network.
+# into a Healthchecks ping. So only their callers join: Gatus
+# (reconcile/roles/infrastructure) and the alert shim. reconcile/roles/swarm
+# creates it beside healthchecks_network.
 beszel_network: "catena-beszel"
+# The overlay only the hub and its sign-in gate (reconcile/roles/oauth2_proxy)
+# join. The hub signs in as the email in the header the gate sets, from peers
+# inside this network's subnet alone (TRUSTED_PROXY_IPS in
+# reconcile/roles/infrastructure/templates/beszel-hub.compose.yml.j2), so no
+# other member may ever join it. reconcile/roles/swarm creates it.
+beszel_gate_network: "catena-beszel-gate"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
 # front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are
@@ -378,7 +383,7 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 #   catena_admin_extra_actions:
 #     - name: acme-refresh-prices
 #       title: "Refresh ACME prices"
-#       icon: "&#128176;"   # 💰
+#       icon: "coin"
 #       timeout: 60
 #       shell: "sudo -u acme /opt/acme/bin/refresh-prices"
 #

@@ -32,9 +32,20 @@ on `catena-network`, where every client app is. Its gate, the panel, Gatus
 (its alerts) and the Beszel shim join that network to reach it.
 
 Beszel's hub signs in any realm user who reaches it, and its superuser's
-password is the shared admin password, so the hub is on `beszel_network`
-alone, with its gate and Gatus (its probe). The Beszel shim, whose
-only caller is the hub, is there too, and on `healthchecks_network` to ping.
+password is the shared admin password, so the hub is on `beszel_network` and
+`beszel_gate_network` alone. Gatus (its probe) and the Beszel shim, whose only
+caller is the hub, join `beszel_network`; the shim is also on
+`healthchecks_network` to ping. Only the hub's gate joins `beszel_gate_network`.
+The hub opens signed in as the email its gate sets (`TRUSTED_AUTH_HEADER`),
+for peers inside that network's subnet alone (`TRUSTED_PROXY_IPS`): the
+converge reads the subnet before the hub deploys and stops unless it is exactly
+one valid IPv4 range, because Beszel trusts every peer when the list is empty.
+An admin whose email has no hub record meets the Keycloak button once. Beszel's
+own password login stays. Behind the gate the hub's Log out button signs no one
+out; signing out of the gate does. Because the hub signs in any request that
+carries no token, Traefik answers 403 to a browser `/api/` call whose
+`Sec-Fetch-Site` is not `same-origin` (the gate's route file); the agents reach
+the hub on the host loopback, not through Traefik.
 The hub's spec carries no credential: the seed makes the admin its first user
 through its first-user endpoint on the loopback publish.
 

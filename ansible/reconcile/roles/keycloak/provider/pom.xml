@@ -49,6 +49,13 @@
       <version>${keycloak.version}</version>
       <scope>provided</scope>
     </dependency>
+    <!-- The version the Phase Two image tagged keycloak_image_tag carries (phasetwo-containers libs/pom.xml). -->
+    <dependency>
+      <groupId>io.phasetwo.keycloak</groupId>
+      <artifactId>keycloak-magic-link</artifactId>
+      <version>0.93</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>jakarta.ws.rs</groupId>
       <artifactId>jakarta.ws.rs-api</artifactId>
@@ -58,6 +65,13 @@
       <groupId>org.jboss.logging</groupId>
       <artifactId>jboss-logging</artifactId>
       <scope>provided</scope>
+    </dependency>
+
+    <!-- KeycloakModelUtils loads it; the server provides it. -->
+    <dependency>
+      <groupId>jakarta.transaction</groupId>
+      <artifactId>jakarta.transaction-api</artifactId>
+      <scope>test</scope>
     </dependency>
 
     <dependency>

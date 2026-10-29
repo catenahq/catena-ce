@@ -6,8 +6,9 @@
 # oauth2_proxy_apps, which writes the route and the Keycloak redirect URI.
 # Also published on the host loopback so beszel-seed.py and the
 # network_mode:host agent can reach the PocketBase API + WebSocket without
-# leaving the box. On beszel_network only, which its gate, its alert shim and
-# Gatus join and no client app does (playbooks/group_vars/all/main.yml).
+# leaving the box. On beszel_network, which its alert shim and Gatus join, and
+# on beszel_gate_network, which only its gate joins; no client app joins either
+# (playbooks/group_vars/all/main.yml).
 #
 # No credential in the spec, which `docker service inspect` shows. Without
 # USER_EMAIL/USER_PASSWORD the hub's first boot makes a placeholder superuser
@@ -17,7 +18,7 @@
 # calls with admin_email and admin_password before anything else: the
 # superuser and the admin's users record the rest of the seed signs in as.
 # Until then the endpoint answers only what reaches the hub: this host's own
-# processes, the admin-only gate and Gatus.
+# processes, the admin-only gate, Gatus and the alert shim.
 #
 # Metrics history (/beszel_data) is a named volume the backup carries, as it
 # carries every application's data. The backup also copies the databases whole
@@ -65,11 +66,24 @@ services:
       # The blast radius is bounded by who reaches the hub, not by this flag:
       # its public host is routed through the admin-only oauth2-proxy
       # (reconcile/roles/oauth2_proxy), its loopback publish answers this host
-      # only, and its network is shared with its gate, its alert shim and Gatus
+      # only, and its networks are shared with its gate, its alert shim and Gatus
       # alone. So driving its sign-in requires having authenticated to Keycloak
       # AND being in the admin group, and auto-creating a monitoring account for
       # someone who has already cleared that grants nothing new.
       USER_CREATION: "true"
+{% if _beszel_gate_subnet | default('') | trim | length > 0 %}
+      # Open signed in as the email the gate sets. Beszel reads the header from
+      # the TCP peer only if the peer is inside TRUSTED_PROXY_IPS, and trusts
+      # every peer when that is empty, so the two are rendered together or not
+      # at all: the subnet is that of beszel_gate_network, which only the gate
+      # and this hub join (read and checked by tasks/beszel.yml before this
+      # deploys). The loopback publish and beszel_network sit outside it, so a
+      # header sent from there signs no one in. An email with no hub record
+      # stays anonymous. Behind the gate the hub's own Log out signs no one out;
+      # the gate's sign-out does.
+      TRUSTED_AUTH_HEADER: "X-Forwarded-Email"
+      TRUSTED_PROXY_IPS: "{{ _beszel_gate_subnet | trim }}"
+{% endif %}
       # DISABLE_PASSWORD_AUTH is deliberately NOT set. See
       # scripts/beszel-seed.py: Beszel is base-plane infrastructure, and a
       # monitoring tool reachable only through the SSO tool cannot diagnose the
@@ -92,10 +106,15 @@ services:
       {{ beszel_network }}:
         aliases:
           - {{ beszel_hub_network_alias }}
+      {{ beszel_gate_network }}:
+        aliases:
+          - {{ beszel_hub_network_alias }}
 
 volumes:
   {{ beszel_hub_data_volume }}:
 
 networks:
   {{ beszel_network }}:
+    external: true
+  {{ beszel_gate_network }}:
     external: true

@@ -38,6 +38,7 @@ DEFAULTS = ROLE / "defaults" / "main.yml"
 
 sys.path.insert(0, str(ANSIBLE / "playbooks" / "filter_plugins"))
 from keycloak_mail_settings import keycloak_mail_fingerprint  # noqa: E402
+from keycloak_signin_flows import keycloak_signin_flows  # noqa: E402
 from keycloak_signin_name import keycloak_signin_name_html  # noqa: E402
 
 ADMIN_PASSWORD = "admin-pw-0123456789"
@@ -97,6 +98,7 @@ def _render(*, realm_seed, smtp_enabled: bool = True, realm_create: bool = True,
         smtp_password=SMTP_PASSWORD,
         keycloak_smtp_server=_smtp_server(smtp_enabled=smtp_enabled, display_name=display_name),
         keycloak_smtp_write=smtp_write,
+        keycloak_signin=keycloak_signin_flows(0),
     )
 
 

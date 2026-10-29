@@ -52,6 +52,15 @@ def test_password_login_is_never_disabled():
             "a Keycloak outage")
 
 
+def test_the_hub_signs_in_the_gates_email_beside_the_password_path():
+    """The header and its allowlist are rendered together, and the password
+    login the previous test protects stays."""
+    body = HUB_COMPOSE.read_text()
+    assert re.search(r'^\s*TRUSTED_AUTH_HEADER:\s*"X-Forwarded-Email"', body, re.M)
+    assert re.search(r'^\s*TRUSTED_PROXY_IPS:\s*"\{\{ _beszel_gate_subnet \| trim \}\}"', body, re.M)
+    assert body.count("TRUSTED_AUTH_HEADER:") == body.count("TRUSTED_PROXY_IPS:") == 1
+
+
 def test_the_seed_still_authenticates_as_superuser():
     """`_superusers` is a different collection from the `users` one OIDC
     governs, which is why enabling OIDC does not break the seed. If this ever

@@ -302,10 +302,11 @@
     apply:
       tags: [always]
 
-# The realm file's deny steps are the extension's catena-tier-refusal and the
-# identity providers are named by its catena-tier-binding (provider/): a
-# Keycloak that does not list both has not loaded the JAR, and the import below
-# would fail on an unknown step or leave providers unbound.
+# The realm file's deny steps are the extension's catena-tier-refusal, its login
+# forms offer clients catena-client-email-code, and the identity providers are
+# named by its catena-tier-binding (provider/): a Keycloak that does not list
+# all three has not loaded the JAR, and the import below would fail on an
+# unknown step or leave providers unbound.
 - name: "Keycloak realm: the Catena extension is loaded"
   ansible.builtin.shell: |
     set -euo pipefail
@@ -313,8 +314,9 @@
       | python3 -c '
     import json, sys
     providers = json.load(sys.stdin)["providers"]
-    need = {"authenticator": "catena-tier-refusal", "eventsListener": "catena-tier-binding"}
-    missing = [spi + "/" + pid for spi, pid in need.items()
+    need = {"authenticator": ["catena-tier-refusal", "catena-client-email-code"],
+            "eventsListener": ["catena-tier-binding"]}
+    missing = [spi + "/" + pid for spi, pids in need.items() for pid in pids
                if pid not in providers.get(spi, {}).get("providers", {})]
     if missing:
         sys.exit("Keycloak does not list " + ", ".join(missing) + ": the extension JAR is not loaded")
@@ -423,6 +425,49 @@
     keycloak_smtp_write: >-
       {{ (_kc_realm_before.stdout | default('{}', true) | from_json)
          | keycloak_mail_follows(keycloak_realm_mail_attribute) }}
+
+# The sign-in flows are built under versioned aliases (playbooks/filter_plugins/
+# keycloak_signin_flows.py), whole and unbound, before the realm's browser flow
+# is bound to them, so an import that stops half way leaves the realm on the
+# previous complete version. After every successful import the converge records
+# the digests of the flows it built; a flow that reads differently now, or is
+# gone, was edited by hand, and this converge builds all of them under the next
+# generation, which the editing person's flow cannot be mistaken for. Both
+# renders below use the same build.
+- name: "Keycloak realm: read the record of the sign-in flows"
+  ansible.builtin.slurp:
+    src: "{{ keycloak_flows_record }}"
+  register: _kc_flows_record
+  failed_when: false
+
+- name: "Keycloak realm: keep the record of the sign-in flows"
+  ansible.builtin.set_fact:
+    _kc_flows_recorded: >-
+      {{ ((_kc_flows_record.content | default('') | b64decode) or '{}') | from_json }}
+    _kc_flows_read: >-
+      {{ keycloak_realm in _kc_realms.stdout_lines
+         and (((_kc_flows_record.content | default('') | b64decode) or '{}') | from_json).flows | default({}) | length > 0 }}
+
+- name: "Keycloak realm: read the flows the record names"
+  ansible.builtin.include_tasks:
+    file: _signin_flow_executions.yml
+    apply:
+      tags: [always]
+  vars:
+    kc_flow_aliases: "{{ _kc_flows_recorded.flows.keys() | list }}"
+    kc_flow_container: "{{ _kc_master_login.stdout }}"
+  when: _kc_flows_read | bool
+
+- name: "Keycloak realm: settle the generation of the sign-in flows"
+  ansible.builtin.set_fact:
+    keycloak_flow_generation: >-
+      {{ _kc_flows_recorded
+         | keycloak_flow_generation((_kc_flow_executions.stdout | keycloak_flow_digests)
+                                    if _kc_flows_read | bool else {}) }}
+
+- name: "Keycloak realm: build the sign-in flows"
+  ansible.builtin.set_fact:
+    keycloak_signin: "{{ keycloak_flow_generation | keycloak_signin_flows }}"
 
 # The seed, imported alone, and deleted whether the import succeeded or not.
 # The markers are written only once it has.
@@ -576,6 +621,25 @@
     file: _master_login.yml
     apply:
       tags: [always]
+
+# The extension binds an identity provider that names no post-broker-login flow
+# to the flow this realm attribute names. It is set as soon as the import has
+# built the current version whole, before anything checks the providers, so a
+# provider created in between is bound to the current flow.
+- name: "Keycloak realm: the realm names the current post-broker-login flow"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _keycloak_realm_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - update
+      - "realms/{{ keycloak_realm }}"
+      - -s
+      - "attributes.{{ keycloak_realm_post_broker_attribute }}={{ keycloak_signin.aliases.post_broker_login | to_json }}"
+  when: >-
+    ((_kc_realm_before.stdout | default('{}', true) | from_json).attributes | default({}, true)).get(keycloak_realm_post_broker_attribute)
+    != keycloak_signin.aliases.post_broker_login
 
 - name: "Keycloak realm: look up bootstrap admin user-id in master"
   ansible.builtin.command:
@@ -890,6 +954,34 @@
   register: _keycloak_admin_rejoin
   changed_when: "'joined:' in _keycloak_admin_rejoin.stdout"
 
+# The realm admin opens the realm's own admin console through the realm-admin
+# role, which the seed gives a new realm. A host seeded before it gets the role
+# here, once: the marker is written when the account holds it, so a role an
+# administrator removes by hand stays removed. Only adds. No account yet leaves
+# the marker unwritten for the next converge. The role calls name the account by
+# id: kcadm's --uusername lookup finds no username holding a '+'.
+- name: "Keycloak realm: the realm admin holds the realm-admin role once"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    admin={{ admin_email | quote }}
+    user=$(kc get users -r "$realm" -q "username=$admin" -q exact=true --fields id --format csv --noquotes)
+    if [ -z "$user" ]; then
+      exit 0
+    fi
+    held=$(kc get-roles -r "$realm" --uid "$user" --cclientid realm-management --fields name --format csv --noquotes)
+    if ! grep -qxF realm-admin <<<"$held"; then
+      kc add-roles -r "$realm" --uid "$user" --cclientid realm-management --rolename realm-admin
+      echo "granted: realm-admin to $admin"
+    fi
+    : > {{ keycloak_realm_admin_role_marker | quote }}
+  args:
+    executable: /bin/bash
+    creates: "{{ keycloak_realm_admin_role_marker }}"
+  register: _keycloak_admin_console_role
+  changed_when: "'granted:' in _keycloak_admin_console_role.stdout"
+
 # The administrator's first and last name are the person's own data, seeded once
 # from the store: a name is written only while empty, so one changed in the
 # Account Console stays. The vps realm's user profile requires both names, and
@@ -941,6 +1033,32 @@
       names it has. The first part is the realm, the rest kcadm's error.
   loop: "{{ _keycloak_admin_name.stdout_lines | default([]) | select('match', '^refused: ') | list }}"
   when: _keycloak_admin_name is not skipped
+
+# A provider that names no post-broker-login flow (created before the realm
+# named one), or one bound to an earlier version of the flow or to its bare
+# name, moves to the current version; a provider bound to a flow of someone's
+# own stays. It runs before the check below.
+- name: "Keycloak realm: identity providers run the current post-broker-login flow"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    current={{ keycloak_signin.aliases.post_broker_login | quote }}
+    providers=$(kc get identity-provider/instances -r "$realm" -q type=USER_AUTHENTICATION -q max=100000 --fields alias,postBrokerLoginFlowAlias --format csv --noquotes)
+    while IFS=, read -r alias bound; do
+      [ -n "$alias" ] || continue
+      case "$bound" in
+        "$current") ;;
+        "" | catena-post-broker-login | catena-post-broker-login-v*)
+          kc update "identity-provider/instances/$alias" -r "$realm" -s "postBrokerLoginFlowAlias=$current"
+          echo "moved: $alias"
+          ;;
+      esac
+    done <<<"$providers"
+  args:
+    executable: /bin/bash
+  register: _keycloak_provider_move
+  changed_when: "'moved:' in _keycloak_provider_move.stdout"
 
 # A sign-in through an external identity provider finishes in Keycloak's broker
 # flows and never returns to the application's sign-in flow, so its tier check
@@ -1051,9 +1169,9 @@
 # The ids of the two sign-in flows realm-vps.yaml.j2 declares, for
 # dashboard-sync (reconcile/roles/infrastructure/templates/dashboard-sync.env.j2):
 # a client's flow binding takes an id, and the sync's service account manages
-# clients without reading the realm's flows. keycloak-config-cli rebuilds a
-# changed flow under the id it had, so the ids hold from one converge to the
-# next.
+# clients without reading the realm's flows. A changed flow is a new flow with a
+# new id, which dashboard-sync moves its entries to; until then an entry stays
+# on the previous complete version.
 - name: "Keycloak realm: read the sign-in flow ids"
   ansible.builtin.command:
     argv:
@@ -1073,8 +1191,8 @@
 - name: "Keycloak realm: keep the sign-in flow ids for dashboard-sync"
   ansible.builtin.set_fact:
     keycloak_signin_flows:
-      admin: "{{ _flows['catena-signin-admin'] | default('') }}"
-      staff: "{{ _flows['catena-signin-staff'] | default('') }}"
+      admin: "{{ _flows[keycloak_signin.aliases.admin] | default('') }}"
+      staff: "{{ _flows[keycloak_signin.aliases.staff] | default('') }}"
   vars:
     _flows: "{{ _keycloak_signin_flow_list.stdout | from_json | items2dict(key_name='alias', value_name='id') }}"
 
@@ -1085,8 +1203,84 @@
       - keycloak_signin_flows.staff | length > 0
     fail_msg: >-
       The realm import succeeded but realm {{ keycloak_realm }} lacks the
-      sign-in flow catena-signin-admin or catena-signin-staff that
-      realm-vps.yaml.j2 declares. dashboard-sync makes no sign-in entry for an
+      sign-in flow {{ keycloak_signin.aliases.admin }} or
+      {{ keycloak_signin.aliases.staff }} that realm-vps.yaml.j2 declares. dashboard-sync makes no sign-in entry for an
       application limited to staff or administrators without them. Compare
       `kcadm.sh get authentication/flows -r {{ keycloak_realm }}` in the
       Keycloak container with the file.
+
+# The record the next converge compares the flows with (the build, above): the
+# generation and the digest of each flow as Keycloak holds it now. Written only
+# once the import and the checks above have succeeded.
+- name: "Keycloak realm: read the flows the import built"
+  ansible.builtin.include_tasks:
+    file: _signin_flow_executions.yml
+    apply:
+      tags: [always]
+  vars:
+    kc_flow_aliases: "{{ keycloak_signin.aliases.values() | list }}"
+    kc_flow_container: "{{ _keycloak_realm_server_ct.stdout }}"
+
+- name: "Keycloak realm: record the sign-in flows"
+  ansible.builtin.copy:
+    dest: "{{ keycloak_flows_record }}"
+    content: "{{ keycloak_flow_generation | keycloak_flow_record(_kc_flow_executions.stdout | keycloak_flow_digests) | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    _digests: "{{ _kc_flow_executions.stdout | keycloak_flow_digests }}"
+  when: _digests.values() | select('none') | list | length == 0
+
+# Last: the versions no entry or provider names go. A flow still named
+# by the realm, an entry or a provider stays, and so does one Keycloak refuses
+# to delete; a later converge tries again.
+- name: "Keycloak realm: read the sign-in flows and what names them"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    FLOWS=$(kc get authentication/flows -r "$realm" --fields id,alias,topLevel)
+    REALM=$(kc get "realms/$realm")
+    CLIENTS=$(kc get clients -r "$realm" -q max=100000 --fields authenticationFlowBindingOverrides)
+    PROVIDERS=$(kc get identity-provider/instances -r "$realm" -q max=100000 --fields postBrokerLoginFlowAlias,firstBrokerLoginFlowAlias)
+    export FLOWS REALM CLIENTS PROVIDERS
+    python3 -I -c '
+    import json, os
+    realm = json.loads(os.environ["REALM"])
+    bound = [realm.get(key) for key in ("browserFlow", "registrationFlow", "directGrantFlow",
+             "resetCredentialsFlow", "clientAuthenticationFlow", "dockerAuthenticationFlow",
+             "firstBrokerLoginFlow")]
+    for client in json.loads(os.environ["CLIENTS"]):
+        bound += list((client.get("authenticationFlowBindingOverrides") or {}).values())
+    for provider in json.loads(os.environ["PROVIDERS"]):
+        bound += [provider.get("postBrokerLoginFlowAlias"), provider.get("firstBrokerLoginFlowAlias")]
+    print(json.dumps({"flows": json.loads(os.environ["FLOWS"]), "bound": [b for b in bound if b]}))'
+  args:
+    executable: /bin/bash
+  register: _keycloak_flow_usage
+  changed_when: false
+
+- name: "Keycloak realm: delete the sign-in flows nothing names"
+  ansible.builtin.shell: |
+    set -uo pipefail
+    if err=$(docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh delete {{ ('authentication/flows/' ~ item.id) | quote }} -r {{ keycloak_realm | quote }} 2>&1); then
+      echo "deleted: {{ item.alias }}"
+    else
+      echo "kept: {{ item.alias }}: $(printf '%s' "$err" | tr '\r\n' '  ')"
+    fi
+  args:
+    executable: /bin/bash
+  loop: "{{ _keycloak_flow_usage.stdout | from_json | keycloak_flow_stale(keycloak_signin) }}"
+  loop_control:
+    label: "{{ item.alias }}"
+  register: _keycloak_flow_cleanup
+  changed_when: "'deleted:' in _keycloak_flow_cleanup.stdout"
+
+- name: "Keycloak realm: a sign-in flow Keycloak would not delete stays"
+  ansible.builtin.debug:
+    msg: "{{ item.stdout }}"
+  loop: "{{ _keycloak_flow_cleanup.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.alias | default('') }}"
+  when: item.stdout | default('') is match('kept:')

@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import sys
+
 import pytest
 import yaml
 
@@ -19,6 +21,9 @@ ROLE = Path(__file__).resolve().parents[2] / "reconcile" / "roles" / "keycloak"
 PROVIDER = ROLE / "provider"
 SERVICES = PROVIDER / "src" / "main" / "resources" / "META-INF" / "services"
 SOURCES = PROVIDER / "src" / "main" / "java"
+
+sys.path.insert(0, str(ROLE.parents[2] / "playbooks" / "filter_plugins"))
+from keycloak_signin_flows import keycloak_signin_flows  # noqa: E402
 
 
 def _major_minor(version: str) -> str:
@@ -52,11 +57,41 @@ def _provider_id(factory: str) -> str:
     return found.group(1)
 
 
-def test_the_realm_file_denies_with_the_refusal_steps_id():
+def test_the_flows_deny_with_the_refusal_steps_id():
     refusal = _provider_id("CatenaTierRefusalAuthenticatorFactory")
-    realm = (ROLE / "templates" / "realm-vps.yaml.j2").read_text()
-    steps = re.findall(r"^\s*- authenticator: (\S*(?:deny|refusal)\S*)$", realm, re.M)
+    flows = keycloak_signin_flows(0)["authenticationFlows"]
+    steps = [e["authenticator"] for f in flows for e in f["authenticationExecutions"]
+             if re.search(r"deny|refusal", e.get("authenticator", ""))]
     assert steps and set(steps) == {refusal}
+
+
+def test_the_flows_offer_clients_the_email_code_step_by_its_id():
+    code = _provider_id("CatenaClientEmailCodeAuthenticatorFactory")
+    flows = keycloak_signin_flows(0)["authenticationFlows"]
+    used = {e["authenticator"] for f in flows for e in f["authenticationExecutions"]
+            if "email" in e.get("authenticator", "")}
+    assert used == {code}
+
+
+def test_the_pom_compiles_against_the_phase_two_jar_it_mails_with():
+    pom = (PROVIDER / "pom.xml").read_text()
+    assert re.search(r"<artifactId>keycloak-magic-link</artifactId>\s*<version>[\d.]+</version>\s*"
+                     r"<scope>provided</scope>", pom)
+
+
+def test_the_login_theme_carries_the_texts_of_the_code_step_in_english_and_french():
+    messages = PROVIDER / "src" / "main" / "resources" / "theme-resources" / "messages"
+    template = PROVIDER / "src" / "main" / "resources" / "theme-resources" / "templates" / "catena-email-code.ftl"
+    assert template.is_file()
+    id_ = _provider_id("CatenaClientEmailCodeAuthenticatorFactory")
+    keys = {}
+    for lang in ("en", "fr"):
+        lines = (messages / f"messages_{lang}.properties").read_text().splitlines()
+        keys[lang] = {line.split("=", 1)[0] for line in lines if "=" in line}
+        assert {f"{id_}-display-name", f"{id_}-help-text"} <= keys[lang]
+    assert keys["en"] == keys["fr"]
+    used = set(re.findall(r'msg\("([^"]+)"\)', template.read_text()))
+    assert used <= keys["en"]
 
 
 def test_the_compose_sets_the_binding_listeners_option_by_its_id():

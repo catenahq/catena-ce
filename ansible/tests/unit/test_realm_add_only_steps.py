@@ -6,12 +6,14 @@ declared role's composites (RealmRoleCompositeImportService), a declared group's
 role mappings (GroupImportService updateGroupRealmRoles), the realm's default
 client scope list (ClientScopeImportService updateDefaultClientScopes), a
 declared user's fields. So realm-vps.yaml.j2 declares none of these, the realm
-admin only in the seed, and three kcadm steps in realm_bootstrap.yml add what
+admin only in the seed, and four kcadm steps in realm_bootstrap.yml add what
 Catena needs:
 
   - each tier role the sign-in flows check exists and is held by its group;
   - the realm's default client scopes hold the ones applications need;
-  - an /admin left with no member gets the realm admin back.
+  - an /admin left with no member gets the realm admin back;
+  - the realm admin gets the realm-admin role of realm-management once, a
+    marker file keeping a role removed by hand removed.
 
 Each step's script runs here against a stand-in `docker` that answers the kcadm
 calls from a JSON state file and refuses any other call.
@@ -44,6 +46,7 @@ NEEDED_SCOPES = ["groups", "profile", "email", "roles", "web-origins", "basic", 
 TIER_STEP = "each tier group holds its tier role"
 SCOPE_STEP = "the default client scopes hold the ones applications need"
 ADMIN_STEP = "an empty /admin gets the realm admin back"
+CONSOLE_STEP = "the realm admin holds the realm-admin role once"
 
 FAKE_DOCKER = textwrap.dedent('''\
     #!/usr/bin/env python3
@@ -68,6 +71,14 @@ FAKE_DOCKER = textwrap.dedent('''\
     if verb == "create" and uri == "roles":
         fields = dict(kc[i + 1].split("=", 1) for i, a in enumerate(kc) if a == "-s")
         state["roles"][fields["name"]] = fields["description"]
+        done()
+    if verb == "get-roles" and "--uid" in kc:
+        assert opt("--cclientid") == "realm-management" and opt("--fields") == "name"
+        print("\\n".join(state["user_roles"].get(opt("--uid"), [])))
+        done()
+    if verb == "add-roles" and "--uid" in kc:
+        assert opt("--cclientid") == "realm-management" and opt("--rolename") == "realm-admin", kc
+        state["user_roles"].setdefault(opt("--uid"), []).append(opt("--rolename"))
         done()
     if verb == "get-roles":
         assert opt("--fields") == "name" and opt("--format") == "csv" and "--noquotes" in kc
@@ -144,13 +155,14 @@ def _realm(groups=None, **state) -> dict:
                           **groups.get(path, {})}
                    for path in ("/admin", "/staff", "/client", "/visitor")},
         "users": state.get("users", {}),
+        "user_roles": state.get("user_roles", {}),
         "scopes": state.get("scopes", {}),
         "defaults": state.get("defaults", []),
         "calls": [],
     }
 
 
-def _run(tmp_path: Path, fragment: str, realm: dict, check=True):
+def _run(tmp_path: Path, fragment: str, realm: dict, check=True, marker_exists=False):
     """Runs one step once per loop item, as Ansible does; returns each run's
     (exit code, stdout, stderr, changed) and the realm state after."""
     task = _task(fragment)
@@ -161,9 +173,16 @@ def _run(tmp_path: Path, fragment: str, realm: dict, check=True):
     docker.chmod(docker.stat().st_mode | stat.S_IEXEC)
     state = tmp_path / "state.json"
     state.write_text(json.dumps(realm))
+    marker = tmp_path / "role-marker"
+    if marker_exists:
+        marker.write_text("")
     runs = []
     for item in task.get("loop") or [None]:
-        script = Templar(loader=DataLoader(), variables=_variables(task, item=item)).template(
+        variables = _variables(task, item=item, keycloak_realm_admin_role_marker=str(marker))
+        if (task.get("args") or {}).get("creates") and marker_exists:
+            runs.append((0, "", "", False))
+            continue
+        script = Templar(loader=DataLoader(), variables=variables).template(
             trust_as_template(task["ansible.builtin.shell"]))
         proc = subprocess.run(
             ["bash", "-c", script], text=True, capture_output=True,
@@ -194,6 +213,7 @@ def test_the_seed_creates_the_realm_admin_in_admin_with_its_password():
     assert admin["enabled"] is True and admin["emailVerified"] is True
     assert admin["groups"] == ["/admin"]
     assert admin["credentials"][0]["type"] == "password"
+    assert admin["clientRoles"] == {"realm-management": ["realm-admin"]}
 
 
 def test_the_steps_run_on_the_kcadm_session_after_the_import_and_before_the_flow_ids():
@@ -309,3 +329,52 @@ def test_an_empty_admin_group_without_the_account_changes_nothing(tmp_path):
     assert code == 0 and not changed
     assert state["groups"]["/admin"]["members"] == []
     assert f"has no account {ADMIN}" in err
+
+
+# --- the realm admin's console role -------------------------------------------------
+
+def _console(tmp_path, realm, marker_exists=False):
+    runs, state = _run(tmp_path, CONSOLE_STEP, realm, marker_exists=marker_exists)
+    return runs[0], state, (tmp_path / "role-marker").exists()
+
+
+def test_the_console_step_runs_after_the_admin_rejoin_step():
+    tasks = _tasks()
+    assert _index(tasks, ADMIN_STEP) < _index(tasks, CONSOLE_STEP)
+
+
+def test_the_console_step_is_guarded_by_the_marker_it_writes():
+    task = _task(CONSOLE_STEP)
+    assert task["args"]["creates"] == "{{ keycloak_realm_admin_role_marker }}"
+    assert "keycloak_realm_admin_role_marker" in task["ansible.builtin.shell"]
+
+
+def test_a_host_seeded_before_the_role_gets_it_and_the_marker(tmp_path):
+    (_, out, _, changed), state, marked = _console(tmp_path, _realm(users={ADMIN: "u-admin"}))
+    assert state["user_roles"] == {"u-admin": ["realm-admin"]}
+    assert out == f"granted: realm-admin to {ADMIN}\n" and changed and marked
+
+
+def test_a_fresh_host_holding_the_role_only_gets_the_marker(tmp_path):
+    realm = _realm(users={ADMIN: "u-admin"}, user_roles={"u-admin": ["realm-admin"]})
+    (_, out, _, changed), state, marked = _console(tmp_path, realm)
+    assert state["user_roles"] == {"u-admin": ["realm-admin"]}
+    assert "add-roles" not in _verbs(state)
+    assert out == "" and not changed and marked
+
+
+def test_a_role_removed_by_hand_stays_removed_once_the_marker_exists(tmp_path):
+    (_, out, _, changed), state, _ = _console(
+        tmp_path, _realm(users={ADMIN: "u-admin"}), marker_exists=True)
+    assert state["calls"] == [] and state["user_roles"] == {}
+    assert out == "" and not changed
+
+
+def test_no_account_yet_changes_nothing_and_writes_no_marker(tmp_path):
+    (_, out, _, changed), state, marked = _console(tmp_path, _realm())
+    assert state["user_roles"] == {} and not changed and not marked
+
+
+def test_the_console_step_never_removes():
+    script = _task(CONSOLE_STEP)["ansible.builtin.shell"]
+    assert "remove-roles" not in script and "delete" not in script

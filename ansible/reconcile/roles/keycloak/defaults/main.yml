@@ -99,6 +99,10 @@ keycloak_realm_seed_dir: "{{ keycloak_config_dir }}/seed"
 # (tasks/realm_bootstrap.yml).
 keycloak_admin_email_record: "/var/lib/catena/keycloak-realm-admin-email"
 
+# Present once the realm administrator has been given the realm-admin role
+# (tasks/realm_bootstrap.yml); a role removed by hand afterwards stays removed.
+keycloak_realm_admin_role_marker: "/var/lib/catena/keycloak-realm-admin-role-granted"
+
 # Realm name owning all per-VPS clients + groups + users. Single-realm
 # per VPS today; Phase Two Organizations (multi-tenancy inside one
 # realm) is the upgrade path when a client wants sub-tenants.
@@ -115,6 +119,14 @@ keycloak_realm: "vps"
 # follows the zone with the rest of the realm's mail settings.
 keycloak_realm_display_name: "{{ cloudflare_zone }}"
 keycloak_realm_display_name_attribute: "catenaDisplayName"
+
+# The realm attribute naming the post-broker-login flow the extension binds
+# identity providers to (provider/.../CatenaTierBindingListener.java).
+keycloak_realm_post_broker_attribute: "catenaPostBrokerLoginFlow"
+
+# Per-flow digests of the sign-in flows the last successful import built, and
+# the generation they were built under (playbooks/filter_plugins/keycloak_signin_flows.py).
+keycloak_flows_record: "/var/lib/catena/keycloak-flows.json"
 
 # Nightly realm-export OnCalendar. Default 03:30 host-local --
 # spaced from the backup window (default 02:00) and any auto-update
