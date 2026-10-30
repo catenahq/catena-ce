@@ -59,12 +59,25 @@ User = get_user_model()
 # given. The password is set on creation only: one changed in /admin/ is kept.
 _hc_login = _hc_email.lower()
 project = Project.objects.filter(ping_key=_hc_ping_key).first()
-operator = project.owner if project else User.objects.filter(username=_hc_login).first()
+#
+# Each gated visit makes Healthchecks look the lowercase header up by exact
+# email and create a user when none matches (hc/accounts/backends.py
+# CustomHeaderBackend). A host whose operator holds the address in mixed case
+# may so hold a second account on the lowercase one. Every other user whose
+# email is the login in any letter case is that same mailbox: its projects go
+# to the operator and it is deleted, so one account holds the address. A user
+# on any other address is never touched.
+operator = project.owner if project else (
+    User.objects.filter(username=_hc_login).first()
+    or User.objects.filter(email__iexact=_hc_login).first())
 if operator is None:
     operator = User.objects.create_superuser(
         username=_hc_login, email=_hc_login, password=_hc_pw,
     )
 else:
+    for _dup in list(User.objects.filter(email__iexact=_hc_login).exclude(pk=operator.pk)):
+        Project.objects.filter(owner=_dup).update(owner=operator)
+        _dup.delete()
     _wanted = {"username": _hc_login, "email": _hc_login,
                "is_superuser": True, "is_staff": True}
     _changed = [f for f, v in _wanted.items() if getattr(operator, f) != v]

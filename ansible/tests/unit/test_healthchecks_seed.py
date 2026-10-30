@@ -51,6 +51,36 @@ def test_a_mixed_case_admin_email_gives_a_lowercase_login_and_an_as_given_channe
     assert managers["user"].rows == [operator]
 
 
+def test_a_lowercase_duplicate_of_the_mixed_case_operator_is_merged_into_it(
+        monkeypatch):
+    """A gated visit made Healthchecks create a second user on the lowercase
+    address. The converge ends with the operator alone, owning every project;
+    a user on another address is left as it is."""
+    managers = install_fake_django(monkeypatch)
+    operator = managers["user"].create(username="Ops@Example.com", email="Ops@Example.com")
+    mine = managers["project"].create(owner=operator, name="vps-1", ping_key="ping-key")
+    dup = managers["user"].create(username="u-abc", email="ops@example.com")
+    theirs = managers["project"].create(owner=dup, name="second")
+    other = managers["user"].create(username="bob", email="bob@example.com")
+    bobs = managers["project"].create(owner=other, name="bobs")
+
+    run_seed(admin_email="Ops@Example.com")
+    assert managers["user"].rows == [operator, other]
+    assert operator.username == operator.email == "ops@example.com"
+    assert mine.owner is operator and theirs.owner is operator
+    assert bobs.owner is other
+    assert mine.ping_key == "ping-key"
+
+
+def test_an_unpinned_host_adopts_the_lowercase_user_instead_of_adding_a_second(
+        monkeypatch):
+    managers = install_fake_django(monkeypatch)
+    gate = managers["user"].create(username="u-abc", email="ops@example.com")
+    run_seed(admin_email="Ops@Example.com")
+    assert managers["user"].rows == [gate]
+    assert gate.username == gate.email == "ops@example.com"
+
+
 def test_the_seed_creates_no_check(monkeypatch):
     """The scheduled lanes' checks belong to catena-admin's catena-schedule,
     which keeps them on the lanes' schedule; a check the seed made would be a
