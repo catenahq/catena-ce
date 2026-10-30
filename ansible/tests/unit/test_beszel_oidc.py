@@ -432,15 +432,132 @@ def test_an_admin_email_change_moves_the_hubs_records(monkeypatch, tmp_path, cap
     assert oct((tmp_path / "state.json").stat().st_mode & 0o777) == "0o600"
 
 
-def test_a_users_record_in_another_letter_case_is_moved_on_every_run(
+def test_a_mixed_case_store_email_leaves_the_superuser_in_its_case_and_the_users_record_lowercase(
         monkeypatch, tmp_path):
-    """The superuser holds the lowercase address and the users record a
-    capitalised one: the run after the superuser moved still moves the
-    record."""
-    hub = _Hub("Admin@example.test")
-    hub.superuser = "admin@example.test"
-    assert _run_main(monkeypatch, tmp_path, hub, "admin@example.test") == 0
-    assert hub.superuser == hub.user == "admin@example.test"
+    """Keycloak sends the address lowercase and the hub compares the users
+    record exactly, so that record is lowercase; the superuser's password
+    sign-in keeps the store's case."""
+    hub = _Hub("Old@example.test")
+    assert _run_main(monkeypatch, tmp_path, hub, "Old@example.test") == 0
+    assert hub.superuser == "Old@example.test"
+    assert hub.user == "old@example.test"
+    assert _run_main(monkeypatch, tmp_path, hub, "New@example.test") == 0
+    assert hub.superuser == "New@example.test"
+    assert hub.user == "new@example.test"
+    assert _run_main(monkeypatch, tmp_path, hub, "New@example.test") == 0
+    assert hub.user == "new@example.test"
+
+
+def test_a_first_claim_with_a_mixed_case_email_ends_the_same_way(
+        monkeypatch, tmp_path):
+    hub = _Hub(None)
+    assert _run_main(monkeypatch, tmp_path, hub, "Admin@example.test") == 0
+    assert hub.superuser == "Admin@example.test"
+    assert hub.user == "admin@example.test"
+
+
+class _DupHub(_Hub):
+    """A hub whose users collection holds several records: `users` maps id to
+    email, `token_owner` owns the universal token, and the unique email index
+    refuses a patch onto an address another record holds exactly."""
+
+    def __init__(self, users, token_owner):
+        super().__init__(None)
+        self.superuser = "Admin@example.test"
+        self.users = dict(users)
+        self.token_owner = token_owner
+        self.systems = {"sys1": ["dup"]}
+        self.settings = {"dup": "s-dup"}
+        self.alerts = {"a-dup": ("dup", "sys1", "CPU")}
+        self.deleted = []
+
+    def req(self, method, url, *, token=None, body=None):
+        import urllib.error
+        import urllib.parse
+
+        path = urllib.parse.unquote(url)
+        if url.endswith("/api/beszel/first-run"):
+            return {"firstRun": False}
+        if method == "PATCH" and "/users/records/" in url:
+            if body["email"] in self.users.values():
+                raise urllib.error.HTTPError(url, 400, "unique", None, None)
+            self.users[url.rsplit("/", 1)[1]] = body["email"]
+            return {}
+        if method == "DELETE" and "/users/records/" in url:
+            self.users.pop(url.rsplit("/", 1)[1])
+            self.deleted.append(url.rsplit("/", 1)[1])
+            return {}
+        if "/users/records?" in path:
+            needle = path.split("email~'", 1)[1].split("'")[0].lower()
+            return {"items": [{"id": i, "email": e, "created": i}
+                              for i, e in self.users.items() if needle in e.lower()]}
+        if "/universal_tokens/" in url:
+            uid = path.split("user='", 1)[1].split("'")[0] if "user=" in path else None
+            return {"items": [{"id": "t1", "token": "tok"}] if uid == self.token_owner else []}
+        if "/systems/records" in url:
+            if method == "PATCH":
+                self.systems[url.rsplit("/", 1)[1]] = body["users"]
+                return {}
+            if "users?=" in path:
+                uid = path.split("users?='", 1)[1].split("'")[0]
+                return {"items": [{"id": s, "users": u} for s, u in self.systems.items()
+                                  if uid in u]}
+            if "users" in path:
+                raise AssertionError(f"systems filtered with a match-all operator: {path}")
+            return {"items": [{"id": "sys1"}]}
+        if "/user_settings/records" in url:
+            if method != "GET":
+                return {"id": "s-new"}
+            uid = path.split("user='", 1)[1].split("'")[0]
+            return {"items": [{"id": s, "settings": {"webhooks": ["hook"], "emails": []}}
+                              for u, s in self.settings.items() if u == uid]}
+        if "/alerts/records" in url:
+            if method != "GET":
+                return {}
+            uid = path.split("user='", 1)[1].split("'")[0]
+            rows = [{"id": i, "user": u, "system": s, "name": n}
+                    for i, (u, s, n) in self.alerts.items() if u == uid]
+            if "system=" in path:
+                rows += [{"name": r["name"]} for r in seed._DEFAULT_RULES]
+            return {"items": rows}
+        return super().req(method, url, token=token, body=body)
+
+
+def test_a_lowercase_duplicate_of_the_mixed_case_user_is_merged_into_the_token_owner(
+        monkeypatch, tmp_path):
+    """A Keycloak button sign-in created a record on the lowercase address
+    beside the seeded mixed-case one. The one owning the universal token is
+    kept, the other is deleted first, and the systems it held point at the
+    kept record."""
+    hub = _DupHub({"seed": "Admin@example.test", "dup": "admin@example.test"}, "seed")
+    assert _run_main(monkeypatch, tmp_path, hub, "Admin@example.test") == 0
+    assert hub.users == {"seed": "admin@example.test"}
+    assert hub.deleted == ["dup"]
+    assert hub.systems == {"sys1": ["seed"]}
+
+
+def test_the_lowercase_record_is_kept_when_it_owns_the_token(monkeypatch, tmp_path):
+    hub = _DupHub({"dup": "admin@example.test", "seed": "Admin@example.test"}, "dup")
+    hub.systems = {"sys1": ["seed"]}
+    hub.settings = {}
+    hub.alerts = {}
+    assert _run_main(monkeypatch, tmp_path, hub, "Admin@example.test") == 0
+    assert hub.users == {"dup": "admin@example.test"}
+    assert hub.systems == {"sys1": ["dup"]}
+
+
+def test_a_system_both_records_share_ends_with_the_kept_one_alone(monkeypatch, tmp_path):
+    hub = _DupHub({"seed": "Admin@example.test", "dup": "admin@example.test"}, "seed")
+    hub.systems = {"sys1": ["seed", "dup"], "sys2": ["dup"]}
+    assert _run_main(monkeypatch, tmp_path, hub, "Admin@example.test") == 0
+    assert hub.systems == {"sys1": ["seed"], "sys2": ["seed"]}
+
+
+def test_without_a_token_owner_the_oldest_record_is_kept(monkeypatch, tmp_path):
+    hub = _DupHub({"b": "admin@example.test", "a": "Admin@example.test"}, None)
+    hub.systems, hub.settings, hub.alerts = {}, {}, {}
+    assert _run_main(monkeypatch, tmp_path, hub, "Admin@example.test") == 0
+    assert hub.users == {"a": "admin@example.test"}
 
 
 def test_an_unknown_admin_email_fails_loudly(monkeypatch, tmp_path):

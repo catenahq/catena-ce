@@ -34,7 +34,10 @@ serves its first-user endpoint until someone calls it. The seed calls it first,
 as the admin (claim_first_run), so the hub's spec never carries the password.
 The seed keeps the admin email it last signed in with in its state file, and
 after an admin email change signs in with that one and moves both records to
-the new address (move_superuser, follow_admin_user).
+the new address (move_superuser, follow_admin_user). The superuser keeps the
+admin email's letter case, which the hub compares exactly on a password
+sign-in. The users record holds the lowercase address, the form Keycloak
+sends in X-Forwarded-Email, which the hub also compares exactly.
 
 Config is one JSON object on stdin, so no credential is in the process's argv
 or environment, which `ps` shows every local user (KeyErrors loudly on any
@@ -150,36 +153,103 @@ def move_superuser(base: str, auth: dict, new: str) -> None:
     )
 
 
-def find_user(base: str, su_token: str, email: str) -> dict | None:
-    """The users record holding `email`, whatever its letter case: an address
-    is one mailbox however it is capitalised, and the hub compares it exactly."""
+def find_users(base: str, su_token: str, email: str) -> list[dict]:
+    """The users records holding `email`, whatever their letter case: an
+    address is one mailbox however it is capitalised, and the hub compares it
+    exactly, so its unique email index lets several coexist."""
     flt = urllib.parse.quote(f"email~'{email}'")
     items = _req(
         "GET",
         f"{base}/api/collections/users/records?perPage=50&filter=({flt})",
         token=su_token,
     ).get("items") or []
-    return next((u for u in items
-                 if str(u.get("email", "")).lower() == email.lower()), None)
+    return [u for u in items if str(u.get("email", "")).lower() == email.lower()]
+
+
+def _rows(base: str, su_token: str, collection: str, flt: str) -> list[dict]:
+    return _req(
+        "GET",
+        f"{base}/api/collections/{collection}/records?perPage=200"
+        f"&filter=({urllib.parse.quote(flt)})",
+        token=su_token,
+    ).get("items") or []
+
+
+def merge_user(base: str, su_token: str, keep_id: str, drop_id: str) -> None:
+    """Give the users record `keep_id` everything the duplicate `drop_id`
+    holds, then delete the duplicate. Systems are re-pointed at the kept
+    record, so the admin still sees every one. The duplicate's settings and
+    alert rules move when the kept record has none of the same, else the kept
+    record's win. Its universal token is deleted: the kept record's is the
+    one the seed reconciles."""
+    base_c = f"{base}/api/collections"
+    # `?=` is "at least one of": a plain operator on a multiple relation must
+    # hold for every record in it, which misses a system both records share.
+    for system in _rows(base, su_token, "systems", f"users?='{drop_id}'"):
+        owners = [u for u in (system.get("users") or []) if u != drop_id]
+        if keep_id not in owners:
+            owners.append(keep_id)
+        _req("PATCH", f"{base_c}/systems/records/{system['id']}",
+             token=su_token, body={"users": owners})
+
+    kept_settings = _rows(base, su_token, "user_settings", f"user='{keep_id}'")
+    for row in _rows(base, su_token, "user_settings", f"user='{drop_id}'"):
+        if kept_settings:
+            _req("DELETE", f"{base_c}/user_settings/records/{row['id']}", token=su_token)
+        else:
+            _req("PATCH", f"{base_c}/user_settings/records/{row['id']}",
+                 token=su_token, body={"user": keep_id})
+
+    have = {(a.get("system"), a.get("name"))
+            for a in _rows(base, su_token, "alerts", f"user='{keep_id}'")}
+    for row in _rows(base, su_token, "alerts", f"user='{drop_id}'"):
+        key = (row.get("system"), row.get("name"))
+        if key in have:
+            _req("DELETE", f"{base_c}/alerts/records/{row['id']}", token=su_token)
+        else:
+            have.add(key)
+            _req("PATCH", f"{base_c}/alerts/records/{row['id']}",
+                 token=su_token, body={"user": keep_id})
+
+    for row in _rows(base, su_token, "universal_tokens", f"user='{drop_id}'"):
+        _req("DELETE", f"{base_c}/universal_tokens/records/{row['id']}", token=su_token)
+    _req("DELETE", f"{base_c}/users/records/{drop_id}", token=su_token)
 
 
 def follow_admin_user(base: str, su_token: str, new: str, olds: list[str]) -> dict | None:
-    """The admin's users record, moved onto `new` unless it already holds it
-    letter for letter. It is found under `new` or else under one of `olds`, and
-    keeps its id, so the universal token, the alert settings and the rules that
-    point at it stay attached."""
+    """The admin's users record, moved onto `new` (the lowercase address)
+    unless it already holds it letter for letter. Every record holding `new` or
+    one of `olds` in any letter case is a candidate: a Keycloak button sign-in
+    creates a record of its own under the lowercase address beside a
+    mixed-case one. The kept record is the one owning the universal token, else
+    the oldest; the others are merged into it and deleted before the email is
+    patched, so the unique email index cannot refuse the move. The kept record
+    keeps its id, so the universal token, the alert settings and the rules
+    that point at it stay attached."""
+    found: dict[str, dict] = {}
     for email in [new] + [o for o in olds if o]:
-        user = find_user(base, su_token, email)
-        if user:
-            if user.get("email") != new:
-                _req(
-                    "PATCH",
-                    f"{base}/api/collections/users/records/{user['id']}",
-                    token=su_token,
-                    body={"email": new},
-                )
-            return user
-    return None
+        for user in find_users(base, su_token, email):
+            found.setdefault(user["id"], user)
+    if not found:
+        return None
+    candidates = list(found.values())
+    keep = candidates[0]
+    if len(candidates) > 1:
+        owner = next((u for u in candidates
+                      if _rows(base, su_token, "universal_tokens", f"user='{u['id']}'")),
+                     None)
+        keep = owner or min(candidates, key=lambda u: str(u.get("created") or ""))
+        for other in candidates:
+            if other["id"] != keep["id"]:
+                merge_user(base, su_token, keep["id"], other["id"])
+    if keep.get("email") != new:
+        _req(
+            "PATCH",
+            f"{base}/api/collections/users/records/{keep['id']}",
+            token=su_token,
+            body={"email": new},
+        )
+    return keep
 
 
 def main() -> int:
@@ -236,7 +306,8 @@ def main() -> int:
     # the current email whenever it is not on it. The record is checked on every
     # run, not only the one that moved the superuser, so a run that stopped
     # between the two is finished by the next.
-    user = follow_admin_user(base, su_token, email, [recorded, signed_in_as])
+    user = follow_admin_user(base, su_token, email.lower(),
+                             [email, recorded, signed_in_as])
     if not user:
         die(f"no users record for {email!r} (hub bootstrap incomplete?)")
     user_id = user["id"]

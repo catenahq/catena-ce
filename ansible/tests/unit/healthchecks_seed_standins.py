@@ -33,6 +33,7 @@ class _Row:
     def __init__(self, **fields):
         type(self)._next_code += 1
         self.code = f"code-{type(self)._next_code}"
+        self.pk = type(self)._next_code
         self.email = ""
         self.name = ""
         self.is_staff = True
@@ -43,6 +44,11 @@ class _Row:
 
     def save(self, **_kwargs):
         pass
+
+    def delete(self):
+        for manager in self.managers.values():
+            if self in manager.rows:
+                manager.rows.remove(self)
 
     def assign_all_checks(self):
         for check in self.managers["check"].rows:
@@ -68,6 +74,12 @@ class _ChannelSet:
         self.added.remove(obj)
 
 
+def _field_matches(row, key, value):
+    if key.endswith("__iexact"):
+        return str(getattr(row, key[:-8], "")).lower() == str(value).lower()
+    return getattr(row, key, None) == value
+
+
 class _QuerySet:
     def __init__(self, manager, rows):
         self._manager = manager
@@ -75,6 +87,20 @@ class _QuerySet:
 
     def first(self):
         return self._rows[0] if self._rows else None
+
+    def exclude(self, **kwargs):
+        return _QuerySet(self._manager, [
+            r for r in self._rows
+            if not all(getattr(r, k, None) == v for k, v in kwargs.items())])
+
+    def update(self, **kwargs):
+        for row in self._rows:
+            for key, value in kwargs.items():
+                setattr(row, key, value)
+        return len(self._rows)
+
+    def __iter__(self):
+        return iter(self._rows)
 
     def exists(self):
         return bool(self._rows)
@@ -92,7 +118,7 @@ class _Manager:
     def _match(self, **kwargs):
         return [
             r for r in self.rows
-            if all(getattr(r, k, None) == v for k, v in kwargs.items())
+            if all(_field_matches(r, k, v) for k, v in kwargs.items())
         ]
 
     def filter(self, **kwargs):
