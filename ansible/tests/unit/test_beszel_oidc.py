@@ -432,15 +432,28 @@ def test_an_admin_email_change_moves_the_hubs_records(monkeypatch, tmp_path, cap
     assert oct((tmp_path / "state.json").stat().st_mode & 0o777) == "0o600"
 
 
-def test_a_users_record_in_another_letter_case_is_moved_on_every_run(
+def test_a_mixed_case_store_email_leaves_the_superuser_in_its_case_and_the_users_record_lowercase(
         monkeypatch, tmp_path):
-    """The superuser holds the lowercase address and the users record a
-    capitalised one: the run after the superuser moved still moves the
-    record."""
-    hub = _Hub("Admin@example.test")
-    hub.superuser = "admin@example.test"
-    assert _run_main(monkeypatch, tmp_path, hub, "admin@example.test") == 0
-    assert hub.superuser == hub.user == "admin@example.test"
+    """Keycloak sends the address lowercase and the hub compares the users
+    record exactly, so that record is lowercase; the superuser's password
+    sign-in keeps the store's case."""
+    hub = _Hub("Old@example.test")
+    assert _run_main(monkeypatch, tmp_path, hub, "Old@example.test") == 0
+    assert hub.superuser == "Old@example.test"
+    assert hub.user == "old@example.test"
+    assert _run_main(monkeypatch, tmp_path, hub, "New@example.test") == 0
+    assert hub.superuser == "New@example.test"
+    assert hub.user == "new@example.test"
+    assert _run_main(monkeypatch, tmp_path, hub, "New@example.test") == 0
+    assert hub.user == "new@example.test"
+
+
+def test_a_first_claim_with_a_mixed_case_email_ends_the_same_way(
+        monkeypatch, tmp_path):
+    hub = _Hub(None)
+    assert _run_main(monkeypatch, tmp_path, hub, "Admin@example.test") == 0
+    assert hub.superuser == "Admin@example.test"
+    assert hub.user == "admin@example.test"
 
 
 def test_an_unknown_admin_email_fails_loudly(monkeypatch, tmp_path):

@@ -35,6 +35,22 @@ def test_an_admin_email_change_renames_the_one_superuser(monkeypatch):
     assert channel in check.channel_set.added
 
 
+def test_a_mixed_case_admin_email_gives_a_lowercase_login_and_an_as_given_channel(
+        monkeypatch):
+    """Keycloak sends the address lowercase and Healthchecks matches the
+    header exactly, so the operator's username and email are lowercase; the
+    email channel keeps the address as given."""
+    managers = install_fake_django(monkeypatch)
+    run_seed(mail_enabled="true", admin_email="Ops@Example.com")
+    [operator] = managers["user"].rows
+    assert operator.username == operator.email == "ops@example.com"
+    [channel] = managers["channel"].rows
+    assert json.loads(channel.value)["value"] == "Ops@Example.com"
+
+    run_seed(mail_enabled="true", admin_email="Ops@Example.com")
+    assert managers["user"].rows == [operator]
+
+
 def test_the_seed_creates_no_check(monkeypatch):
     """The scheduled lanes' checks belong to catena-admin's catena-schedule,
     which keeps them on the lanes' schedule; a check the seed made would be a

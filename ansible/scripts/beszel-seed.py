@@ -34,7 +34,10 @@ serves its first-user endpoint until someone calls it. The seed calls it first,
 as the admin (claim_first_run), so the hub's spec never carries the password.
 The seed keeps the admin email it last signed in with in its state file, and
 after an admin email change signs in with that one and moves both records to
-the new address (move_superuser, follow_admin_user).
+the new address (move_superuser, follow_admin_user). The superuser keeps the
+admin email's letter case, which the hub compares exactly on a password
+sign-in. The users record holds the lowercase address, the form Keycloak
+sends in X-Forwarded-Email, which the hub also compares exactly.
 
 Config is one JSON object on stdin, so no credential is in the process's argv
 or environment, which `ps` shows every local user (KeyErrors loudly on any
@@ -164,10 +167,10 @@ def find_user(base: str, su_token: str, email: str) -> dict | None:
 
 
 def follow_admin_user(base: str, su_token: str, new: str, olds: list[str]) -> dict | None:
-    """The admin's users record, moved onto `new` unless it already holds it
-    letter for letter. It is found under `new` or else under one of `olds`, and
-    keeps its id, so the universal token, the alert settings and the rules that
-    point at it stay attached."""
+    """The admin's users record, moved onto `new` (the lowercase address)
+    unless it already holds it letter for letter. It is found under `new` or
+    else under one of `olds`, and keeps its id, so the universal token, the
+    alert settings and the rules that point at it stay attached."""
     for email in [new] + [o for o in olds if o]:
         user = find_user(base, su_token, email)
         if user:
@@ -236,7 +239,8 @@ def main() -> int:
     # the current email whenever it is not on it. The record is checked on every
     # run, not only the one that moved the superuser, so a run that stopped
     # between the two is finished by the next.
-    user = follow_admin_user(base, su_token, email, [recorded, signed_in_as])
+    user = follow_admin_user(base, su_token, email.lower(),
+                             [email, recorded, signed_in_as])
     if not user:
         die(f"no users record for {email!r} (hub bootstrap incomplete?)")
     user_id = user["id"]

@@ -52,18 +52,20 @@ User = get_user_model()
 # never take the ping key (Project.ping_key is unique). With no pinned project
 # yet, it is the user named after the admin email, created when missing.
 #
-# username = email, so the oauth2-proxy identity hop
-# (REMOTE_USER_HEADER=HTTP_X_FORWARDED_EMAIL, matched on the email) lands the
-# admin in this account. The password is set on creation only: one changed
-# in /admin/ is kept.
+# username = email, both lowercase: Keycloak sends the address lowercase in
+# X-Forwarded-Email, and the oauth2-proxy identity hop
+# (REMOTE_USER_HEADER=HTTP_X_FORWARDED_EMAIL, matched exactly on the email)
+# lands the admin in this account. The email channel keeps the address as
+# given. The password is set on creation only: one changed in /admin/ is kept.
+_hc_login = _hc_email.lower()
 project = Project.objects.filter(ping_key=_hc_ping_key).first()
-operator = project.owner if project else User.objects.filter(username=_hc_email).first()
+operator = project.owner if project else User.objects.filter(username=_hc_login).first()
 if operator is None:
     operator = User.objects.create_superuser(
-        username=_hc_email, email=_hc_email, password=_hc_pw,
+        username=_hc_login, email=_hc_login, password=_hc_pw,
     )
 else:
-    _wanted = {"username": _hc_email, "email": _hc_email,
+    _wanted = {"username": _hc_login, "email": _hc_login,
                "is_superuser": True, "is_staff": True}
     _changed = [f for f, v in _wanted.items() if getattr(operator, f) != v]
     for _field in _changed:
