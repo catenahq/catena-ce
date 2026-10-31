@@ -56,7 +56,7 @@ docker_apt_repo: "deb [arch={{ 'amd64' if ansible_facts['architecture'] == 'x86_
 # catena-admin's catena-engine-upgrade, which reads these two keys from the
 # reconcile tree the panel image carries. Renovate (renovate.json) proposes a
 # bump 14 days after a release.
-docker_version: "29.9.0"
+docker_version: "29.9.1"
 docker_containerd_version: "2.3.5"
 
 # How Docker's repository names those versions for this host's Debian release.
