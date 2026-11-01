@@ -232,7 +232,6 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # supervises could hide a drift by correcting it.
     "catena_identity_probe_client_secret": mint_strong_password,
     # Healthchecks (self-hosted heartbeat instance).
-    "healthchecks_secret_key": mint_strong_password,
     "healthchecks_superuser_password": mint_strong_password,
     "healthchecks_ping_key": mint_url_safe,
     "healthchecks_api_key_readonly": mint_hc_api_key,

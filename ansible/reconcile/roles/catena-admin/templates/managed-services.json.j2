@@ -21,7 +21,8 @@
   without its image resolving through one of them would mean the lane bumps it
   and the next converge puts it back.
 
-  Client application stacks are bumped through their folders
+  Client application stacks and the default apps (Gatus, Healthchecks and
+  Beszel's hub) are bumped through their folders
   (catena-admin payload/engines/stackupdate) and are not listed here.
   `compose_name` on a stack-deployed entry is what keeps the two apart: the
   engine builds its client-walk skip set from that key, so a stack of Catena's
@@ -76,43 +77,6 @@
       "source": "github",
       "repo": "traefik/traefik",
       "tag_pattern": "^v\\d+\\.\\d+\\.\\d+$"
-    }
-  },
-  {
-    "name": "gatus",
-    "kind": "infra-swarm",
-    "compose_name": "{{ gatus_compose_name }}",
-    "swarm_service": "{{ gatus_compose_name }}_app",
-    "policy": "patch",
-    "upstream": {
-      "source": "dockerhub",
-      "repo": "twinproduction/gatus",
-      "tag_pattern": "^v\\d+\\.\\d+\\.\\d+$"
-    }
-  },
-  {
-    "name": "healthchecks",
-    "kind": "infra-swarm",
-    "compose_name": "{{ healthchecks_compose_name }}",
-    "swarm_service": "{{ healthchecks_compose_name }}_app",
-    "policy": "patch",
-    "upstream": {
-      "source": "dockerhub",
-      "repo": "healthchecks/healthchecks",
-      "scheme": "partial_line",
-      "tag_pattern": "^v\\d+\\.\\d+(\\.\\d+)?$"
-    }
-  },
-  {
-    "name": "beszel-hub",
-    "kind": "infra-swarm",
-    "compose_name": "{{ beszel_hub_compose_name }}",
-    "swarm_service": "{{ beszel_hub_compose_name }}_app",
-    "policy": "patch",
-    "upstream": {
-      "source": "dockerhub",
-      "repo": "henrygd/beszel",
-      "tag_pattern": "^\\d+\\.\\d+\\.\\d+$"
     }
   },
   {

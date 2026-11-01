@@ -154,8 +154,10 @@ acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
 # which authenticates against Keycloak and proxies to the app behind it, and
 # keeps a session cookie of its own on its host. The Keycloak session signs the
 # browser in to the next one without a prompt.
-# Store keys, set in catena-admin > Settings; the literal is the name a host
-# with nothing stored uses.
+# The three below are each default app's SUBDOMAIN setting, which
+# playbooks/tasks/default_app_subdomains.yml reads from the app's folder; the
+# literal is the name a host whose folder is absent uses. Keycloak's and the
+# panel's come from the store.
 infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('gatus', true) }}"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
@@ -185,10 +187,27 @@ beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 beszel_network: "catena-beszel"
 # The overlay only the hub and its sign-in gate (reconcile/roles/oauth2_proxy)
 # join. The hub signs in as the email in the header the gate sets, from peers
-# inside this network's subnet alone (TRUSTED_PROXY_IPS in
-# reconcile/roles/infrastructure/templates/beszel-hub.compose.yml.j2), so no
-# other member may ever join it. reconcile/roles/swarm creates it.
-beszel_gate_network: "catena-beszel-gate"
+# inside this network's subnet alone (TRUSTED_PROXY_IPS, written by
+# reconcile/roles/infrastructure/tasks/beszel.yml), so no other member may ever
+# join it. reconcile/roles/swarm creates it. The name holds no hyphen after
+# "catena-" because the hub's app provides it as a capability, and a capability
+# name is lowercase letters.
+beszel_gate_network: "catena-beszelgate"
+
+# The applications every host runs from the catalog: Gatus, Healthchecks and
+# Beszel's hub. reconcile/roles/infrastructure adds each one with
+# `catena-apps defaults` and writes this list to /etc/catena/default-apps.json,
+# which catena-admin's whole-server restore reads to leave their stacks running.
+# `tag` is the catalog tag the app is first added at; the host's update lane
+# moves it afterwards. playbooks/tasks/default_app_subdomains.yml reads the
+# stacks from here before any role runs.
+default_apps_repository: "https://github.com/catenahq/catena-templates"
+default_apps:
+  - { app: gatus, tag: "gatus/5.38.0-1", stack: gatus }
+  - { app: healthchecks, tag: "healthchecks/5.0.3-1", stack: healthchecks }
+  - { app: beszel, tag: "beszel/0.21.1-1", stack: beszel-hub }
+# One folder per catalog application, which catena-apps writes.
+default_apps_compose_dir: "{{ storage_mount_point }}/compose"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
 # front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are

@@ -38,6 +38,7 @@ def test_no_task_restarts_a_gatus_container():
             f"{name!r} restarts a container swarm owns: {cmd!r}")
 
 
-def test_the_base_config_reload_updates_the_service():
-    cmds = [cmd for _, cmd in _commands() if "service update" in cmd]
-    assert cmds == ["docker service update --force --quiet {{ gatus_compose_name }}_app"]
+def test_no_task_touches_the_gatus_service():
+    """The base configuration is the app's own (its base service writes it), so
+    the converge restarts nothing."""
+    assert [cmd for _, cmd in _commands() if "service update" in cmd] == []

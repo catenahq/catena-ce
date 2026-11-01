@@ -155,7 +155,7 @@ def _ensure_channel(code, kind, value, name):
 
 
 # The admin's email is the alert channel, through the outgoing mail chosen in
-# Settings > Mail (healthchecks.compose.yml.j2's EMAIL_* settings). Notified
+# Settings > Mail (the EMAIL_* settings reconcile/roles/infrastructure/tasks/healthchecks.yml writes). Notified
 # on down and on up. With mail turned off nothing could send it, so the
 # channel is removed, and alerts reach only the channels a client added in the
 # Healthchecks integrations UI.

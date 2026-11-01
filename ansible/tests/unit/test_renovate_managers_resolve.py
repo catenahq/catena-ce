@@ -114,13 +114,12 @@ def test_every_pinned_image_the_repo_ships_is_scanned():
     """A role default that pins an image nothing lists here is an image on
     every client host that no scan looks at. The absent ones are absent on
     purpose: the tier-1 control plane and cloudflared are pinned in
-    catena-admin and scanned there, against the tags the host actually reads.
+    catena-admin and scanned there, against the tags the host actually reads,
+    and the default apps (Gatus, Healthchecks, Beszel's hub) are pinned in the
+    catalog and scanned by its CI.
     """
     declared = {p["repo"] for p in _image_pins() if p.get("repo")}
     for repo in (
-        "twinproduction/gatus",
-        "healthchecks/healthchecks",
-        "henrygd/beszel",
         "henrygd/beszel-agent",
         "quay.io/phasetwo/phasetwo-keycloak",
         "adorsys/keycloak-config-cli",

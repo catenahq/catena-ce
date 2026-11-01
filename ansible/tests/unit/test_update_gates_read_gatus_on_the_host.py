@@ -57,6 +57,6 @@ def test_each_gate_reads_the_statuses_on_the_loopback_publish():
 def test_the_url_is_built_from_the_port_gatus_is_published_on():
     """A second literal port would go on pointing at the old one when the
     publish moves, and the gates read an unreachable Gatus as no opinion."""
-    compose = (ROLES / "infrastructure" / "templates" / "gatus.compose.yml.j2").read_text()
-    assert "published: {{ gatus_host_localhost_port }}" in compose
+    fragment = (ROLES / "infrastructure" / "tasks" / "gatus.yml").read_text()
+    assert '"port": gatus_host_localhost_port | int' in fragment
     assert "{{ gatus_host_localhost_port }}" in _defaults("catena-admin")["catena_gatus_statuses_url"]

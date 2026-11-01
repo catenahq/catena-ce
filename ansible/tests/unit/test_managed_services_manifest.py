@@ -124,9 +124,6 @@ def test_the_stack_deployed_services_use_the_swarm_naming_convention(manifest):
     naming the STACK instead would inspect nothing."""
     by_name = {s["name"]: s["swarm_service"] for s in manifest}
     for name, stack, service in (
-        ("gatus", "gatus", "app"),
-        ("healthchecks", "healthchecks", "app"),
-        ("beszel-hub", "beszel-hub", "app"),
         ("beszel-agent", "beszel-agent", "app"),
         ("keycloak", "keycloak", "server"),
     ):
@@ -135,11 +132,18 @@ def test_the_stack_deployed_services_use_the_swarm_naming_convention(manifest):
 
 
 def test_the_monitoring_plane_is_covered(manifest):
-    """The services of the monitoring plane."""
+    """The services of the monitoring plane that are stacks of this tree."""
     names = {s["name"] for s in manifest}
-    for expected in ("gatus", "healthchecks", "beszel-hub", "beszel-agent",
-                     "keycloak"):
+    for expected in ("beszel-agent", "keycloak"):
         assert expected in names, f"{expected} is unmanaged again: {sorted(names)}"
+
+
+def test_the_default_apps_are_updated_through_their_folders(manifest):
+    """Gatus, Healthchecks and Beszel's hub are catalog apps: the update engine
+    bumps them from their folders, so a second path here would bump them twice."""
+    names = {s["name"] for s in manifest}
+    for absent in ("gatus", "healthchecks", "beszel-hub"):
+        assert absent not in names, f"{absent} is bumped as an infra stack and as an app"
 
 
 def test_every_entry_declares_a_reachable_upstream(manifest):
@@ -165,9 +169,6 @@ def test_the_declared_tag_patterns_match_the_pins_the_converge_ships(manifest):
         # cloudflared's default is the tunnel engine's defaultImage (catena-admin
         # payload/cmd/catena-cloudflared-sync/main.go).
         ("cloudflared", "2026.9.1"),
-        ("gatus", v["gatus_image_tag"]),
-        ("healthchecks", v["healthchecks_image_tag"]),
-        ("beszel-hub", v["beszel_image_tag"]),
         ("beszel-agent", v["beszel_agent_image_tag"]),
         ("keycloak", v["keycloak_image_tag"]),
     ):
@@ -193,10 +194,10 @@ def test_stack_deployed_entries_declare_their_stack(manifest):
 
 
 def test_a_partial_tag_declares_its_scheme(manifest):
-    """healthchecks ships X.Y for the stable line. Without scheme=partial_line
-    the engine classifies the running tag as not-full-semver and skips it."""
-    hc = next(s for s in manifest if s["name"] == "healthchecks")
-    assert hc["upstream"].get("scheme") == "partial_line"
+    """catena-postgres ships X.Y. Without scheme=partial_line the engine
+    classifies the running tag as not-full-semver and skips it."""
+    pg = next(s for s in manifest if s["name"] == "catena-postgres")
+    assert pg["upstream"].get("scheme") == "partial_line"
 
 
 def test_keycloak_is_ordered_by_its_builds(manifest):

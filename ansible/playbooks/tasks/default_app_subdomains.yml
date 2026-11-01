@@ -1,0 +1,58 @@
+---
+# The address label of each default app (Gatus, Healthchecks, Beszel) is its
+# SUBDOMAIN setting, which catena-apps keeps in the app's .env. Read it into the
+# cfg_*_subdomain facts that playbooks/group_vars/all/main.yml builds the
+# hostnames from; an app with no folder yet, or no value, keeps its own name (the
+# default of its block). Included by converge.yml, reconcile.yml and validate.yml
+# before any role runs.
+#
+# An app setting checks nothing, and the label reaches the gate's route, the
+# Keycloak redirect URI, the Gatus probes, SITE_ROOT and ALLOWED_HOSTS, so a
+# value that is not one DNS label stops the converge.
+
+# The .env holds secrets (the mail password, the Gatus alert key): nothing of it
+# is printed.
+- name: "Default apps: read each app's .env"
+  ansible.builtin.slurp:
+    src: "{{ default_apps_compose_dir }}/{{ item.stack }}/.env"
+  loop: "{{ default_apps }}"
+  loop_control:
+    label: "{{ item.app }}"
+  register: _default_app_env
+  failed_when: false
+  no_log: true
+
+- name: "Default apps: the address label of each"
+  ansible.builtin.set_fact:
+    _default_app_labels:
+      gatus: "{{ _texts.gatus | dotenv_value('SUBDOMAIN', 'gatus') }}"
+      healthchecks: "{{ _texts.healthchecks | dotenv_value('SUBDOMAIN', 'healthchecks') }}"
+      beszel: "{{ _texts.beszel | dotenv_value('SUBDOMAIN', 'beszel') }}"
+  vars:
+    _texts: >-
+      {{ dict(_default_app_env.results | map(attribute='item.app')
+              | zip(_default_app_env.results | map(attribute='content', default='')
+                    | map('b64decode'))) }}
+  no_log: true
+
+# The pattern of the removed Settings fields (catena-admin
+# shell/settings/settings.go dnsLabel).
+- name: "Default apps: each address label is one DNS label"
+  ansible.builtin.assert:
+    that: item.value is match('^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
+    fail_msg: >-
+      The SUBDOMAIN setting of the {{ item.key }} app is not one DNS label. It
+      must be lowercase letters, digits and hyphens, at most 63 characters,
+      starting and ending with a letter or digit, with no dot, because the
+      domain is appended to it. Change it in the app's settings in the panel,
+      then converge again.
+    quiet: true
+  loop: "{{ _default_app_labels | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: "Default apps: publish the address labels"
+  ansible.builtin.set_fact:
+    cfg_gatus_subdomain: "{{ _default_app_labels.gatus }}"
+    cfg_healthchecks_subdomain: "{{ _default_app_labels.healthchecks }}"
+    cfg_beszel_subdomain: "{{ _default_app_labels.beszel }}"

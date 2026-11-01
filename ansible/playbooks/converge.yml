@@ -41,6 +41,15 @@
           tags: [always, onbox]
       tags: [always, onbox]
 
+    # The address label of Gatus, Healthchecks and Beszel, from each app's
+    # SUBDOMAIN setting; read before any role builds a hostname from it.
+    - name: "Default apps: read the address label of each"
+      ansible.builtin.include_tasks:
+        file: tasks/default_app_subdomains.yml
+        apply:
+          tags: [always, default_apps]
+      tags: [always, default_apps]
+
     # Refuse to converge onto a critically full filesystem; the same file
     # reconcile.yml includes.
     - name: "Preflight (disk): the install's converge checks its filesystems"

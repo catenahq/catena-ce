@@ -1,0 +1,74 @@
+---
+# Add one default app and say whether it runs.
+#
+# Inputs (caller sets via include_tasks vars):
+#
+#   default_app      -- the default_apps entry: {app, tag, stack}
+#   default_app_env  -- the values this converge owns, written into the app's
+#                       .env: keys the app's x-catena block does not declare
+#                       (the engine refuses one it does), as strings
+#
+# `catena-apps defaults` adds the app at its catalog tag when it has no folder
+# yet, or writes the env into the folder it has, and leaves an app an admin
+# stopped or removed as it is. -held: the converge holds the host lock. Exit 3
+# means the tag could not be fetched and nothing changed; the converge goes on
+# without the app. The engine's own lines are printed as they are.
+#
+# Output: _default_app_running, true while swarm holds the app's service with
+# at least one wanted replica. The seeds and the agent that need the app run
+# only then, since an admin may stop or remove it.
+
+# The request holds secrets, so the command runs no_log and never fails there:
+# the engine's lines are printed next, and a refusal fails the play after them
+# with the engine's stderr (which names keys, never values). Nothing prints the
+# registered result, which carries the request.
+- name: "Default app {{ default_app.app }}: add it and write its settings"
+  ansible.builtin.command:
+    argv: ["{{ catena_apps_bin }}", defaults, -held, -stdin]
+    stdin: >-
+      {{ {'app': default_app.app, 'tag': default_app.tag,
+          'stack': default_app.stack, 'env': default_app_env} | to_json }}
+  register: _default_app
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: _default_apps_available | bool
+
+- name: "Default app {{ default_app.app }}: what the engine did"
+  ansible.builtin.debug:
+    msg: "{{ (_default_app.stdout_lines | default([])) + (_default_app.stderr_lines | default([])) }}"
+  when:
+    - _default_app is not skipped
+    - ((_default_app.stdout_lines | default([])) + (_default_app.stderr_lines | default([]))) | length > 0
+
+- name: "Default app {{ default_app.app }}: stop when the engine refused"
+  ansible.builtin.fail:
+    msg: >-
+      catena-apps defaults refused {{ default_app.app }} (exit
+      {{ _default_app.rc | default('none') }}):
+      {{ (_default_app.stderr_lines | default([])) | join(' | ') }}
+  when:
+    - _default_app is not skipped
+    - _default_app.rc | default(1) not in [0, 3]
+
+- name: "Default app {{ default_app.app }}: read its swarm service"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - ls
+      - --filter
+      - "name={{ default_app.stack }}_app"
+      - --format
+      - '{% raw %}{{.Name}} {{.Replicas}}{% endraw %}'
+  register: _default_app_service
+  changed_when: false
+  when: _default_apps_available | bool
+
+- name: "Default app {{ default_app.app }}: is it running"
+  ansible.builtin.set_fact:
+    _default_app_running: >-
+      {{ (_default_apps_available | bool)
+         and (_default_app_service.stdout_lines
+              | select('match', '^' ~ (default_app.stack ~ '_app') | regex_escape ~ ' [0-9]+/[1-9]')
+              | list | length > 0) }}

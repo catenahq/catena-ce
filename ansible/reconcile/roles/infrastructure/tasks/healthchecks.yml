@@ -1,5 +1,5 @@
 ---
-# Deploy self-hosted Healthchecks as a swarm stack, served at
+# Add self-hosted Healthchecks as a catalog app, served at
 # healthchecks.<zone> through its sign-in gate. Purpose-built cron/dead-man
 # monitoring -- the OSS
 # project behind healthchecks.io. One container, SQLite, no metrics,
@@ -14,12 +14,11 @@
 # manual UI step, and any channel added in Healthchecks' integrations page.
 
 # Preflight -- fail loudly if the on-box store is missing any of the keys
-# the compose + seed tasks need. They are all internal-minted, so a gap
+# the app's .env and the seed need. They are all internal-minted, so a gap
 # here means the loader did not run or the store was truncated.
 - name: "Healthchecks: preflight secret keys"
   ansible.builtin.assert:
     that:
-      - healthchecks_secret_key is defined
       - healthchecks_superuser_password is defined
       - healthchecks_ping_key is defined
       - healthchecks_api_key_readonly is defined
@@ -34,7 +33,7 @@
 
 # Host-mode publish (swarm cannot bind 127.0.0.1), so the port is a real
 # host bind. scope=loopback denies it everywhere but lo, which is what the
-# ALLOWED_HOSTS 127.0.0.1 entry above assumes about who can reach it.
+# ALLOWED_HOSTS 127.0.0.1 entry below assumes about who can reach it.
 #
 # bind=docker, as for beszel.yml's hub port.
 - name: "Healthchecks: declare the host-side API port (registry fragment, loopback-only)"
@@ -62,35 +61,68 @@
     - _healthchecks_ports_fragment.changed
     - catena_public_ports_installed | default(true) | bool
 
-# The compose names each secret and mounts it; swarm holds the value.
-- name: "Healthchecks: name each swarm secret after its value"
+# The values this converge owns, written into the app's .env: the address it
+# answers to and the outgoing mail chosen in Settings > Mail
+# (infrastructure_smtp).
+#
+# A host with no domain yet addresses itself by the network alias every on-box
+# consumer dials: `<sub>.` with the zone empty is a name Django rejects, and
+# Healthchecks refuses to start (hc.api.E002) when SITE_ROOT's host is not an
+# allowed one.
+#
+# 127.0.0.1 is in ALLOWED_HOSTS because every host-side consumer dials the
+# loopback publish by IP: gatus-sync (HEALTHCHECKS_API_URL) and the other
+# host-side pingers (HEALTHCHECKS_LOOPBACK_PORT). Django answers 400
+# DisallowedHost to a Host it does not list, which looks exactly like "nothing
+# to report".
+#
+# Port 465 is implicit TLS, any other port STARTTLS, as every sender on the
+# host. Mail turned off leaves EMAIL_HOST empty, which gives Healthchecks no
+# mailer, and the seed removes the email channel.
+- name: "Healthchecks: the values the converge owns"
   ansible.builtin.set_fact:
-    _healthchecks_secrets: "{{ healthchecks_swarm_secrets | swarm_secret_entries }}"
+    _healthchecks_env:
+      SITE_ROOT: >-
+        {{ ('http://' ~ healthchecks_network_alias ~ ':' ~ healthchecks_internal_port)
+           if (catena_public_surface_deferred | default(false) | bool)
+           else ('https://' ~ healthchecks_hostname) }}
+      SITE_NAME: >-
+        {{ 'heartbeats' if (catena_public_surface_deferred | default(false) | bool)
+           else (cloudflare_zone ~ ' heartbeats') }}
+      ALLOWED_HOSTS: >-
+        {{ (healthchecks_network_alias ~ ',localhost,127.0.0.1')
+           if (catena_public_surface_deferred | default(false) | bool)
+           else (healthchecks_hostname ~ ',' ~ healthchecks_network_alias ~ ',localhost,127.0.0.1') }}
+      EMAIL_HOST: "{{ infrastructure_smtp.host if (infrastructure_smtp.enabled | bool) else '' }}"
+      EMAIL_PORT: "{{ (infrastructure_smtp.port | string) if (infrastructure_smtp.enabled | bool) else '' }}"
+      EMAIL_HOST_USER: "{{ infrastructure_smtp.user if (infrastructure_smtp.enabled | bool) else '' }}"
+      EMAIL_HOST_PASSWORD: "{{ (smtp_password | default('')) if (infrastructure_smtp.enabled | bool) else '' }}"
+      EMAIL_USE_TLS: "{{ ((not (infrastructure_smtp.implicit_tls | bool)) | string) if (infrastructure_smtp.enabled | bool) else '' }}"
+      EMAIL_USE_SSL: "{{ ((infrastructure_smtp.implicit_tls | bool) | string) if (infrastructure_smtp.enabled | bool) else '' }}"
+      DEFAULT_FROM_EMAIL: "{{ infrastructure_smtp.sender }}"
   no_log: true
 
-- name: "Healthchecks: create the missing swarm secrets"
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+# No route of its own: Healthchecks is on healthchecks_network, which Traefik
+# is not, so its only public path is its gate's route. Readiness is verified by
+# the aggregate post-role probe in main.yml, and the seed below retries against
+# the Django ORM from inside the container, independent of Traefik and the auth
+# proxy.
+- name: "Healthchecks: add the app"
+  ansible.builtin.include_tasks: default_app.yml
   vars:
-    swarm_secrets: "{{ _healthchecks_secrets }}"
+    default_app: "{{ default_apps | selectattr('app', 'eq', 'healthchecks') | first }}"
+    default_app_env: "{{ _healthchecks_env }}"
 
-- name: "Healthchecks: deploy as a swarm stack"
-  ansible.builtin.include_tasks: swarm_stack.yml
-  vars:
-    svc_name: "{{ healthchecks_compose_name }}"
-    svc_compose_content: "{{ lookup('template', 'healthchecks.compose.yml.j2') }}"
-    # No route of its own: Healthchecks is on healthchecks_network, which
-    # Traefik is not, so its only public path is its gate's route.
-    svc_domain_host: ""
-    # Readiness verified by the aggregate post-role probe in main.yml.
-    # The in-container Django ORM probe below gates the seed shell, and
-    # is independent of Traefik and the auth proxy.
-    svc_readiness_skip_reason: >-
-      Verified by the aggregate post-role probe in main.yml.
+- name: "Healthchecks: pin whether the app runs"
+  ansible.builtin.set_fact:
+    _healthchecks_running: "{{ _default_app_running | bool }}"
 
-- name: "Healthchecks: remove the swarm secrets no service mounts"
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
-  vars:
-    swarm_secret_bases: "{{ healthchecks_swarm_secrets | map(attribute='base') | list }}"
+- name: "Healthchecks: not running -- nothing is seeded"
+  ansible.builtin.debug:
+    msg: >-
+      Healthchecks is not running on this host (stopped or removed, or its tag
+      could not be fetched), so the converge seeds nothing in it.
+  when: not (_healthchecks_running | bool)
 
 # ─── Bootstrap channels via Django shell ─────────────────────────────
 # scripts/healthchecks-seed.py seeds Catena's channel -- the admin email while
@@ -104,7 +136,7 @@
 - name: "Healthchecks: find running container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | swarm_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_stack | swarm_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _healthchecks_container_name
@@ -113,6 +145,7 @@
   retries: 60
   delay: 5
   until: _healthchecks_container_name.stdout | length > 0
+  when: _healthchecks_running | bool
 
 # Three-view diag block (docker ps -a, docker service ls,
 # docker service ps --no-trunc) so a timeout on the bench -- where
@@ -123,28 +156,32 @@
 - name: "Healthchecks: diag -- docker ps -a (container-level state)"
   ansible.builtin.shell: |
     docker ps -a --format 'table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}\t{{ "{{" }}.Image{{ "}}" }}' \
-      | { head -n1; grep -E '{{ healthchecks_compose_name }}' || true; }
+      | { head -n1; grep -E '{{ healthchecks_stack }}' || true; }
   args:
     executable: /bin/bash
   register: _healthchecks_diag_ps
   changed_when: false
   failed_when: false
-  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+  when:
+    - _healthchecks_running | bool
+    - (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 - name: "Healthchecks: diag -- docker service ls (swarm-level state)"
   ansible.builtin.shell: |
     docker service ls --format 'table {{ "{{" }}.Name{{ "}}" }}\t{{ "{{" }}.Replicas{{ "}}" }}\t{{ "{{" }}.Image{{ "}}" }}' \
-      | { head -n1; grep -E '{{ healthchecks_compose_name }}' || true; }
+      | { head -n1; grep -E '{{ healthchecks_stack }}' || true; }
   args:
     executable: /bin/bash
   register: _healthchecks_diag_services
   changed_when: false
   failed_when: false
-  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+  when:
+    - _healthchecks_running | bool
+    - (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 - name: "Healthchecks: diag -- docker service ps --no-trunc (per-task errors)"
   ansible.builtin.shell: |
-    for svc in $(docker service ls --format '{{ "{{" }}.Name{{ "}}" }}' | grep -E '{{ healthchecks_compose_name }}' || true); do
+    for svc in $(docker service ls --format '{{ "{{" }}.Name{{ "}}" }}' | grep -E '{{ healthchecks_stack }}' || true); do
       echo "==== $svc ===="
       docker service ps "$svc" --no-trunc --format 'table {{ "{{" }}.ID{{ "}}" }}\t{{ "{{" }}.CurrentState{{ "}}" }}\t{{ "{{" }}.Error{{ "}}" }}' 2>&1 || true
     done
@@ -153,7 +190,9 @@
   register: _healthchecks_diag_taskps
   changed_when: false
   failed_when: false
-  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+  when:
+    - _healthchecks_running | bool
+    - (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 - name: "Healthchecks: diag -- surface collected state"
   ansible.builtin.debug:
@@ -166,13 +205,15 @@
 
       ---- docker service ps --no-trunc (per-task state + error) ----
       {{ _healthchecks_diag_taskps.stdout | default('(none)') }}
-  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+  when:
+    - _healthchecks_running | bool
+    - (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 - name: "Healthchecks: fail clearly if container never appeared"
   ansible.builtin.fail:
     msg: |
       Timed out (300s) waiting for a running container matching
-      '{{ healthchecks_compose_name | swarm_container_regex("app") }}'.
+      '{{ healthchecks_stack | swarm_container_regex("app") }}'.
 
       Diagnostic output dumped above (docker ps -a, docker service ls,
       docker service ps --no-trunc). Interpret:
@@ -183,7 +224,9 @@
         - Service replicas=0/1 and no task history -> the control plane
           accepted the compose but never scheduled it; check
           `docker stack ps healthchecks`.
-  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+  when:
+    - _healthchecks_running | bool
+    - (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 # The Django seed lives at scripts/healthchecks-seed.py -- plain
 # Python, no Jinja markers. Per-host values reach it on stdin, as one JSON
@@ -237,7 +280,7 @@
   # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py).
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | swarm_container_regex("app") }}' | head -n1)
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_stack | swarm_container_regex("app") }}' | head -n1)
     [ -n "$ct" ] || { echo "no running healthchecks container right now" >&2; exit 1; }
     cat - /root/catena-healthchecks-seed.py \
       | docker exec -i "$ct" python manage.py shell \
@@ -251,6 +294,7 @@
   delay: 5
   until: _healthchecks_seed.rc == 0
   no_log: true
+  when: _healthchecks_running | bool
 
 # Say it out loud on the converge: the seed task runs no_log (it carries the
 # superuser password), so nothing it prints is seen. A host whose alerts go
@@ -263,4 +307,6 @@
       channel. Healthchecks will record pings and mark checks down, and send
       only through channels added in its integrations page. Choose a mail
       service in Settings > Mail to send alerts to the admin's email.
-  when: not (infrastructure_smtp.enabled | bool)
+  when:
+    - _healthchecks_running | bool
+    - not (infrastructure_smtp.enabled | bool)

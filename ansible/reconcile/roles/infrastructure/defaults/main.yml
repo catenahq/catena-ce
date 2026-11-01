@@ -1,13 +1,23 @@
 ---
-# reconcile/roles/infrastructure manages the shared infra stacks (Gatus,
-# Healthchecks, Beszel) on the host's swarm, and the per-host wiring
+# reconcile/roles/infrastructure adds the default apps (Gatus, Healthchecks,
+# Beszel's hub; playbooks/group_vars/all/main.yml default_apps) to the host's
+# swarm, deploys the Beszel agent and alert shim, and holds the per-host wiring
 # of the gatus-sync and dashboard-sync lanes.
 #
-# This role's public hostnames, each served through the tunnel and Traefik
+# The default apps' public hostnames, each served through the tunnel and Traefik
 # behind its own Keycloak-backed oauth2-proxy:
 #   gatus.<zone>        -> Gatus
 #   healthchecks.<zone> -> Healthchecks
 #   beszel.<zone>       -> Beszel
+#
+# The engine that adds them (catena-admin payload/engines/apps), and the list of
+# them it and the whole-server restore read.
+catena_apps_bin: /usr/local/bin/catena-apps
+default_apps_list_path: /etc/catena/default-apps.json
+# The stack of each default app, as default_apps names it.
+gatus_stack: "{{ default_apps | selectattr('app', 'eq', 'gatus') | map(attribute='stack') | first }}"
+healthchecks_stack: "{{ default_apps | selectattr('app', 'eq', 'healthchecks') | map(attribute='stack') | first }}"
+beszel_hub_stack: "{{ default_apps | selectattr('app', 'eq', 'beszel') | map(attribute='stack') | first }}"
 
 
 # Executing-prefix paths this role writes, for
@@ -39,25 +49,15 @@ infrastructure_deploy_poll_delay: 5
 infrastructure_deploy_max_attempts: 5
 
 # --- Gatus (on-host uptime monitor) ---------------------------------------
-# Config-as-code monitor. All Jinja-rendered config lives under
-# {{ gatus_host_config_dir }}/; Gatus loads every *.yaml alphabetically.
-# 00-base.yaml (Ansible-managed) + 50-catena-apps.yaml (gatus-sync) +
-# 99-*.yaml (operator-added, left alone by both).
-gatus_image_tag: "v5.38.0"
-# The tag above is the FLOOR the converge ships. The image the host runs is
-# that or whatever the on-host update lane last recorded in
-# /etc/catena/config.json, whichever is higher -- see
-# playbooks/filter_plugins/image_pin.py. Every infra image below resolves the
-# same way, so a bump applied between converges is not undone by the next one.
-gatus_image: >-
-  {{ ('twinproduction/gatus:' ~ gatus_image_tag)
-     | catena_image_pin(catena_image_pins | default({})) }}
-gatus_compose_name: "gatus"
+# Config-as-code monitor, a catalog app. Gatus loads every *.yaml of its config
+# volume alphabetically: 00-base.yaml (the app's own sidecar) + 40-infra.yaml and
+# 50-catena-apps.yaml (gatus-sync) + 99-*.yaml (operator-added, left alone by all).
 gatus_data_volume: "gatus-data"
 gatus_sqlite_file: "gatus.db"
 gatus_network_alias: "gatus"
 gatus_internal_port: 8080
-gatus_host_config_dir: "/etc/catena/gatus"
+# The app's config volume on the host (stack gatus_stack, volume `config`).
+gatus_host_config_dir: "{{ storage_mount_point }}/docker/volumes/{{ gatus_stack }}_config/_data"
 # JSON spec consumed by gatus-sync to render 40-infra.yaml (one Gatus
 # endpoint per infra service, NAME the title version-check.json gives its
 # image). Rendered at converge time with hostnames / aliases substituted.
@@ -82,30 +82,14 @@ gatus_summary_dir: "{{ backup_stats_dir | default('/var/lib/catena') }}"
 gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 
 # --- Healthchecks (self-hosted, cron/dead-man monitoring) ----------------
-# The OSS project behind healthchecks.io. One container, SQLite, no
-# metrics firehose and no healthchecks.io SaaS dependency.
+# The OSS project behind healthchecks.io, a catalog app. One container, SQLite,
+# no metrics firehose and no healthchecks.io SaaS dependency.
 # Named Docker volume -> backed up by restic along with other volumes; the
 # backup also copies the database whole before each snapshot.
-healthchecks_image_tag: "v5.0.3"
-healthchecks_image: >-
-  {{ ('healthchecks/healthchecks:' ~ healthchecks_image_tag)
-     | catena_image_pin(catena_image_pins | default({})) }}
-healthchecks_compose_name: "healthchecks"
 healthchecks_data_volume: "healthchecks-data"
 healthchecks_sqlite_file: "hc.sqlite"
 healthchecks_network_alias: "healthchecks"
 healthchecks_internal_port: 8000
-# Healthchecks' credentials, as swarm secrets rather than service environment,
-# which `docker service inspect` prints. Healthchecks reads <target>_FILE for
-# each (hc/settings.py envsecret). The mail password is blank while mail
-# is off, and a blank value mounts nothing.
-healthchecks_swarm_secrets:
-  - base: healthchecks_secret_key
-    target: SECRET_KEY
-    value: "{{ healthchecks_secret_key }}"
-  - base: healthchecks_email_password
-    target: EMAIL_HOST_PASSWORD
-    value: "{{ (smtp_password | default('')) if (infrastructure_smtp.enabled | bool) else '' }}"
 # Host-side loopback port gatus-sync reads to reach /api/v3/checks/.
 # Gatus-sync runs as a systemd service on the host, outside catena-
 # network, so it can't resolve the container alias. 127.0.0.1:18000 is
@@ -140,7 +124,8 @@ infrastructure_smtp: >-
        fallback_sender=admin_email) }}
 
 # --- Beszel (hub + agent resource monitor) ------------------------------
-# The hub and the agent, each a swarm stack:
+# The hub is a catalog app; the agent and the alert shim are swarm stacks of
+# this role:
 #
 #   beszel-hub   -- web UI + SQLite history store. Public surface at
 #                   beszel.<zone> (beszel_hostname, playbooks/group_vars/all),
@@ -155,18 +140,15 @@ infrastructure_smtp: >-
 # /fail + success pings so Beszel alerts ride the same notification plane
 # as Gatus (clients keep self-service channels).
 #
-# Always deployed: Beszel is part of the base plane. Pinned tags
-# (Renovate-managed); the agent reads docker.sock, so it has the docker
-# daemon's blast radius on a single-tenant VPS.
-beszel_image_tag: "0.21.1"
-beszel_image: >-
-  {{ ('henrygd/beszel:' ~ beszel_image_tag)
-     | catena_image_pin(catena_image_pins | default({})) }}
+# The agent reads docker.sock, so it has the docker daemon's blast radius on a
+# single-tenant VPS. The tag below is the FLOOR the converge ships. The image the
+# host runs is that or whatever the on-host update lane last recorded in
+# /etc/catena/config.json, whichever is higher (playbooks/filter_plugins/
+# image_pin.py), so a bump applied between converges is not undone by the next one.
 beszel_agent_image_tag: "0.21.1"
 beszel_agent_image: >-
   {{ ('henrygd/beszel-agent:' ~ beszel_agent_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
-beszel_hub_compose_name: "beszel-hub"
 beszel_hub_network_alias: "beszel-hub"
 beszel_hub_internal_port: 8090
 # Host-side loopback publish. Two host-side consumers reach the hub here
@@ -184,9 +166,9 @@ beszel_hub_sqlite_files: ["data.db", "auxiliary.db"]
 # one whole before the snapshot and a whole-server restore puts the copy back
 # (catena-admin payload/engines/recovery/backuprun.go, restore.go).
 infrastructure_sqlite_databases: >-
-  {{ ['%s_%s/_data/%s' | format(gatus_compose_name, gatus_data_volume, gatus_sqlite_file),
-      '%s_%s/_data/%s' | format(healthchecks_compose_name, healthchecks_data_volume, healthchecks_sqlite_file)]
-     + (beszel_hub_sqlite_files | map('regex_replace', '^', beszel_hub_compose_name ~ '_' ~ beszel_hub_data_volume ~ '/_data/') | list) }}
+  {{ ['%s_%s/_data/%s' | format(gatus_stack, gatus_data_volume, gatus_sqlite_file),
+      '%s_%s/_data/%s' | format(healthchecks_stack, healthchecks_data_volume, healthchecks_sqlite_file)]
+     + (beszel_hub_sqlite_files | map('regex_replace', '^', beszel_hub_stack ~ '_' ~ beszel_hub_data_volume ~ '/_data/') | list) }}
 beszel_agent_compose_name: "beszel-agent"
 # Agent listens on this port for the hub handshake. The agent runs on the host
 # network (canonical upstream shape for host + docker metrics) so it reaches

@@ -1,32 +1,15 @@
 ---
-# Deploy Gatus as a swarm stack -> gatus.<zone>.
+# Gatus, added as a catalog app -> gatus.<zone>.
 #
-# Config layout on the host:
-#   {{ gatus_host_config_dir }}/00-base.yaml          (Ansible-managed)
-#   {{ gatus_host_config_dir }}/40-infra.yaml         (catena-gatus-sync, from the infra spec below)
-#   {{ gatus_host_config_dir }}/50-catena-apps.yaml  (catena-gatus-sync, per-timer)
-#   {{ gatus_host_config_dir }}/99-<anything>.yaml    (operator-added, untouched)
+# Config layout in the app's config volume ({{ gatus_host_config_dir }} on the host):
+#   00-base.yaml          (the app's own base service: storage, title, self-check, alert)
+#   40-infra.yaml         (catena-gatus-sync, from the infra spec below)
+#   50-catena-apps.yaml   (catena-gatus-sync, per-timer)
+#   99-<anything>.yaml    (operator-added, untouched)
 #
-# Everything in /config is bind-mounted read-only into the container. Gatus
-# loads all *.yaml in the directory alphabetically, which is why the
-# numeric prefix determines precedence / override order.
-
-- name: "Gatus: host config dir ({{ gatus_host_config_dir }})"
-  ansible.builtin.file:
-    path: "{{ gatus_host_config_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: "Gatus: render 00-base.yaml (alerting, UI and the self-check endpoint)"
-  ansible.builtin.template:
-    src: gatus-base.yaml.j2
-    dest: "{{ gatus_host_config_dir }}/00-base.yaml"
-    owner: root
-    group: root
-    mode: "0644"
-  register: _gatus_base_cfg
+# Gatus loads all *.yaml in the directory alphabetically, which is why the
+# numeric prefix determines precedence / override order. The app mounts the
+# volume read-only; gatus-sync and the operator write it from the host.
 
 - name: "Gatus: ensure /etc/catena exists for infra spec"
   ansible.builtin.file:
@@ -84,40 +67,18 @@
     - _gatus_ports_fragment.changed
     - catena_public_ports_installed | default(true) | bool
 
-- name: "Gatus: deploy as a swarm stack"
-  ansible.builtin.include_tasks: swarm_stack.yml
-  vars:
-    svc_name: "{{ gatus_compose_name }}"
-    svc_compose_content: "{{ lookup('template', 'gatus.compose.yml.j2') }}"
-    # No route of its own: its gate's route above is its one public path, and
-    # a default-priority route to the app would bypass the gate the moment
-    # that route was missing.
-    svc_domain_host: ""
-    # Per-service readiness probe is deferred to the aggregate post-role
-    # verification in main.yml -- the SSO chain (Keycloak + oauth2-proxy)
-    # finishes settling during the surrounding infra deploys.
-    svc_readiness_skip_reason: >-
-      Verified by the aggregate post-role probe in main.yml.
-
-# When 00-base.yaml changes, restart Gatus so the new endpoints / alert
-# config take effect before the converge ends (Gatus would otherwise pick
-# them up at its next look at the config directory). The converge holds the
-# host lock here, so no update window meets the restart.
+# Its one setting this converge owns is the Healthchecks ping key: the app's
+# base service writes the alert provider into 00-base.yaml when the key is set.
+# STATUS_HOST is the public address the alert body links to, empty while there
+# is no domain.
 #
-# Swarm owns the task, so the restart goes through the service: its
-# stop-first update stops the old task before the new one binds the
-# host-mode port, where a `docker restart` of the task container races the
-# replacement swarm starts ("Bind for 0.0.0.0:18080 failed: port is already
-# allocated"). The update waits for the service to converge, including an
-# update the stack deploy above left in flight.
-- name: "Gatus: restart the service so base config reloads"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - update
-      - --force
-      - --quiet
-      - "{{ gatus_compose_name }}_app"
-  when: _gatus_base_cfg.changed
-  changed_when: true
+# No route of its own: its gate's route above is its one public path, and a
+# default-priority route to the app would bypass the gate the moment that route
+# was missing. The aggregate probe in main.yml verifies it is served.
+- name: "Gatus: add the app"
+  ansible.builtin.include_tasks: default_app.yml
+  vars:
+    default_app: "{{ default_apps | selectattr('app', 'eq', 'gatus') | first }}"
+    default_app_env:
+      HC_PING_KEY: "{{ healthchecks_ping_key }}"
+      STATUS_HOST: "{{ '' if (catena_public_surface_deferred | default(false) | bool) else infrastructure_gatus_hostname }}"

@@ -31,8 +31,7 @@ PLUGIN = ANSIBLE / "playbooks" / "filter_plugins" / "smtp_resolve.py"
 KEYCLOAK_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "keycloak" / "defaults" / "main.yml"
 BESZEL = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "beszel.yml"
 INFRA_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "defaults" / "main.yml"
-HEALTHCHECKS_COMPOSE = (ANSIBLE / "reconcile" / "roles" / "infrastructure" / "templates"
-                        / "healthchecks.compose.yml.j2")
+HEALTHCHECKS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "healthchecks.yml"
 ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
 
@@ -132,7 +131,7 @@ def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
             f"{path.name} hardcodes {literal}; that belongs to the filter")
 
 
-@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS_COMPOSE])
+@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS])
 def test_the_infrastructure_consumers_read_its_resolution(path):
     """Beszel's mail and Healthchecks's alert mail take the infrastructure
     role's one resolution rather than a copy each."""
@@ -225,7 +224,7 @@ def test_no_consumer_still_reads_a_retired_key(gone):
     """A reader of a key nothing writes resolves it to empty and takes its
     branch of the ladder with it."""
     for path in (KEYCLOAK_DEFAULTS, BESZEL, INFRA_DEFAULTS,
-                 HEALTHCHECKS_COMPOSE, ONBOX_CONFIG):
+                 HEALTHCHECKS, ONBOX_CONFIG):
         body = "\n".join(
             line for line in path.read_text().splitlines()
             if not line.lstrip().startswith("#")

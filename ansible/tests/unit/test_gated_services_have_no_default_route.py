@@ -55,8 +55,13 @@ def test_no_gated_host_gets_a_default_route():
 
 
 def test_gatus_healthchecks_and_the_hub_write_none():
-    deploys = dict(_stack_deploys())
-    for where in ("infrastructure/tasks/gatus.yml: Gatus: deploy as a swarm stack",
-                  "infrastructure/tasks/healthchecks.yml: Healthchecks: deploy as a swarm stack",
-                  "infrastructure/tasks/beszel.yml: Beszel: deploy hub as a swarm stack"):
-        assert deploys[where]["svc_domain_host"] == ""
+    """The three are added as catalog apps, which carry no route label, and the
+    Beszel agent and alert shim are stacks of this role with no host."""
+    deploys = _stack_deploys()
+    for where, _ in deploys:
+        assert not where.startswith(("infrastructure/tasks/gatus.yml",
+                                     "infrastructure/tasks/healthchecks.yml")), where
+    beszel = [v for where, v in deploys if where.startswith("infrastructure/tasks/beszel.yml")]
+    assert len(beszel) == 2
+    for v in beszel:
+        assert v["svc_domain_host"] == ""

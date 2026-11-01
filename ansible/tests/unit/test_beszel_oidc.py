@@ -20,8 +20,6 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 SEED = ANSIBLE / "scripts" / "beszel-seed.py"
 BESZEL_TASKS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "beszel.yml"
-HUB_COMPOSE = (ANSIBLE / "reconcile" / "roles" / "infrastructure" / "templates"
-               / "beszel-hub.compose.yml.j2")
 REALM = ANSIBLE / "reconcile" / "roles" / "keycloak" / "templates" / "realm-beszel.yaml.j2"
 
 # The script's filename carries a hyphen, so it is loaded by path rather than
@@ -43,7 +41,7 @@ def test_password_login_is_never_disabled():
     # flag is not set, and a test that forbade naming it would push out the
     # explanation and keep only the rule.
     assigned = re.compile(r"DISABLE_PASSWORD_AUTH\s*[:=]")
-    for path in (HUB_COMPOSE, BESZEL_TASKS, SEED):
+    for path in (BESZEL_TASKS, SEED):
         offenders = [ln for ln in path.read_text().splitlines()
                      if assigned.search(ln) and not ln.lstrip().startswith("#")]
         assert not offenders, (
@@ -52,13 +50,19 @@ def test_password_login_is_never_disabled():
             "a Keycloak outage")
 
 
+def _hub_env() -> dict:
+    """The values the converge writes into the hub app's .env."""
+    tasks = yaml.safe_load(BESZEL_TASKS.read_text())
+    return next(t["ansible.builtin.set_fact"]["_beszel_hub_env"] for t in tasks
+                if "_beszel_hub_env" in (t.get("ansible.builtin.set_fact") or {}))
+
+
 def test_the_hub_signs_in_the_gates_email_beside_the_password_path():
-    """The header and its allowlist are rendered together, and the password
+    """The header and its allowlist are written together, and the password
     login the previous test protects stays."""
-    body = HUB_COMPOSE.read_text()
-    assert re.search(r'^\s*TRUSTED_AUTH_HEADER:\s*"X-Forwarded-Email"', body, re.M)
-    assert re.search(r'^\s*TRUSTED_PROXY_IPS:\s*"\{\{ _beszel_gate_subnet \| trim \}\}"', body, re.M)
-    assert body.count("TRUSTED_AUTH_HEADER:") == body.count("TRUSTED_PROXY_IPS:") == 1
+    env = _hub_env()
+    assert env["TRUSTED_AUTH_HEADER"] == "X-Forwarded-Email"
+    assert env["TRUSTED_PROXY_IPS"] == "{{ _beszel_gate_subnet | trim }}"
 
 
 def test_the_seed_still_authenticates_as_superuser():
@@ -174,7 +178,7 @@ def test_the_realm_client_redirect_is_pocketbases_fixed_callback():
     assert "/api/oauth2-redirect" in body
     assert "{{ beszel_hostname }}" in body, (
         "the redirect hardcodes a hostname instead of following "
-        "BESZEL_SUBDOMAIN; renaming the subdomain would break login")
+        "the hub's SUBDOMAIN setting; renaming the subdomain would break login")
     assert "{{ beszel_oidc_client_secret }}" in body, (
         "the client secret is not read from the on-box store")
 
@@ -582,11 +586,10 @@ def test_a_hub_that_has_a_user_is_not_claimed_again(monkeypatch, tmp_path):
 
 def test_the_hub_spec_carries_no_credential():
     """USER_EMAIL / USER_PASSWORD are what the hub's first boot would read; the
-    seed's claim replaces them, so neither is ever rendered."""
-    body = HUB_COMPOSE.read_text()
-    env_lines = [ln for ln in body.splitlines() if not ln.lstrip().startswith("#")]
-    assert not [ln for ln in env_lines if re.search(r"USER_(EMAIL|PASSWORD)\s*:", ln)]
-    assert "admin_password" not in "\n".join(env_lines)
+    seed's claim replaces them, so neither is ever written into the .env."""
+    env = _hub_env()
+    assert not [key for key in env if re.fullmatch(r"USER_(EMAIL|PASSWORD)", key)]
+    assert "admin_password" not in "\n".join(str(v) for v in env.values())
 
 
 def test_an_operator_added_webhook_is_not_dropped():

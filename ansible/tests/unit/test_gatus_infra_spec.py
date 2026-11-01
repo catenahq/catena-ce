@@ -47,6 +47,9 @@ def _spec(edge_up: bool = True, zone: str = ZONE) -> list[dict]:
         "keycloak_health_path": keycloak["keycloak_health_path"],
         "beszel_hub_network_alias": infra["beszel_hub_network_alias"],
         "beszel_hub_internal_port": infra["beszel_hub_internal_port"],
+        "gatus_stack": "gatus",
+        "healthchecks_stack": "healthchecks",
+        "beszel_hub_stack": "beszel-hub",
     }
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     env.filters["bool"] = bool
@@ -81,6 +84,14 @@ def test_the_beszel_hub_is_probed_on_every_host():
     assert hub["url"] == "http://beszel-hub:8090/api/health"
     assert hub["accepted"] == [200]
     assert hub["alert_slug"] == "beszel-hub"
+
+
+def test_the_three_default_apps_name_their_stack():
+    """catena-gatus-sync skips an entry whose stack has no app folder."""
+    stacked = {e["label"]: e["stack"] for e in _spec() if "stack" in e}
+    assert stacked == {f"gatus.{ZONE}": "gatus", f"healthchecks.{ZONE}": "healthchecks",
+                       f"beszel.{ZONE}": "beszel-hub", "Beszel hub": "beszel-hub"}
+    assert [e["label"] for e in _spec(False) if "stack" in e] == ["Beszel hub"]
 
 
 def test_cloudflared_is_probed_through_the_tunnel():

@@ -21,15 +21,6 @@
 # scanning them here would gate a PR on a tag no host runs.
 image_pins:
   - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
-    pattern: 'gatus_image_tag: "([^"]+)"'
-    repo: twinproduction/gatus
-  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
-    pattern: 'healthchecks_image_tag: "([^"]+)"'
-    repo: healthchecks/healthchecks
-  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
-    pattern: 'beszel_image_tag: "([^"]+)"'
-    repo: henrygd/beszel
-  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
     pattern: 'beszel_agent_image_tag: "([^"]+)"'
     repo: henrygd/beszel-agent
   # A python base image, not a product release, but it runs on every host.

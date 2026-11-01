@@ -101,8 +101,9 @@ def _prune(tasks):
 
 def test_each_creator_prunes_its_own_bases_after_its_deploy():
     cases = (
-        (ROLES / "infrastructure" / "tasks" / "healthchecks.yml", "deploy as a swarm stack",
-         "{{ healthchecks_swarm_secrets | map(attribute='base') | list }}"),
+        (ROLES / "infrastructure" / "tasks" / "beszel.yml", "deploy alert shim as a swarm stack",
+         "{{ (beszel_agent_swarm_secrets + beszel_hc_shim_swarm_secrets) "
+         "| map(attribute='base') | list }}"),
         (ROLES / "catena-admin" / "tasks" / "deploy.yml", "reconcile has to have settled",
          "{{ catena_admin_secret_specs | map(attribute='base') | list }}"),
         (ROLES / "keycloak" / "tasks" / "deploy.yml", "deploy as a swarm stack",
@@ -115,7 +116,10 @@ def test_each_creator_prunes_its_own_bases_after_its_deploy():
         tasks = _tasks(path)
         prune = _prune(tasks)
         assert _index(tasks, deploy) < prune, path
-        assert tasks[prune]["vars"]["swarm_secret_bases"] == bases, path
+        actual = tasks[prune]["vars"]["swarm_secret_bases"]
+        if isinstance(actual, str):
+            actual = " ".join(actual.split())
+        assert actual == bases, path
 
 
 def test_keycloak_prunes_the_configs_of_its_extension_after_its_deploy():

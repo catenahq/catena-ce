@@ -9,7 +9,7 @@
 # whenever the app intent changes.
 #
 # The script regenerates ONLY {{ gatus_host_config_dir }}/50-catena-apps.yaml
-# and 40-infra.yaml. 00-base.yaml stays Ansible-owned; 99-*.yaml files are
+# and 40-infra.yaml. 00-base.yaml is the Gatus app's own; 99-*.yaml files are
 # operator-owned and untouched.
 
 - name: "gatus-sync: env file ({{ gatus_sync_env_path }})"
