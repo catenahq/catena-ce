@@ -3,10 +3,9 @@ and the alert shim's ping key are absent from the service specs `docker service
 inspect` shows (CV7).
 
 Keycloak reads its DB password and its initial admin's password from a config
-file mounted as a swarm secret (KC_CONFIG_FILE). The Beszel hub is given no
-credential at all: the seed claims a hub with no user through its first-user
-endpoint (scripts/beszel-seed.py claim_first_run). The agent and the shim read
-theirs from swarm secrets.
+file mounted as a swarm secret (KC_CONFIG_FILE). The agent and the shim read
+theirs from swarm secrets. The Beszel hub, a catalog app, is given no
+credential at all (tests/unit/test_beszel_oidc.py).
 
 The templates go through ansible-core's own templating.
 
@@ -150,26 +149,6 @@ def test_keycloaks_secret_exists_before_its_stack_deploys():
     assert name < create < deploy
     assert tasks[name].get("no_log") is True
     assert "keycloak.conf.j2" in str(tasks[name]["ansible.builtin.set_fact"]["_keycloak_secrets"])
-
-
-def test_the_beszel_hub_spec_carries_no_credential():
-    doc = yaml.safe_load(_render((INFRA / "templates" / "beszel-hub.compose.yml.j2").read_text(), {
-        "ansible_managed": "managed",
-        "beszel_image": "henrygd/beszel:test",
-        "admin_email": "admin@acme.test",
-        "admin_password": ADMIN_PASSWORD,
-        "catena_public_surface_deferred": False,
-        "beszel_hostname": "beszel.acme.test",
-        "beszel_hub_network_alias": "beszel-hub",
-        "beszel_hub_internal_port": 8090,
-        "beszel_hub_data_volume": "beszel-hub-data",
-        "beszel_hub_host_localhost_port": 18190,
-        "beszel_network": "catena-beszel",
-        "beszel_gate_network": "catena-beszel-gate",
-    }))
-    env = doc["services"]["app"]["environment"]
-    assert not {"USER_EMAIL", "USER_PASSWORD"} & set(env)
-    assert ADMIN_PASSWORD not in yaml.safe_dump(doc)
 
 
 # --- the Beszel agent and the alert shim ---------------------------------

@@ -113,7 +113,6 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `dashboard_sync_client_secret`
 - `catena_admin_panel_client_secret`
 - `catena_identity_probe_client_secret`
-- `healthchecks_secret_key`
 - `healthchecks_superuser_password`
 - `healthchecks_ping_key`
 - `healthchecks_api_key_readonly`
@@ -121,6 +120,10 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `beszel_universal_token`
 - `beszel_oidc_client_secret`
 - `zap_api_key`
+
+Healthchecks' signing key is a generated setting of its catalog app. The
+converge writes the mail password (`smtp_password`) into the app's `.env` as
+`EMAIL_HOST_PASSWORD` (`catena-apps defaults`).
 
 ### 3. Non-secret config
 

@@ -12,7 +12,7 @@ back. You need ordinary programs: `restic` (reads the backup), `docker`
 
 | What | Where in the snapshot |
 | --- | --- |
-| Application data (files, uploads, mailboxes) and the monitoring history (Gatus, Healthchecks, Beszel) | `{{ storage_mount_point }}/docker/volumes/<name>/_data/` |
+| Application data (files, uploads, mailboxes, and the history of Gatus, Healthchecks and Beszel) | `{{ storage_mount_point }}/docker/volumes/<name>/_data/` |
 | Application definitions (one folder per app: its compose file, its settings in `.env`, and where the file came from) | `{{ storage_mount_point }}/compose/<app-name>/` |
 | PostgreSQL database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
 | MariaDB database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
@@ -68,8 +68,10 @@ cp -a /recovered{{ storage_mount_point }}/docker/volumes/<volume-name>/_data/. \
       /var/lib/docker/volumes/<volume-name>/_data/
 ```
 
-Gatus, Healthchecks and Beszel keep SQLite databases, and each backup holds a
-copy of each one taken whole while it ran. For one of them, also add
+Gatus, Healthchecks and Beszel's hub are applications like the others: their
+folders are `gatus`, `healthchecks` and `beszel-hub`, and the steps above
+restore them. They keep SQLite databases, and each backup holds a copy of each
+one taken whole while it ran. For one of them, also add
 `--include '{{ storage_mount_point }}/backup-staging/sqlite/<volume-name>'` to
 the restore above, then, before you start it, delete the database's journal
 files and put the copy in place of the database file:

@@ -13,7 +13,7 @@ aide pour récupérer vos données. Il vous faut des programmes courants :
 
 | Quoi | Où dans la sauvegarde |
 | --- | --- |
-| Données des applications (fichiers, téléversements, boîtes courriel) et historique de surveillance (Gatus, Healthchecks, Beszel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
+| Données des applications (fichiers, téléversements, boîtes courriel, et historique de Gatus, Healthchecks et Beszel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
 | Définitions des applications (un dossier par application : son fichier compose, ses paramètres dans `.env` et l'origine du fichier) | `{{ storage_mount_point }}/compose/<nom-de-l-application>/` |
 | Exports de bases de données PostgreSQL (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
 | Exports de bases de données MariaDB (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
@@ -71,7 +71,9 @@ cp -a /recovered{{ storage_mount_point }}/docker/volumes/<nom-du-volume>/_data/.
       /var/lib/docker/volumes/<nom-du-volume>/_data/
 ```
 
-Gatus, Healthchecks et Beszel conservent des bases SQLite, et chaque
+Gatus, Healthchecks et le serveur Beszel sont des applications comme les
+autres : leurs dossiers sont `gatus`, `healthchecks` et `beszel-hub`, et les
+étapes ci-dessus les restaurent. Elles conservent des bases SQLite, et chaque
 sauvegarde contient une copie de chacune, prise entière pendant qu'elle
 fonctionnait. Pour l'une d'elles, ajoutez aussi
 `--include '{{ storage_mount_point }}/backup-staging/sqlite/<nom-du-volume>'`

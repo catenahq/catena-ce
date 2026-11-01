@@ -37,9 +37,6 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 
 # Every compose template deployed through swarm_stack.yml.
 SWARM_COMPOSE = (
-    ANSIBLE / "reconcile/roles/infrastructure/templates/gatus.compose.yml.j2",
-    ANSIBLE / "reconcile/roles/infrastructure/templates/healthchecks.compose.yml.j2",
-    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hub.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-agent.compose.yml.j2",
     ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
     ANSIBLE / "reconcile/roles/keycloak/templates/keycloak.compose.yml.j2",
