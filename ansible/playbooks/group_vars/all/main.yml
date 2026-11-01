@@ -193,11 +193,12 @@ beszel_network: "catena-beszel"
 beszel_gate_network: "catena-beszelgate"
 
 # The applications every host runs from the catalog: Gatus, Healthchecks and
-# Beszel's hub. reconcile/roles/infrastructure adds each one with
-# `catena-apps defaults` and writes this list to /etc/catena/default-apps.json,
-# which catena-admin's whole-server restore reads to leave their stacks running.
-# `tag` is the catalog tag the app is first added at; the host's update lane
-# moves it afterwards. playbooks/tasks/default_app_subdomains.yml reads the
+# Beszel (hub, agent and alert relay). reconcile/roles/infrastructure adds each
+# one with `catena-apps defaults` and writes this list to
+# /etc/catena/default-apps.json, which catena-admin's whole-server restore reads
+# to leave their stacks running. `tag` is the catalog tag the release names: the
+# converge adds the app at it and lifts an older copy up to it, and the host's
+# update lane moves it afterwards. playbooks/tasks/default_app_subdomains.yml reads the
 # stacks from here before any role runs.
 default_apps_repository: "https://github.com/catenahq/catena-templates"
 default_apps:

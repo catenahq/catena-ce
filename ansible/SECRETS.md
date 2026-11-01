@@ -57,7 +57,7 @@ ride the backup, because it is what unlocks the backup.
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
 | `backup_restic_password` | decrypt the restic repo | generated in the settings page, **shown once** | **yes** |
-| `admin_password` | first login (Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
+| `admin_password` | first login (Keycloak + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
 | `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |

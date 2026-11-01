@@ -298,8 +298,7 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset(
 #     `panel`): the page reports which are set, and the tailnet and backup
 #     checks send the stored ones;
 #   - backup_restic_password: the disaster-recovery keyset the page reveals;
-#   - admin_password: the panel's native sign-in and the Beszel hub's superuser
-#     sign-in.
+#   - admin_password: the panel's native sign-in.
 PANEL_SECRETS: frozenset[str] = frozenset(
     entry["key"] for entry in _KNOBS["secrets"] if "panel" in entry
 ) | {"backup_restic_password", "admin_password"}
