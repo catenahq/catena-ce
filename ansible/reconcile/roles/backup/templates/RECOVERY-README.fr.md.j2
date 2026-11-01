@@ -71,11 +71,12 @@ cp -a /recovered{{ storage_mount_point }}/docker/volumes/<nom-du-volume>/_data/.
       /var/lib/docker/volumes/<nom-du-volume>/_data/
 ```
 
-Gatus, Healthchecks et le serveur Beszel sont des applications comme les
-autres : leurs dossiers sont `gatus`, `healthchecks` et `beszel-hub`, et les
-étapes ci-dessus les restaurent. Elles conservent des bases SQLite, et chaque
-sauvegarde contient une copie de chacune, prise entière pendant qu'elle
-fonctionnait. Pour l'une d'elles, ajoutez aussi
+Gatus, Healthchecks et Beszel sont des applications comme les autres : leurs
+dossiers sont `catena-gatus`, `catena-healthchecks` et `catena-beszel`, et les
+étapes ci-dessus les restaurent. Le dossier de Beszel contient ensemble son
+serveur, son agent et son relais d'alertes. Elles conservent des bases SQLite,
+et chaque sauvegarde contient une copie de chacune, prise entière pendant
+qu'elle fonctionnait. Pour l'une d'elles, ajoutez aussi
 `--include '{{ storage_mount_point }}/backup-staging/sqlite/<nom-du-volume>'`
 à la restauration ci-dessus, puis, avant de la démarrer, supprimez les
 fichiers de journal de la base et remettez la copie à la place du fichier de

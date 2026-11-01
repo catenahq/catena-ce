@@ -8,8 +8,8 @@ Catena installs a curated list of open-source services and software to a compute
 - Identity and Access Management with [Phase Two](https://phasetwo.io/) [Keycloak](https://github.com/p2-inc/phasetwo-containers)
 - Authentication for any application that does not include it with [OAuth2 Proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
 - Automated app routing with [Traefik](https://doc.traefik.io/)
-- Application status, uptime monitoring, and alerts with [Gatus](https://gatus.io/) and [Healthchecks](https://healthchecks.io/), added to every server as Catena templates
-- System state monitoring and alerts with [Beszel](https://www.beszel.dev/), its hub added as a Catena template
+- Application status, uptime monitoring, and alerts with [Gatus](https://gatus.io/) and [Healthchecks](https://healthchecks.io/), added to every server as Catena templates (apps `catena-gatus` and `catena-healthchecks`), each setting itself up
+- System state monitoring and alerts with [Beszel](https://www.beszel.dev/), added to every server as one Catena template (app `catena-beszel`: hub, agent and alert relay), setting itself up
 - Pre-configured [Catena templates](https://github.com/catenahq/catena-templates)
 - Unified settings with Catena-Admin container
 

@@ -68,9 +68,10 @@ cp -a /recovered{{ storage_mount_point }}/docker/volumes/<volume-name>/_data/. \
       /var/lib/docker/volumes/<volume-name>/_data/
 ```
 
-Gatus, Healthchecks and Beszel's hub are applications like the others: their
-folders are `gatus`, `healthchecks` and `beszel-hub`, and the steps above
-restore them. They keep SQLite databases, and each backup holds a copy of each
+Gatus, Healthchecks and Beszel are applications like the others: their
+folders are `catena-gatus`, `catena-healthchecks` and `catena-beszel`, and the
+steps above restore them. Beszel's folder holds its hub, its agent and its alert
+relay together. They keep SQLite databases, and each backup holds a copy of each
 one taken whole while it ran. For one of them, also add
 `--include '{{ storage_mount_point }}/backup-staging/sqlite/<volume-name>'` to
 the restore above, then, before you start it, delete the database's journal
