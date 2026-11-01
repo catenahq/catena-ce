@@ -2,9 +2,8 @@
 to be in ALLOWED_HOSTS.
 
 Django matches ALLOWED_HOSTS against the literal Host header. "localhost" does
-not cover a request to http://127.0.0.1:18000 -- verified against
-healthchecks/healthchecks:v4.3: Host 127.0.0.1 returned 400 DisallowedHost,
-Host localhost returned 401 (reached the app). A consumer on the IP form fails
+not cover a request to http://127.0.0.1:18000: Host 127.0.0.1 answers 400
+DisallowedHost unless the IP is listed, while Host localhost reaches the app. A consumer on the IP form fails
 in the shape that is hardest to notice: a monitor reporting nothing.
 
 Run: uv run pytest tests/unit/test_healthchecks_loopback_allowed_host.py

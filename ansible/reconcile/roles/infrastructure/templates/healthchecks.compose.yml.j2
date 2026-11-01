@@ -53,8 +53,8 @@ services:
       # publish below BY IP: gatus-sync (HEALTHCHECKS_API_URL) and the other
       # host-side pingers (HEALTHCHECKS_LOOPBACK_PORT). With only "localhost"
       # in this list they get 400 DisallowedHost, which looks exactly like
-      # "nothing to report" -- verified against healthchecks/healthchecks:v4.3
-      # directly: Host 127.0.0.1 -> 400, Host localhost -> 401 (reached the app).
+      # "nothing to report": Host 127.0.0.1 answers 400 DisallowedHost unless
+      # the IP is listed, while Host localhost reaches the app.
 {% if catena_public_surface_deferred | default(false) | bool %}
       ALLOWED_HOSTS: "{{ healthchecks_network_alias }},localhost,127.0.0.1"
 {% else %}

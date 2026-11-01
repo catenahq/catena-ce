@@ -108,7 +108,7 @@ def test_no_credential_is_in_the_service_environment():
 
 
 def test_each_credential_is_a_mounted_secret_healthchecks_reads():
-    """hc/settings.py (v4.4) reads <NAME>_FILE through envsecret."""
+    """hc/settings.py reads <NAME>_FILE through envsecret."""
     doc = _render("resend")[1]
     app = doc["services"]["app"]
     mounted = {s["target"]: s["source"] for s in app["secrets"]}

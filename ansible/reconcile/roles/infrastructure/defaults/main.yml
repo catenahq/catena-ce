@@ -86,7 +86,7 @@ gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 # metrics firehose and no healthchecks.io SaaS dependency.
 # Named Docker volume -> backed up by restic along with other volumes; the
 # backup also copies the database whole before each snapshot.
-healthchecks_image_tag: "v4.4"
+healthchecks_image_tag: "v5.0.3"
 healthchecks_image: >-
   {{ ('healthchecks/healthchecks:' ~ healthchecks_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
@@ -97,7 +97,7 @@ healthchecks_network_alias: "healthchecks"
 healthchecks_internal_port: 8000
 # Healthchecks' credentials, as swarm secrets rather than service environment,
 # which `docker service inspect` prints. Healthchecks reads <target>_FILE for
-# each (hc/settings.py envsecret, v4.4). The mail password is blank while mail
+# each (hc/settings.py envsecret). The mail password is blank while mail
 # is off, and a blank value mounts nothing.
 healthchecks_swarm_secrets:
   - base: healthchecks_secret_key

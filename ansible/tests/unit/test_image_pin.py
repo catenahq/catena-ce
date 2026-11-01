@@ -99,6 +99,30 @@ def test_a_two_part_tie_or_older_minor_resolves_to_the_floor():
         assert catena_image_pin(PG_FLOOR, {"postgres": pin}) == PG_FLOOR
 
 
+HC = "healthchecks/healthchecks"
+
+
+def test_a_patch_release_beats_a_two_part_floor():
+    """A hotfix the update lane took over a floor `v5.1` survives the converge."""
+    assert catena_image_pin(HC + ":v5.1", {HC: HC + ":v5.1.1"}) == HC + ":v5.1.1"
+
+
+def test_an_older_release_loses_to_a_two_part_floor():
+    assert catena_image_pin(HC + ":v5.1", {HC: HC + ":v5.0.3"}) == HC + ":v5.1"
+
+
+def test_a_two_part_tag_equals_its_dot_zero_release():
+    assert catena_image_pin(HC + ":v5.1", {HC: HC + ":v5.1.0"}) == HC + ":v5.1"
+    assert catena_image_pin(HC + ":v5.1.0", {HC: HC + ":v5.1"}) == HC + ":v5.1.0"
+
+
+def test_a_newer_suffixed_minor_wins_and_a_new_major_never_does():
+    assert catena_image_pin(PG_FLOOR, {"postgres": "postgres:18.7-trixie"}) \
+        == "postgres:18.7-trixie"
+    assert catena_image_pin(PG_FLOOR, {"postgres": "postgres:19.0-trixie"}) \
+        == PG_FLOOR
+
+
 def test_a_corrupt_two_part_pin_loses():
     for pin in ("postgres:18.x-trixie", "postgres:18.7-", "postgres:18.7--a-b",
                 "other/postgres:18.7-trixie"):
