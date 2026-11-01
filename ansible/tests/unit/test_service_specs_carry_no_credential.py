@@ -1,11 +1,8 @@
-"""Keycloak's credentials, the shared admin password, the Beszel agent's token
-and the alert shim's ping key are absent from the service specs `docker service
-inspect` shows (CV7).
+"""Keycloak's credentials and the shared admin password are absent from the
+service specs `docker service inspect` shows (CV7).
 
 Keycloak reads its DB password and its initial admin's password from a config
-file mounted as a swarm secret (KC_CONFIG_FILE). The agent and the shim read
-theirs from swarm secrets. The Beszel hub, a catalog app, is given no
-credential at all (tests/unit/test_beszel_oidc.py).
+file mounted as a swarm secret (KC_CONFIG_FILE).
 
 The templates go through ansible-core's own templating.
 
@@ -13,7 +10,6 @@ Run: uv run pytest tests/unit/test_service_specs_carry_no_credential.py
 """
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import yaml
@@ -24,25 +20,11 @@ from ansible.template import Templar, trust_as_template
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLES = ANSIBLE / "reconcile" / "roles"
 KEYCLOAK = ROLES / "keycloak"
-INFRA = ROLES / "infrastructure"
 
 add_all_plugin_dirs(str(ANSIBLE / "playbooks"))
 
 DB_PASSWORD = "k3+db/pass=word=="
 ADMIN_PASSWORD = "Adm1n-pass_word"
-TOKEN = "beszel-universal-token-value"
-PING_KEY = "hc-ping-key-value"
-
-
-def _load(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-secrets_plugin = _load(ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py",
-                       "catena_admin_service")
 
 
 def _render(text: str, variables: dict):
@@ -150,97 +132,3 @@ def test_keycloaks_secret_exists_before_its_stack_deploys():
     assert tasks[name].get("no_log") is True
     assert "keycloak.conf.j2" in str(tasks[name]["ansible.builtin.set_fact"]["_keycloak_secrets"])
 
-
-# --- the Beszel agent and the alert shim ---------------------------------
-
-def _infra_secrets(name: str, variables: dict) -> list[dict]:
-    """A list of {base, target, value} from the role defaults, its values
-    rendered, named by the converge's swarm_secret_entries."""
-    specs = yaml.safe_load((INFRA / "defaults" / "main.yml").read_text())[name]
-    return secrets_plugin.secret_entries(
-        [{**s, "value": _render(s["value"], variables)} for s in specs])
-
-
-def _agent() -> tuple[str, dict]:
-    text = _render((INFRA / "templates" / "beszel-agent.compose.yml.j2").read_text(), {
-        "ansible_managed": "managed",
-        "beszel_agent_image": "henrygd/beszel-agent:test",
-        "beszel_agent_port": 45876,
-        "beszel_hub_host_localhost_port": 18190,
-        "_beszel_hub_pubkey": "ssh-ed25519 AAAA",
-        "_beszel_agent_secrets": _infra_secrets("beszel_agent_swarm_secrets",
-                                                {"beszel_universal_token": TOKEN}),
-    })
-    return text, yaml.safe_load(text)
-
-
-def _shim() -> tuple[str, dict]:
-    text = _render((INFRA / "templates" / "beszel-hc-shim.compose.yml.j2").read_text(), {
-        "ansible_managed": "managed",
-        "beszel_hc_shim_image": "python:test",
-        "beszel_hc_shim_network_alias": "beszel-hc-shim",
-        "beszel_hc_shim_internal_port": 8099,
-        "beszel_hc_shim_host_dir": "/etc/catena/beszel-hc-shim",
-        "healthchecks_network_alias": "healthchecks",
-        "healthchecks_internal_port": 8000,
-        "beszel_network": "catena-beszel",
-        "healthchecks_network": "catena-healthchecks",
-        "_beszel_hc_shim_secrets": _infra_secrets("beszel_hc_shim_swarm_secrets",
-                                                  {"healthchecks_ping_key": PING_KEY}),
-    })
-    return text, yaml.safe_load(text)
-
-
-def _assert_read_from_its_secret(text: str, doc: dict, target: str, value: str):
-    app = doc["services"]["app"]
-    assert value not in text
-    assert target not in app["environment"]
-    assert app["environment"][f"{target}_FILE"] == f"/run/secrets/{target}"
-    [mounted] = app["secrets"]
-    assert mounted["target"] == target
-    assert doc["secrets"] == {mounted["source"]: {"external": True}}
-
-
-def test_the_beszel_agent_reads_its_token_from_a_secret():
-    """The agent reads TOKEN_FILE when TOKEN is unset (agent/client.go getToken,
-    henrygd/beszel v0.20.0)."""
-    _assert_read_from_its_secret(*_agent(), "TOKEN", TOKEN)
-
-
-def test_the_alert_shim_reads_its_ping_key_from_a_secret():
-    _assert_read_from_its_secret(*_shim(), "HC_PING_KEY", PING_KEY)
-
-
-def test_the_alert_shim_pings_with_the_key_in_its_file(tmp_path, monkeypatch):
-    shim = _load(ANSIBLE / "scripts" / "beszel-hc-shim.py", "beszel_hc_shim")
-    key_file = tmp_path / "HC_PING_KEY"
-    key_file.write_text(PING_KEY + "\n")
-    monkeypatch.setenv("HC_URL", "http://healthchecks:8000")
-    monkeypatch.setenv("HC_PING_KEY_FILE", str(key_file))
-    monkeypatch.delenv("HC_PING_KEY", raising=False)
-
-    class _Server:
-        def __init__(self, *_args):
-            pass
-
-        def serve_forever(self):
-            pass
-
-    monkeypatch.setattr(shim, "HTTPServer", _Server)
-    assert shim.main() == 0
-    assert shim.build_ping_url(shim._Handler.hc_url, shim._Handler.hc_ping_key,
-                               "beszel-x", True) == \
-        f"http://healthchecks:8000/ping/{PING_KEY}/beszel-x?create=1"
-
-
-def test_both_secrets_exist_before_either_service_deploys():
-    tasks = _tasks(INFRA / "tasks" / "beszel.yml")
-    name = _index(tasks, "name the agent's and the alert shim's swarm secrets")
-    create = _index(tasks, "create the missing swarm secrets")
-    agent = _index(tasks, "deploy agent as a swarm stack")
-    shim = _index(tasks, "deploy alert shim as a swarm stack")
-    prune = _index(tasks, "remove the swarm secrets no service mounts")
-    assert name < create < agent < shim < prune
-    assert tasks[name].get("no_log") is True
-    assert tasks[create]["ansible.builtin.include_tasks"].endswith("/tasks/swarm_secrets.yml")
-    assert tasks[prune]["ansible.builtin.include_tasks"].endswith("/tasks/swarm_secrets_prune.yml")

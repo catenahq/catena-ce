@@ -7,14 +7,14 @@ therefore takes those headers only beside the gate secret its gate sends as a
 Basic password (catena-admin shell/auth Gate). Healthchecks cannot check a
 secret, so it is on a network no client app joins. Beszel's hub creates an
 account for any realm user who drives its sign-in, so it is on another such
-network, with the alert shim it calls. It also takes the signed-in email from
-its gate's header, but only from peers in the subnet of a third network that
-only the gate and the hub join.
+network. It also takes the signed-in email from its gate's header, but only
+from peers in the subnet of a third network that only the gate and the hub join.
 
-The gates and the alert shim are rendered the way the converge renders them and
-read back as YAML, and a gate's credentials file as the TOML oauth2-proxy reads.
-The networks the Healthchecks, Gatus and Beszel hub apps join are held by the
-catalog's tests (catena-templates tests/).
+The gates are rendered the way the converge renders them and read back as YAML,
+and a gate's credentials file as the TOML oauth2-proxy reads. The networks the
+Healthchecks, Gatus and Beszel apps join are held by the catalog's tests
+(catena-templates tests/) and by test_default_apps.py against the wiring
+contract.
 
 Run: uv run pytest tests/unit/test_gated_identity_is_not_forgeable.py
 """
@@ -29,7 +29,6 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLES = ANSIBLE / "reconcile" / "roles"
-INFRA = ROLES / "infrastructure" / "templates"
 
 HC_NETWORK = "catena-healthchecks"
 BESZEL_NETWORK = "catena-beszel"
@@ -107,24 +106,6 @@ def _credentials(app: dict) -> dict:
     return tomllib.loads(rendered)
 
 
-def _compose(name: str, **extra) -> dict:
-    variables = dict(
-        ansible_managed="",
-        healthchecks_network=HC_NETWORK,
-        beszel_network=BESZEL_NETWORK,
-        beszel_gate_network=GATE_NETWORK,
-        healthchecks_network_alias="healthchecks",
-        healthchecks_internal_port=8000,
-        _beszel_hc_shim_secrets=[{"name": "beszel_hc_shim_ping_key-0", "target": "HC_PING_KEY"}],
-        beszel_hc_shim_image="python:test",
-        beszel_hc_shim_internal_port=8099,
-        beszel_hc_shim_network_alias="beszel-hc-shim",
-        beszel_hc_shim_host_dir="/opt/shim",
-    )
-    variables.update(extra)
-    return yaml.safe_load(_env().from_string((INFRA / name).read_text()).render(**variables))
-
-
 def test_only_the_panels_gate_sends_the_gate_secret():
     services = _gates()["services"]
     assert "--pass-basic-auth=true" in services["oauth2-proxy-catena-admin"]["command"]
@@ -153,10 +134,6 @@ def test_every_caller_of_healthchecks_joins_its_network():
     assert "catena-network" in hc_gate and HC_NETWORK in hc_gate
     assert gates["networks"][HC_NETWORK] == {"external": True}
 
-    shim = _compose("beszel-hc-shim.compose.yml.j2")
-    assert HC_NETWORK in shim["services"]["app"]["networks"]
-    assert shim["networks"][HC_NETWORK] == {"external": True}
-
 
 def test_no_client_facing_gate_joins_the_healthchecks_network():
     for name, svc in _gates()["services"].items():
@@ -174,7 +151,7 @@ def test_the_converge_reads_and_checks_the_subnet_before_the_hub_is_added():
     check = next(i for i, n in enumerate(names) if "exactly one valid subnet" in n)
     pin = next(i for i, n in enumerate(names) if "pin the gate network's subnet" in n)
     values = next(i for i, n in enumerate(names) if "the values the converge owns" in n)
-    deploy = next(i for i, n in enumerate(names) if "add the hub app" in n)
+    deploy = next(i for i, n in enumerate(names) if "add the app" in n)
     assert read < check < pin < values < deploy
     assert tasks[read]["ansible.builtin.command"]["argv"][:3] == ["docker", "network", "inspect"]
     assert "_beszel_gate_subnet" in str(tasks[pin])
@@ -194,9 +171,8 @@ def test_the_subnet_check_accepts_one_cidr_and_refuses_the_rest():
 
 
 def test_every_caller_of_the_hub_joins_its_network():
-    """Its gate reaches the hub on the gate network, and the hub calls the alert
-    shim. The panel reads its gauges from the host and links to the hub, so it
-    stays off both."""
+    """Its gate reaches the hub on the gate network. The panel reads its gauges
+    from the host and links to the hub, so it stays off both."""
     hub_gate = _gates()["services"]["oauth2-proxy-beszel"]["networks"]
     assert "catena-network" in hub_gate and GATE_NETWORK in hub_gate
     assert BESZEL_NETWORK not in hub_gate
@@ -205,18 +181,10 @@ def test_every_caller_of_the_hub_joins_its_network():
     assert "beszel_gate_network" not in deploy
 
 
-def test_the_alert_shim_is_reached_by_the_hub_alone():
-    """Any request the shim takes becomes a Healthchecks ping, so no client
-    app reaches it."""
-    shim = _compose("beszel-hc-shim.compose.yml.j2")["services"]["app"]["networks"]
-    assert set(shim) == {BESZEL_NETWORK, HC_NETWORK}
-
-
 def test_no_gate_joins_the_beszel_network():
     for name, svc in _gates()["services"].items():
         assert BESZEL_NETWORK not in svc["networks"], (
-            f"{name} joins the Beszel network, where Gatus and the alert shim "
-            f"can reach the hub")
+            f"{name} joins the Beszel network, where Gatus can reach the hub")
 
 
 def test_only_the_hubs_gate_and_the_hub_join_the_gate_network():
@@ -273,14 +241,6 @@ def test_only_the_hubs_gate_refuses_cross_site_api_calls():
         flagged = app["slug"] == "beszel"
         assert (f"{app['slug']}-oauth2-proxy-cross-site-api" in doc["routers"]) is flagged
         assert ("middlewares" in doc) is flagged
-
-
-def test_the_beszel_agents_do_not_go_through_traefik():
-    """The agents dial the hub on the host loopback, so the refusal above does
-    not touch them."""
-    agent = (INFRA / "beszel-agent.compose.yml.j2").read_text()
-    assert "name: host" in agent
-    assert 'HUB_URL: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"' in agent
 
 
 def test_the_beszel_gate_strips_the_clients_headers_and_skips_no_auth():

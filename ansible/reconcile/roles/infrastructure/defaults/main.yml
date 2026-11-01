@@ -1,8 +1,8 @@
 ---
 # reconcile/roles/infrastructure adds the default apps (Gatus, Healthchecks,
-# Beszel's hub; playbooks/group_vars/all/main.yml default_apps) to the host's
-# swarm, deploys the Beszel agent and alert shim, and holds the per-host wiring
-# of the gatus-sync and dashboard-sync lanes.
+# Beszel; playbooks/group_vars/all/main.yml default_apps) to the host's swarm
+# and holds the per-host wiring of the gatus-sync and dashboard-sync lanes. Each
+# app sets itself up in its own configure hook.
 #
 # The default apps' public hostnames, each served through the tunnel and Traefik
 # behind its own Keycloak-backed oauth2-proxy:
@@ -102,7 +102,7 @@ healthchecks_host_localhost_port: 18000
 # the same box, so a tunnel or DNS failure silences the backup dead-man instead
 # of tripping it.
 #
-# Gatus and the Beszel shim ping from their containers through the network
+# Gatus and Beszel's relay ping from their containers through the network
 # alias, which is already local. The one ping that leaves the host is the
 # heartbeat lane's, to the OFFSITE_HEARTBEAT_URL the client saves in Settings:
 # a loopback ping cannot detect a host that is gone.
@@ -110,11 +110,9 @@ healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}
 
 # Outgoing mail, from the one choice in Settings > Mail, resolved by the
 # filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
-# smtp_resolve.py): {enabled, host, port, implicit_tls, user, sender}. Healthchecks sends
-# its alerts through it, to the admin email channel healthchecks-seed.py
-# keeps, and Beszel its own mail. The credential is smtp_password. With mail
-# off the converge seeds no alert channel and says so
-# (tasks/healthchecks.yml).
+# smtp_resolve.py): {enabled, host, port, implicit_tls, user, sender}. Healthchecks
+# sends its alerts through it, and Beszel its own mail. The credential is
+# smtp_password.
 infrastructure_smtp: >-
   {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
        host=cfg_smtp_host | default(''),
@@ -123,39 +121,18 @@ infrastructure_smtp: >-
        sender=cfg_smtp_sender | default(''),
        fallback_sender=admin_email) }}
 
-# --- Beszel (hub + agent resource monitor) ------------------------------
-# The hub is a catalog app; the agent and the alert shim are swarm stacks of
-# this role:
-#
-#   beszel-hub   -- web UI + SQLite history store. Public surface at
-#                   beszel.<zone> (beszel_hostname, playbooks/group_vars/all),
-#                   behind its own admin-only oauth2-proxy: the `beszel`
-#                   entry of reconcile/roles/oauth2_proxy oauth2_proxy_apps.
-#   beszel-agent -- collects per-container + per-host CPU/memory/network/
-#                   disk/temperature/load over docker.sock. No public
-#                   surface; reaches the hub on its host loopback publish.
-#
-# Threshold alerts leave the hub via Shoutrrr (generic webhook) to the
-# beszel-hc-shim sidecar, which maps triggered/resolved to Healthchecks
-# /fail + success pings so Beszel alerts ride the same notification plane
-# as Gatus (clients keep self-service channels).
-#
-# The agent reads docker.sock, so it has the docker daemon's blast radius on a
-# single-tenant VPS. The tag below is the FLOOR the converge ships. The image the
-# host runs is that or whatever the on-host update lane last recorded in
-# /etc/catena/config.json, whichever is higher (playbooks/filter_plugins/
-# image_pin.py), so a bump applied between converges is not undone by the next one.
-beszel_agent_image_tag: "0.21.1"
-beszel_agent_image: >-
-  {{ ('henrygd/beszel-agent:' ~ beszel_agent_image_tag)
-     | catena_image_pin(catena_image_pins | default({})) }}
+# --- Beszel (hub, host agent and alert relay: one catalog app) ----------
+# The app holds the hub (web UI + SQLite history store), the agent (per-container
+# and per-host metrics over docker.sock) and the relay that maps Beszel's alert
+# webhook to Healthchecks pings; the relay's configure hook sets the hub up.
+# Public surface at beszel.<zone> (beszel_hostname, playbooks/group_vars/all),
+# behind its own admin-only oauth2-proxy: the `beszel` entry of
+# reconcile/roles/oauth2_proxy oauth2_proxy_apps.
 beszel_hub_network_alias: "beszel-hub"
 beszel_hub_internal_port: 8090
-# Host-side loopback publish. Two host-side consumers reach the hub here
-# (UFW-safe, loopback never publicly reachable; mirrors gatus_host_
-# localhost_port / healthchecks_host_localhost_port):
-#   - beszel-seed.py (universal-token seed against the PocketBase API)
-#   - the beszel-agent (on the host network) dialling HUB_URL
+# Host-side loopback publish (UFW-safe, loopback never publicly reachable;
+# mirrors gatus_host_localhost_port / healthchecks_host_localhost_port). The
+# off-site heartbeat reads it.
 beszel_hub_host_localhost_port: 18190
 beszel_hub_data_volume: "beszel-hub-data"
 # PocketBase's own names in the hub's data folder, which a deployment does not
@@ -169,49 +146,6 @@ infrastructure_sqlite_databases: >-
   {{ ['%s_%s/_data/%s' | format(gatus_stack, gatus_data_volume, gatus_sqlite_file),
       '%s_%s/_data/%s' | format(healthchecks_stack, healthchecks_data_volume, healthchecks_sqlite_file)]
      + (beszel_hub_sqlite_files | map('regex_replace', '^', beszel_hub_stack ~ '_' ~ beszel_hub_data_volume ~ '/_data/') | list) }}
-beszel_agent_compose_name: "beszel-agent"
-# Agent listens on this port for the hub handshake. The agent runs on the host
-# network (canonical upstream shape for host + docker metrics) so it reaches
-# the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
-beszel_agent_port: 45876
-# The agent's universal token, as a swarm secret, of which
-# `docker service inspect` shows the path. The agent reads the file TOKEN_FILE
-# names (agent/client.go getToken, henrygd/beszel v0.20.0).
-beszel_agent_swarm_secrets:
-  - base: beszel_agent_token
-    target: TOKEN
-    value: "{{ beszel_universal_token }}"
-# beszel-seed.py's record, beside the script: the admin email it last signed
-# in to the hub with, and the fingerprint of the mail password it last wrote,
-# neither of which the hub answers back. 0600, root.
-beszel_seed_state_file: /root/catena-beszel-seed.json
-
-# Label on the hub's OIDC sign-in button. Client-facing copy, so it names the
-# product rather than the software behind it -- "Keycloak" is a word the client
-# has no reason to know.
-beszel_oidc_display_name: "Catena"
-
-# --- Beszel -> Healthchecks alert shim ----------------------------------
-# Tiny stdlib-Python sidecar on the hub's network. Receives Beszel's
-# Shoutrrr generic-webhook POST, derives a beszel-<slug> check name, and
-# forwards triggered -> /fail, resolved -> success to Healthchecks' network
-# alias. Healthchecks attaches every project channel to
-# a check its `?create=1` ping creates (zero per-check wiring).
-beszel_hc_shim_compose_name: "beszel-hc-shim"
-beszel_hc_shim_network_alias: "beszel-hc-shim"
-beszel_hc_shim_internal_port: 8099
-beszel_hc_shim_image_tag: "3.15.1-alpine"
-beszel_hc_shim_image: >-
-  {{ ('python:' ~ beszel_hc_shim_image_tag)
-     | catena_image_pin(catena_image_pins | default({})) }}
-# Host dir the shim script is dropped into + bind-mounted read-only.
-beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
-# The ping key, as a swarm secret for the same reason as the agent's token. The
-# shim reads the file HC_PING_KEY_FILE names.
-beszel_hc_shim_swarm_secrets:
-  - base: beszel_hc_shim_ping_key
-    target: HC_PING_KEY
-    value: "{{ healthchecks_ping_key }}"
 
 # --- Off-site heartbeat ---------------------------------------------------
 # catena-admin's catena-heartbeat lane (payload/lanes) probes Gatus,

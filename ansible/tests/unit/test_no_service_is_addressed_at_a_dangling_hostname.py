@@ -102,7 +102,7 @@ def test_healthchecks_is_reachable_by_its_alias_when_the_domain_is_deferred() ->
         smtp_password="p",
         infrastructure_smtp={"enabled": False, "sender": "a@b.test", "implicit_tls": False},
         healthchecks_network_alias="healthchecks", healthchecks_internal_port=8000,
-        healthchecks_hostname="healthchecks.", cloudflare_zone="")
+        healthchecks_hostname="healthchecks.", cloudflare_zone="", inventory_hostname="host")
     deferred = _render(spec, True, **values)
     for key in ("SITE_ROOT", "ALLOWED_HOSTS"):
         assert "healthchecks." not in deferred[key], (
@@ -116,11 +116,12 @@ def test_healthchecks_is_reachable_by_its_alias_when_the_domain_is_deferred() ->
 
 def test_the_hub_is_reachable_by_its_alias_when_the_domain_is_deferred() -> None:
     spec = _env_map("beszel.yml", "_beszel_hub_env")
+    realm = dict(keycloak_hostname="auth.acme.test", keycloak_realm="vps")
     deferred = _render(
         spec, True, beszel_hub_network_alias="beszel-hub", beszel_hub_internal_port=8090,
-        beszel_hostname="beszel.", _beszel_gate_subnet="10.0.0.0/24")
+        beszel_hostname="beszel.", _beszel_gate_subnet="10.0.0.0/24", **realm)
     assert deferred["APP_URL"] == "http://beszel-hub:8090"
     served = _render(
         spec, False, beszel_hub_network_alias="beszel-hub", beszel_hub_internal_port=8090,
-        beszel_hostname="beszel.acme.test", _beszel_gate_subnet="10.0.0.0/24")
+        beszel_hostname="beszel.acme.test", _beszel_gate_subnet="10.0.0.0/24", **realm)
     assert served["APP_URL"] == "https://beszel.acme.test"

@@ -1,7 +1,7 @@
 ---
 # The address label of each default app (Gatus, Healthchecks, Beszel) is its
 # SUBDOMAIN setting, which catena-apps keeps in the app's .env. Read it into the
-# cfg_*_subdomain facts that playbooks/group_vars/all/main.yml builds the
+# default_app_*_subdomain facts that playbooks/group_vars/all/main.yml builds the
 # hostnames from; an app with no folder yet, or no value, keeps its own name (the
 # default of its block). Included by converge.yml, reconcile.yml and validate.yml
 # before any role runs.
@@ -53,6 +53,6 @@
 
 - name: "Default apps: publish the address labels"
   ansible.builtin.set_fact:
-    cfg_gatus_subdomain: "{{ _default_app_labels.gatus }}"
-    cfg_healthchecks_subdomain: "{{ _default_app_labels.healthchecks }}"
-    cfg_beszel_subdomain: "{{ _default_app_labels.beszel }}"
+    default_app_gatus_subdomain: "{{ _default_app_labels.gatus }}"
+    default_app_healthchecks_subdomain: "{{ _default_app_labels.healthchecks }}"
+    default_app_beszel_subdomain: "{{ _default_app_labels.beszel }}"

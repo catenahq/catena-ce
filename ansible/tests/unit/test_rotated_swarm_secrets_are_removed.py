@@ -101,9 +101,6 @@ def _prune(tasks):
 
 def test_each_creator_prunes_its_own_bases_after_its_deploy():
     cases = (
-        (ROLES / "infrastructure" / "tasks" / "beszel.yml", "deploy alert shim as a swarm stack",
-         "{{ (beszel_agent_swarm_secrets + beszel_hc_shim_swarm_secrets) "
-         "| map(attribute='base') | list }}"),
         (ROLES / "catena-admin" / "tasks" / "deploy.yml", "reconcile has to have settled",
          "{{ catena_admin_secret_specs | map(attribute='base') | list }}"),
         (ROLES / "keycloak" / "tasks" / "deploy.yml", "deploy as a swarm stack",

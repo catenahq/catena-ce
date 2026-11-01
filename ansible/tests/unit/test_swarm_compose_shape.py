@@ -11,11 +11,9 @@ Swarm reads a SUBSET of the compose spec, and the two ways it disagrees with
 
   IGNORED, silently -- `restart:`, `network_mode:`. The stack deploys, the
       warning scrolls past, and the service runs with swarm's defaults
-      instead of what the file asked for. beszel-agent is the sharp edge:
-      with `network_mode: host` ignored it lands on an overlay, reports that
-      namespace's metrics as the host's, and dials a 127.0.0.1 hub that is
-      not there -- a monitoring agent that looks healthy and measures the
-      wrong machine.
+      instead of what the file asked for. A service that wants the host
+      network with `network_mode: host` ignored lands on an overlay and
+      measures the wrong machine.
 
 The loopback publishes are 0.0.0.0 binds, held loopback-only by a
 `scope: loopback` declaration in the public-port registry -- see
@@ -37,8 +35,6 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 
 # Every compose template deployed through swarm_stack.yml.
 SWARM_COMPOSE = (
-    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-agent.compose.yml.j2",
-    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
     ANSIBLE / "reconcile/roles/keycloak/templates/keycloak.compose.yml.j2",
     ANSIBLE / "reconcile/roles/oauth2_proxy/templates/oauth2-proxy.compose.yml.j2",
 )

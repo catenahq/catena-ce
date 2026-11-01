@@ -12,6 +12,7 @@ Run: uv run pytest tests/unit/test_healthchecks_compose_mail.py
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import jinja2
@@ -63,6 +64,7 @@ def _environment(provider: str, port: str = "", deferred: bool = False) -> dict:
         healthchecks_internal_port=8000,
         healthchecks_hostname="healthchecks.acme.test",
         cloudflare_zone="acme.test",
+        inventory_hostname="host-a",
     )
     spec = _env_task()["ansible.builtin.set_fact"]["_healthchecks_env"]
     return {key: env.from_string(text).render(**values).strip()
@@ -74,7 +76,6 @@ def test_mail_on_sends_through_the_chosen_relay():
     assert env["EMAIL_HOST"] == "smtp.resend.com"
     assert env["EMAIL_PORT"] == "587"
     assert env["EMAIL_HOST_USER"] == "resend"
-    assert env["EMAIL_HOST_PASSWORD"] == PASSWORD
     assert env["EMAIL_USE_TLS"] == "True" and env["EMAIL_USE_SSL"] == "False"
     assert env["DEFAULT_FROM_EMAIL"] == "no-reply@acme.test"
 
@@ -88,11 +89,19 @@ def test_the_port_decides_the_connection_security():
         assert (env["EMAIL_USE_TLS"], env["EMAIL_USE_SSL"]) == (tls, ssl), port
 
 
+def test_the_mail_password_is_the_apps_own_and_never_written_by_the_converge():
+    """The block manages EMAIL_HOST_PASSWORD from the store's smtp_password, so
+    the engine would refuse a request that writes it, and the password is in no
+    request the converge sends."""
+    for provider in ("resend", "none"):
+        assert "EMAIL_HOST_PASSWORD" not in _environment(provider)
+    assert "smtp_password" not in json.dumps(_env_task())
+
+
 def test_mail_off_leaves_no_mailer_and_no_credential():
     env = _environment("none")
     assert env["EMAIL_HOST"] == ""
-    for key in ("EMAIL_HOST_PASSWORD", "EMAIL_HOST_USER", "EMAIL_PORT",
-                "EMAIL_USE_TLS", "EMAIL_USE_SSL"):
+    for key in ("EMAIL_HOST_USER", "EMAIL_PORT", "EMAIL_USE_TLS", "EMAIL_USE_SSL"):
         assert env[key] == "", f"{key} is set with mail turned off"
     assert env["DEFAULT_FROM_EMAIL"] == "no-reply@acme.test"
 
@@ -134,15 +143,18 @@ def test_the_converge_holds_no_swarm_secret_for_the_app():
     assert "swarm_stack.yml" not in text
 
 
-def test_the_app_is_added_before_the_seed():
+def test_the_values_are_written_before_the_app_is_added():
     names = [t.get("name", "") for t in _tasks()]
     assert names.index("Healthchecks: the values the converge owns") < names.index(
-        "Healthchecks: add the app") < names.index("Healthchecks: run the Django seed script")
+        "Healthchecks: add the app")
 
 
-def test_the_seed_learns_whether_mail_is_on():
-    """The seed keeps the admin email channel only while there is a mailer to
-    send it, so the task hands it the same switch the env map is built from."""
-    config = next(t["ansible.builtin.set_fact"]["_healthchecks_seed_config"] for t in _tasks()
-                  if "_healthchecks_seed_config" in (t.get("ansible.builtin.set_fact") or {}))
-    assert config["mail_enabled"] == "{{ infrastructure_smtp.enabled | bool | lower }}"
+def test_the_project_is_named_after_the_host():
+    """The app's configure hook keeps the project it names."""
+    assert _environment("resend")["HC_PROJECT_NAME"] == "host-a"
+
+
+def test_the_converge_says_so_when_mail_is_off():
+    """A host whose alerts reach no mailbox must not look like a healthy one."""
+    warn = next(t for t in _tasks() if t.get("name") == "Healthchecks: warn when outgoing mail is off")
+    assert warn["when"] == "not (infrastructure_smtp.enabled | bool)"

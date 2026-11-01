@@ -20,13 +20,6 @@
 # their tags live where the host engines read them, in catena-admin, and
 # scanning them here would gate a PR on a tag no host runs.
 image_pins:
-  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
-    pattern: 'beszel_agent_image_tag: "([^"]+)"'
-    repo: henrygd/beszel-agent
-  # A python base image, not a product release, but it runs on every host.
-  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
-    pattern: 'beszel_hc_shim_image_tag: "([^"]+)"'
-    repo: python
   - file: ansible/reconcile/roles/keycloak/defaults/main.yml
     pattern: 'keycloak_image_tag: "([^"]+)"'
     repo: quay.io/phasetwo/phasetwo-keycloak

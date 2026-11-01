@@ -1,14 +1,16 @@
-"""Gatus, Healthchecks and Beszel's hub are catalog apps that
+"""Gatus, Healthchecks and Beszel are catalog apps that
 reconcile/roles/infrastructure adds with `catena-apps defaults`.
 
-The properties held here:
+The properties held here, against the wiring contract
+(contracts default-apps/wiring.json):
 
-- each app's stack keeps the name its swarm stack had, so volumes, the SQLite
-  copy list and the update engine's skip set are unchanged;
+- each app's stack is the contract's, and the SQLite copy list, the Gatus config
+  folder, the loopback ports, the network aliases and the infra spec's stacks
+  follow from it;
 - `/etc/catena/default-apps.json` lists the apps, with no secret;
-- the env map the converge writes holds no key the app's own x-catena block
-  declares (the engine refuses one);
-- the seeds and the agent that need an app run only while the app runs;
+- the env map the converge writes is the contract's `env_core_writes` and holds
+  no key the app's own x-catena block declares (the engine refuses one);
+- the apps set themselves up: no seed, agent or alert shim task remains;
 - the address label of each app is read from its folder before any role runs.
 
 Run: uv run pytest tests/unit/test_default_apps.py
@@ -22,6 +24,7 @@ import re
 from pathlib import Path
 
 import jinja2
+import jinja2.nativetypes
 import pytest
 import yaml
 
@@ -32,13 +35,17 @@ TASKS = INFRA / "tasks"
 PLAYBOOKS = ANSIBLE / "playbooks"
 GROUP_VARS = PLAYBOOKS / "group_vars" / "all" / "main.yml"
 TEMPLATES = REPO.parent / "catena-templates" / "blueprints"
+WIRING = REPO.parent / "contracts" / "default-apps" / "wiring.json"
+STORAGE = "/srv/catena"
 
-# The stack each app had as a swarm stack.
-STACKS = {"gatus": "gatus", "healthchecks": "healthchecks", "beszel": "beszel-hub"}
+CONTRACT = json.loads(WIRING.read_text())["apps"]
+STACKS = {app: entry["stack"] for app, entry in CONTRACT.items()}
 
-# What the apps' x-catena blocks declare (settings, generated secrets and
-# managed values); the engine refuses a request that writes one of these in env.
-DECLARED = {"SUBDOMAIN", "HC_URL", "HUB_URL", "UI_TITLE", "SECRET_KEY"}
+# What the apps' x-catena blocks declare: the settings (the address, the
+# monitors' URLs, the title) and the contract's generated or managed values. The
+# engine refuses a request that writes one of these in env.
+SETTINGS = {"SUBDOMAIN", "HC_URL", "HUB_URL", "UI_TITLE"}
+DECLARED = SETTINGS | {key for entry in CONTRACT.values() for key in entry["env_declared"]}
 
 
 def _group_vars() -> dict:
@@ -69,6 +76,15 @@ def _env_maps() -> dict[str, dict]:
     }
 
 
+def _block_declared(app: str) -> set[str]:
+    """The env keys the checked-out blueprint's own x-catena block declares,
+    none when the catena-templates checkout is absent."""
+    block = TEMPLATES / app / "x-catena.yml"
+    if not block.is_file():
+        return set()
+    return set((yaml.safe_load(block.read_text()) or {}).get("env") or {})
+
+
 def _load_filter():
     spec = importlib.util.spec_from_file_location(
         "dotenv_value", PLAYBOOKS / "filter_plugins" / "dotenv_value.py")
@@ -79,7 +95,7 @@ def _load_filter():
 
 # --- the list ---------------------------------------------------------------
 
-def test_every_entry_keeps_the_name_its_stack_had():
+def test_every_entry_is_the_contracts_stack():
     apps = {a["app"]: a for a in _group_vars()["default_apps"]}
     assert {app: a["stack"] for app, a in apps.items()} == STACKS
     for app, entry in apps.items():
@@ -93,11 +109,12 @@ def test_the_infrastructure_defaults_read_the_stacks_from_the_list():
     for gone in ("gatus_compose_name", "healthchecks_compose_name", "beszel_hub_compose_name",
                  "gatus_image_tag", "healthchecks_image_tag", "beszel_image_tag",
                  "gatus_image", "healthchecks_image", "beszel_image",
-                 "healthchecks_swarm_secrets"):
+                 "healthchecks_swarm_secrets", "beszel_agent_image_tag", "beszel_agent_image",
+                 "beszel_agent_compose_name", "beszel_agent_port", "beszel_agent_swarm_secrets",
+                 "beszel_hc_shim_image_tag", "beszel_hc_shim_image", "beszel_hc_shim_compose_name",
+                 "beszel_hc_shim_swarm_secrets", "beszel_seed_state_file",
+                 "beszel_oidc_display_name"):
         assert gone not in defaults, f"{gone} is back"
-    for kept in ("beszel_agent_image_tag", "beszel_agent_compose_name",
-                 "beszel_hc_shim_image_tag", "beszel_hc_shim_compose_name"):
-        assert kept in defaults, f"{kept} is gone"
 
 
 def test_the_list_file_has_the_four_fields_and_no_secret():
@@ -136,15 +153,16 @@ def test_the_verb_runs_held_with_its_request_on_stdin():
     assert task["no_log"] is True, "the env holds secrets"
 
 
-def test_an_unfetchable_tag_does_not_fail_the_converge_but_anything_else_does():
+def test_exits_3_and_4_do_not_fail_the_converge_but_anything_else_does():
     """The command never fails itself (it runs no_log, which would hide the
-    reason); the engine's lines print, then a fail task stops the play."""
+    reason); the engine's lines print, then a fail task stops the play. Exit 3
+    is a tag that cannot be fetched, exit 4 is printed the same way."""
     tasks = _tasks("default_app.yml")
     names = [t["name"] for t in tasks]
     command = next(t for t in tasks if "ansible.builtin.command" in t)
     assert command["failed_when"] is False and command["no_log"] is True
     stop = next(t for t in tasks if "ansible.builtin.fail" in t)
-    assert "_default_app.rc | default(1) not in [0, 3]" in stop["when"]
+    assert "_default_app.rc | default(1) not in [0, 3, 4]" in stop["when"]
     shown = next(i for i, n in enumerate(names) if n.endswith("what the engine did"))
     assert names.index(command["name"]) < shown < names.index(stop["name"])
     assert "stderr_lines" in stop["ansible.builtin.fail"]["msg"]
@@ -192,9 +210,17 @@ def test_the_env_map_holds_no_key_the_checked_out_blueprint_declares():
         assert not set(env) & declared, (app, sorted(set(env) & declared))
 
 
-def test_the_hubs_and_healthchecks_keys_the_blocks_generate_are_not_written():
-    """The block generates SECRET_KEY, so the converge never writes it."""
-    assert "SECRET_KEY" not in _env_maps()["healthchecks"]
+def test_the_env_map_is_the_contracts_core_writes_less_what_the_block_declares():
+    """The keys the converge writes are the ones the contract says core owns,
+    except any the block declares (its generated and managed values, such as
+    SECRET_KEY, HC_PING_KEY and the mail password), which the engine refuses."""
+    for app, env in _env_maps().items():
+        want = set(CONTRACT[app]["env_core_writes"]) - DECLARED - _block_declared(app)
+        assert set(env) == want, app
+
+
+def test_healthchecks_mail_password_is_not_written_by_the_converge():
+    assert "EMAIL_HOST_PASSWORD" not in _env_maps()["healthchecks"]
 
 
 def test_every_env_value_is_a_string():
@@ -209,9 +235,31 @@ def test_the_hub_trusts_the_header_and_its_subnet_together():
     assert {"TRUSTED_AUTH_HEADER", "TRUSTED_PROXY_IPS"} <= set(env)
 
 
-def test_gatus_is_given_the_ping_key_and_status_address_its_alert_needs():
+def test_the_hub_is_told_the_realm_its_sign_in_button_uses():
+    env = _env_maps()["beszel"]
+    jenv = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    assert jenv.from_string(env["HUB_OIDC_ISSUER"]).render(
+        keycloak_hostname="auth.acme.test", keycloak_realm="vps"
+    ) == "https://auth.acme.test/realms/vps"
+
+
+def test_healthchecks_names_its_project_after_the_host():
+    assert _env_maps()["healthchecks"]["HC_PROJECT_NAME"] == "{{ inventory_hostname }}"
+
+
+def test_the_secrets_the_contract_names_are_minted_or_the_mail_password():
+    minted = (ANSIBLE / "helpers" / "onbox_config.py").read_text()
+    for entry in CONTRACT.values():
+        for name in entry["secrets"]:
+            if name != "smtp_password":
+                assert f'"{name}"' in minted, f"{name} is not minted"
+    for gone in ("healthchecks_superuser_password", "beszel_universal_token"):
+        assert f'"{gone}"' not in minted, f"{gone} is minted again"
+
+
+def test_gatus_is_given_the_status_address_its_alert_needs():
     env = _env_maps()["gatus"]
-    assert set(env) == {"HC_PING_KEY", "STATUS_HOST"}
+    assert set(env) == {"STATUS_HOST"}
     jenv = jinja2.Environment(undefined=jinja2.StrictUndefined)
     jenv.filters["bool"] = lambda v: v is True or str(v).strip().lower() in ("1", "true", "yes", "on")
 
@@ -225,42 +273,20 @@ def test_gatus_is_given_the_ping_key_and_status_address_its_alert_needs():
 
 
 
-# --- seeds wait for the app ---------------------------------------------------
+# --- the apps set themselves up ------------------------------------------------
 
-def _after(name: str, marker: str) -> list[dict]:
-    tasks = _tasks(name)
-    first = next(i for i, t in enumerate(tasks) if t.get("name") == marker)
-    return tasks[first + 1:]
-
-
-def _guarded(task: dict, flag: str) -> bool:
-    cond = task.get("when")
-    conds = cond if isinstance(cond, list) else [cond]
-    return flag in [str(c).strip() for c in conds]
-
-
-def test_the_healthchecks_seed_and_its_wait_run_only_while_it_runs():
-    flag = "_healthchecks_running | bool"
-    tasks = _after("healthchecks.yml", "Healthchecks: not running -- nothing is seeded")
-    for task in tasks:
-        text = json.dumps(task)
-        if any(word in text for word in ("docker ps", "docker exec", "docker service", "fail")):
-            assert _guarded(task, flag), task["name"]
-    named = {t["name"]: t for t in tasks}
-    assert _guarded(named["Healthchecks: run the Django seed script"], flag)
-    assert _guarded(named["Healthchecks: find running container"], flag)
-
-
-def test_the_hub_key_the_seed_and_the_agent_run_only_while_the_hub_runs():
-    flag = "_beszel_hub_running | bool"
-    named = {t["name"]: t for t in _tasks("beszel.yml")}
-    for name in ("Beszel: wait for hub container",
-                 "Beszel: derive hub public key for the agent",
-                 "Beszel: pin derived hub public key as a fact",
-                 "Beszel: seed the universal token + OIDC login (superuser-authenticated)",
-                 "Beszel: deploy agent as a swarm stack",
-                 "Beszel: seed the default alert rules once the agent has registered"):
-        assert _guarded(named[name], flag), name
+def test_no_task_seeds_deploys_an_agent_or_reads_a_container():
+    """The configure hooks of the apps do the setup, so the converge only adds
+    each app and writes its values."""
+    for name in ("gatus.yml", "healthchecks.yml", "beszel.yml"):
+        text = (TASKS / name).read_text()
+        for gone in ("docker exec", "docker cp", "docker ps", "swarm_stack.yml",
+                     "swarm_secrets", "-seed.py", "hc-shim", "universal_token", "ssh-keygen"):
+            assert gone not in text, f"{name} still holds {gone}"
+    assert not (TASKS.parent / "templates" / "beszel-agent.compose.yml.j2").exists()
+    assert not (TASKS.parent / "templates" / "beszel-hc-shim.compose.yml.j2").exists()
+    for script in ("healthchecks-seed.py", "beszel-seed.py", "beszel-hc-shim.py"):
+        assert not (ANSIBLE / "scripts" / script).exists(), script
 
 
 def test_the_running_flag_is_read_from_the_swarm_service():
@@ -304,9 +330,77 @@ def test_the_gate_network_is_a_capability_name():
 def test_gatus_syncs_into_the_apps_config_volume():
     value = _defaults()["gatus_host_config_dir"]
     assert value == ("{{ storage_mount_point }}/docker/volumes/{{ gatus_stack }}_config/_data")
+    gatus = CONTRACT["gatus"]
+    folder = jinja2.Environment().from_string(value).render(
+        storage_mount_point=STORAGE, gatus_stack=STACKS["gatus"])
+    assert folder == f"{STORAGE}/docker/volumes/{gatus['volumes'][gatus['config_volume']]}/_data"
+    assert folder == "/srv/catena/docker/volumes/catena-gatus_config/_data"
     env = (INFRA / "templates" / "gatus-sync.env.j2").read_text()
     assert "{{ gatus_host_config_dir }}/50-catena-apps.yaml" in env
     assert "{{ gatus_host_config_dir }}/40-infra.yaml" in env
+
+
+def test_the_sqlite_list_is_the_contracts():
+    expr = _defaults()["infrastructure_sqlite_databases"]
+    env = jinja2.nativetypes.NativeEnvironment()
+    env.filters["regex_replace"] = lambda value, pattern, repl: re.sub(pattern, repl, value)
+    defaults = _defaults()
+    got = env.from_string(expr).render(
+        **{**defaults, "gatus_stack": STACKS["gatus"],
+           "healthchecks_stack": STACKS["healthchecks"], "beszel_hub_stack": STACKS["beszel"]})
+    want = [f"{entry['volumes'][db['volume']]}/_data/{db['file']}"
+            for entry in (CONTRACT[a] for a in ("gatus", "healthchecks", "beszel"))
+            for db in entry["sqlite"]]
+    assert got == want
+
+
+def test_each_loopback_port_and_alias_is_the_contracts():
+    defaults = _defaults()
+    ports = {
+        "gatus": ("gatus_host_localhost_port", "gatus_internal_port", "gatus_network_alias"),
+        "healthchecks": ("healthchecks_host_localhost_port", "healthchecks_internal_port",
+                         "healthchecks_network_alias"),
+        "beszel": ("beszel_hub_host_localhost_port", "beszel_hub_internal_port",
+                   "beszel_hub_network_alias"),
+    }
+    for app, (host_key, internal_key, alias_key) in ports.items():
+        [port] = CONTRACT[app]["services"]["app"]["ports"]
+        assert defaults[host_key] == port["published"], app
+        assert defaults[internal_key] == port["target"], app
+        aliases = [a for nets in [CONTRACT[app]["services"]["app"]["networks"]]
+                   for names in nets.values() for a in names]
+        assert defaults[alias_key] in aliases, app
+
+
+def test_each_fragment_declares_the_contracts_published_port():
+    for name, key, owner in (("gatus.yml", "gatus_host_localhost_port", "gatus"),
+                             ("healthchecks.yml", "healthchecks_host_localhost_port", "healthchecks"),
+                             ("beszel.yml", "beszel_hub_host_localhost_port", "beszel")):
+        text = (TASKS / name).read_text()
+        assert f'"port": {key} | int' in text, name
+        assert f'"owner": "{owner}"' in text, name
+
+
+def test_the_overlays_are_the_contracts_networks():
+    gv = _group_vars()
+    networks = {n for entry in CONTRACT.values()
+                for svc in entry["services"].values() for n in (svc.get("networks") or {})}
+    for key in ("healthchecks_network", "beszel_network", "beszel_gate_network"):
+        assert gv[key] in networks, key
+    gate = CONTRACT["beszel"]["services"]["app"]["networks"][gv["beszel_gate_network"]]
+    assert gate == [_defaults()["beszel_hub_network_alias"]]
+
+
+def test_every_infra_spec_stack_is_a_contract_stack():
+    text = (INFRA / "templates" / "gatus-infra-spec.json.j2").read_text()
+    names = re.findall(r'"stack": "\{\{ (\w+) \}\}"', text)
+    assert names, "the infra spec names no stack"
+    by_var = {"gatus_stack": "gatus", "healthchecks_stack": "healthchecks",
+              "beszel_hub_stack": "beszel"}
+    for name in names:
+        assert name in by_var, name
+        assert STACKS[by_var[name]] in set(STACKS.values())
+    assert set(names) == set(by_var)
 
 
 # --- the address label ----------------------------------------------------------
@@ -328,8 +422,8 @@ def test_the_pre_task_sets_the_three_facts_group_vars_reads():
     gv = _group_vars()
     tasks = yaml.safe_load((PLAYBOOKS / "tasks" / "default_app_subdomains.yml").read_text())
     facts = [t["ansible.builtin.set_fact"] for t in tasks if "ansible.builtin.set_fact" in t][-1]
-    assert set(facts) == {"cfg_gatus_subdomain", "cfg_healthchecks_subdomain",
-                          "cfg_beszel_subdomain"}
+    assert set(facts) == {"default_app_gatus_subdomain", "default_app_healthchecks_subdomain",
+                          "default_app_beszel_subdomain"}
     for var in facts:
         assert var in str(gv), f"group_vars no longer reads {var}"
     read = next(t for t in tasks if "ansible.builtin.slurp" in t)

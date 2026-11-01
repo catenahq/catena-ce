@@ -113,11 +113,9 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `dashboard_sync_client_secret`
 - `catena_admin_panel_client_secret`
 - `catena_identity_probe_client_secret`
-- `healthchecks_superuser_password`
 - `healthchecks_ping_key`
 - `healthchecks_api_key_readonly`
 - `healthchecks_api_key_readwrite`
-- `beszel_universal_token`
 - `beszel_oidc_client_secret`
 - `zap_api_key`
 

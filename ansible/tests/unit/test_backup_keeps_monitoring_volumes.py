@@ -12,6 +12,7 @@ Run: uv run pytest tests/unit/test_backup_keeps_monitoring_volumes.py
 from __future__ import annotations
 
 import fnmatch
+import json
 import re
 
 import jinja2
@@ -25,14 +26,16 @@ ROLES = ANSIBLE / "reconcile" / "roles"
 BACKUP = ROLES / "backup" / "defaults" / "main.yml"
 INFRA = ROLES / "infrastructure"
 GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
+WIRING = ANSIBLE.parents[1] / "contracts" / "default-apps" / "wiring.json"
 VOLUMES = "/srv/catena/docker/volumes"
 
-# app -> the volumes of its stack, as the catalog compose of the app names them.
-APP_VOLUMES = {
-    "gatus": ["gatus-data", "config"],
-    "healthchecks": ["healthchecks-data"],
-    "beszel": ["beszel-hub-data"],
-}
+
+def _wiring() -> dict:
+    return json.loads(WIRING.read_text(encoding="utf-8"))["apps"]
+
+
+# app -> the docker volume names of its stack, from the wiring contract.
+APP_VOLUMES = {app: list(entry["volumes"].values()) for app, entry in _wiring().items()}
 
 
 def _defaults() -> dict:
@@ -80,16 +83,22 @@ def test_the_matching_follows_restics_rules():
 
 def test_no_pattern_leaves_out_a_monitoring_volume():
     patterns = yaml.safe_load(BACKUP.read_text(encoding="utf-8"))["backup_exclude_patterns"]
-    stacks = _stacks()
     checked = 0
-    for app, volumes in APP_VOLUMES.items():
+    for volumes in APP_VOLUMES.values():
         for volume in volumes:
-            for path in (f"{VOLUMES}/{stacks[app]}_{volume}",
-                         f"{VOLUMES}/{stacks[app]}_{volume}/_data/data.db"):
+            for path in (f"{VOLUMES}/{volume}", f"{VOLUMES}/{volume}/_data/data.db"):
                 checked += 1
                 hit = [p for p in patterns if _excludes(p, path)]
                 assert not hit, f"{hit} leave {path} out of the backup"
-    assert checked == 8
+    assert checked == 2 * sum(len(volumes) for volumes in APP_VOLUMES.values()) > 0
+
+
+def test_the_contract_names_each_volume_after_its_stack():
+    stacks = _stacks()
+    for app, entry in _wiring().items():
+        assert entry["stack"] == stacks[app]
+        for key, name in entry["volumes"].items():
+            assert name == f"{stacks[app]}_{key}", (app, key, name)
 
 
 class _Placeholder(jinja2.ChainableUndefined):
@@ -125,17 +134,16 @@ def _databases() -> list[str]:
 
 
 def test_the_copy_list_names_each_monitoring_database():
-    """The stack and volume names are those of the three monitors' volumes, so
-    the list is stable whether a stack or an app holds them."""
+    """The list is the contract's: each database file under its volume's host
+    folder."""
     listing = _render(ROLES / "backup" / "templates" / "backup-sqlite.j2",
                       ansible_managed="", storage_mount_point="/srv/catena",
                       infrastructure_sqlite_databases=_databases())
     lines = [ln for ln in listing.splitlines() if ln and not ln.startswith("#")]
     assert lines == [
-        f"{VOLUMES}/gatus_gatus-data/_data/gatus.db",
-        f"{VOLUMES}/healthchecks_healthchecks-data/_data/hc.sqlite",
-        f"{VOLUMES}/beszel-hub_beszel-hub-data/_data/data.db",
-        f"{VOLUMES}/beszel-hub_beszel-hub-data/_data/auxiliary.db",
+        f"{VOLUMES}/{entry['volumes'][db['volume']]}/_data/{db['file']}"
+        for entry in (_wiring()[app] for app in ("gatus", "healthchecks", "beszel"))
+        for db in entry["sqlite"]
     ]
 
 
@@ -148,5 +156,6 @@ def test_the_listed_files_are_the_names_the_defaults_hold():
 
 def test_the_patterns_name_no_monitoring_volume():
     patterns = yaml.safe_load(BACKUP.read_text(encoding="utf-8"))["backup_exclude_patterns"]
-    for volume in ("gatus-data", "healthchecks-data", "beszel-hub-data"):
-        assert not [p for p in patterns if volume in p], volume
+    for entry in _wiring().values():
+        for volume in entry["volumes"]:
+            assert not [p for p in patterns if volume in p], volume

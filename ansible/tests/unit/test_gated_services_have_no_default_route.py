@@ -54,14 +54,10 @@ def test_no_gated_host_gets_a_default_route():
             f"{where} writes a default route for a host its gate serves")
 
 
-def test_gatus_healthchecks_and_the_hub_write_none():
-    """The three are added as catalog apps, which carry no route label, and the
-    Beszel agent and alert shim are stacks of this role with no host."""
-    deploys = _stack_deploys()
-    for where, _ in deploys:
+def test_gatus_healthchecks_and_beszel_write_none():
+    """The three are added as catalog apps, which carry no route label, so no
+    task of this role deploys a stack of its own for them."""
+    for where, _ in _stack_deploys():
         assert not where.startswith(("infrastructure/tasks/gatus.yml",
-                                     "infrastructure/tasks/healthchecks.yml")), where
-    beszel = [v for where, v in deploys if where.startswith("infrastructure/tasks/beszel.yml")]
-    assert len(beszel) == 2
-    for v in beszel:
-        assert v["svc_domain_host"] == ""
+                                     "infrastructure/tasks/healthchecks.yml",
+                                     "infrastructure/tasks/beszel.yml")), where

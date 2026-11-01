@@ -131,10 +131,19 @@ def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
             f"{path.name} hardcodes {literal}; that belongs to the filter")
 
 
-@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS])
+def test_beszel_is_given_no_mail_setting_by_the_converge():
+    """Beszel's app reads the mail choice and the mail password from the store
+    itself (the wiring contract lists smtp_password among its secrets), so the
+    converge writes none into its .env."""
+    code = _code(BESZEL)
+    assert "infrastructure_smtp" not in code and "smtp_password" not in code
+    assert "EMAIL_" not in code and "SMTP_" not in code
+
+
+@pytest.mark.parametrize("path", [HEALTHCHECKS])
 def test_the_infrastructure_consumers_read_its_resolution(path):
-    """Beszel's mail and Healthchecks's alert mail take the infrastructure
-    role's one resolution rather than a copy each."""
+    """Healthchecks's alert mail takes the infrastructure role's one resolution
+    rather than a copy of it."""
     code = _code(path)
     assert "infrastructure_smtp." in code, (
         f"{path.name} does not read infrastructure_smtp")

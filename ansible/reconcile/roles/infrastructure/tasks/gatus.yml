@@ -67,10 +67,9 @@
     - _gatus_ports_fragment.changed
     - catena_public_ports_installed | default(true) | bool
 
-# Its one setting this converge owns is the Healthchecks ping key: the app's
-# base service writes the alert provider into 00-base.yaml when the key is set.
-# STATUS_HOST is the public address the alert body links to, empty while there
-# is no domain.
+# Its one setting this converge owns is STATUS_HOST, the public address the
+# alert body links to, empty while there is no domain. The app reads the
+# Healthchecks ping key from the job monitor's provided values.
 #
 # No route of its own: its gate's route above is its one public path, and a
 # default-priority route to the app would bypass the gate the moment that route
@@ -80,5 +79,4 @@
   vars:
     default_app: "{{ default_apps | selectattr('app', 'eq', 'gatus') | first }}"
     default_app_env:
-      HC_PING_KEY: "{{ healthchecks_ping_key }}"
       STATUS_HOST: "{{ '' if (catena_public_surface_deferred | default(false) | bool) else infrastructure_gatus_hostname }}"

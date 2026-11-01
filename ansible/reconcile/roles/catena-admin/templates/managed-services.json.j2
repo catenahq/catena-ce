@@ -22,7 +22,7 @@
   and the next converge puts it back.
 
   Client application stacks and the default apps (Gatus, Healthchecks and
-  Beszel's hub) are bumped through their folders
+  Beszel) are bumped through their folders
   (catena-admin payload/engines/stackupdate) and are not listed here.
   `compose_name` on a stack-deployed entry is what keeps the two apart: the
   engine builds its client-walk skip set from that key, so a stack of Catena's
@@ -53,7 +53,6 @@
                       per-host rather than fixed. They share a repository and
                       therefore one pin, so a converge moves them together
                       after any one of them is bumped.
-    beszel-hc-shim    Its image is a python base image, not a product release.
 #}
 [
   {
@@ -77,18 +76,6 @@
       "source": "github",
       "repo": "traefik/traefik",
       "tag_pattern": "^v\\d+\\.\\d+\\.\\d+$"
-    }
-  },
-  {
-    "name": "beszel-agent",
-    "kind": "infra-swarm",
-    "compose_name": "{{ beszel_agent_compose_name }}",
-    "swarm_service": "{{ beszel_agent_compose_name }}_app",
-    "policy": "patch",
-    "upstream": {
-      "source": "dockerhub",
-      "repo": "henrygd/beszel-agent",
-      "tag_pattern": "^\\d+\\.\\d+\\.\\d+$"
     }
   },
   {

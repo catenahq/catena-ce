@@ -5,8 +5,8 @@
 # 1. The tunnel-deferred gate: the steps that need the public edge wait for a
 #    converge that has it.
 # 2. Healthchecks, Beszel and Gatus, added as catalog apps (default_app.yml),
-#    the Beszel agent and alert shim as swarm stacks (swarm_stack.yml), and the
-#    off-site heartbeat's env file.
+#    each setting itself up in its configure hook, and the off-site heartbeat's
+#    env file.
 # 3. The dashboard-sync wiring and the public-URL probe of the gated services.
 # 4. The gatus-sync wiring.
 #
@@ -32,9 +32,8 @@
 
 # --- the default apps -------------------------------------------------------
 #
-# Healthchecks, Beszel's hub and Gatus are catalog apps that catena-apps adds
-# (default_app.yml); the Beszel agent and the alert shim are swarm stacks
-# (swarm_stack.yml). Healthchecks and the hub come before Gatus because Gatus
+# Healthchecks, Beszel and Gatus are catalog apps that catena-apps adds
+# (default_app.yml). Healthchecks and Beszel come before Gatus because Gatus
 # reads the addresses they provide.
 #
 # include_tasks doesn't propagate tags to sub-tasks by default -- a
@@ -57,14 +56,13 @@
       tags: [healthchecks]
   tags: [healthchecks]
 
-# Beszel -- hub + agent resource monitor (CPU/memory/network/disk +
-# temperature/load history with built-in threshold alerting). The
-# agent collects per-container + per-host metrics over docker.sock;
-# the hub stores history and serves beszel.<zone> (admin-gated via
-# oauth2-proxy). A small shim forwards Beszel threshold alerts into
-# the Healthchecks plane. Part of the base plane: this task is
-# unconditional.
-- name: Beszel (hub + agent + Healthchecks alert shim)
+# Beszel -- resource monitor (CPU/memory/network/disk + temperature/load
+# history with built-in threshold alerting). Its app holds the hub, which
+# stores history and serves beszel.<zone> (admin-gated via oauth2-proxy), the
+# agent, which collects per-container + per-host metrics over docker.sock, and
+# the relay, which forwards threshold alerts into the Healthchecks plane. Part
+# of the base plane: this task is unconditional.
+- name: Beszel (hub, agent and alert relay)
   ansible.builtin.include_tasks:
     file: beszel.yml
     apply:

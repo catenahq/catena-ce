@@ -11,12 +11,12 @@
 # `catena-apps defaults` adds the app at its catalog tag when it has no folder
 # yet, or writes the env into the folder it has, and leaves an app an admin
 # stopped or removed as it is. -held: the converge holds the host lock. Exit 3
-# means the tag could not be fetched and nothing changed; the converge goes on
-# without the app. The engine's own lines are printed as they are.
+# means the tag could not be fetched and nothing changed; exit 4 is reported the
+# same way. Neither fails the converge, and the engine's own lines are printed as
+# they are.
 #
 # Output: _default_app_running, true while swarm holds the app's service with
-# at least one wanted replica. The seeds and the agent that need the app run
-# only then, since an admin may stop or remove it.
+# at least one wanted replica.
 
 # The request holds secrets, so the command runs no_log and never fails there:
 # the engine's lines are printed next, and a refusal fails the play after them
@@ -49,7 +49,7 @@
       {{ (_default_app.stderr_lines | default([])) | join(' | ') }}
   when:
     - _default_app is not skipped
-    - _default_app.rc | default(1) not in [0, 3]
+    - _default_app.rc | default(1) not in [0, 3, 4]
 
 - name: "Default app {{ default_app.app }}: read its swarm service"
   ansible.builtin.command:

@@ -78,9 +78,8 @@ def test_every_role_image_resolves_through_the_pin():
 def test_the_scan_actually_finds_the_images():
     """A glob that stops matching turns the assertion above into a no-op."""
     found = _image_defaults()
-    assert len(found) >= 6, f"only found {sorted(found)}"
-    for expected in ("beszel_agent_image", "keycloak_image", "oauth2_proxy_image",
-                     "catena_admin_image"):
+    assert len(found) >= 4, f"only found {sorted(found)}"
+    for expected in ("keycloak_image", "oauth2_proxy_image", "catena_admin_image"):
         assert expected in found, f"{expected} is no longer being scanned"
 
 
