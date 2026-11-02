@@ -55,6 +55,12 @@
       ansible.builtin.include_tasks: tasks/load_onbox_config.yml
       tags: [always, onbox]
 
+    # The hostnames of Gatus, Healthchecks and Beszel come from each app's
+    # SUBDOMAIN setting (tasks/default_app_subdomains.yml).
+    - name: "Default apps: read the address label of each"
+      ansible.builtin.include_tasks: tasks/default_app_subdomains.yml
+      tags: [always, default_apps]
+
   tasks:
     - name: "validate: run each role's validate.yml"
       ansible.builtin.include_role:

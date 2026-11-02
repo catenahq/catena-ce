@@ -1,0 +1,54 @@
+---
+# What the default apps (Gatus, Healthchecks, Beszel's hub) need before the
+# first of them is added: the list catena-admin's whole-server restore reads, and
+# the catena-apps engine that adds them (it ships in the catena-admin payload,
+# which reconcile/roles/payload extracts earlier in the play).
+
+- name: "Default apps: /etc/catena exists"
+  ansible.builtin.file:
+    path: "{{ default_apps_list_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# No secret in it: repository, app, tag and stack of each app.
+- name: "Default apps: write the list of default apps ({{ default_apps_list_path }})"
+  ansible.builtin.template:
+    src: default-apps.json.j2
+    dest: "{{ default_apps_list_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Default apps: is the catena-apps engine expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ catena_apps_bin }}"
+
+- name: "Default apps: the engine is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      {{ catena_apps_bin }} is missing although reconcile/roles/payload ran in
+      this converge, so Gatus, Healthchecks and Beszel cannot be added. It ships
+      in the catena-admin payload; check the "Payload:" tasks above.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "Default apps: staged out of band and not present -- adding them deferred"
+  ansible.builtin.debug:
+    msg: >-
+      {{ catena_apps_bin }} is not on the host and this converge does not
+      install the payload (CATENA_PAYLOAD_INSTALL=false). Gatus, Healthchecks
+      and Beszel are added by the first converge after the payload install.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+- name: "Default apps: pin whether the engine is here"
+  ansible.builtin.set_fact:
+    _default_apps_available: "{{ catena_payload_missing | length == 0 }}"

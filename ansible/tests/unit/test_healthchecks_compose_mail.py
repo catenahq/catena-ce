@@ -1,16 +1,18 @@
 """Healthchecks sends through the outgoing mail chosen in Settings > Mail, and
-has no mailer when mail is off. Its credentials are swarm secrets, so the
-service environment `docker service inspect` prints holds none.
+has no mailer when mail is off. The values the converge owns reach the app as
+its .env (the env map of tasks/healthchecks.yml), written by `catena-apps
+defaults`, so the service spec `docker service inspect` prints holds no
+credential of this role's.
 
-healthchecks.compose.yml.j2 is rendered the way the converge renders it, with
-infrastructure_smtp resolved by the real filter and the secrets named by the
-real swarm_secret_entries, and read back as YAML.
+The env map is rendered the way the converge renders it, with
+infrastructure_smtp resolved by the real filter.
 
 Run: uv run pytest tests/unit/test_healthchecks_compose_mail.py
 """
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import jinja2
@@ -18,8 +20,8 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 INFRA = ANSIBLE / "reconcile" / "roles" / "infrastructure"
-TEMPLATE = INFRA / "templates" / "healthchecks.compose.yml.j2"
 PLUGINS = ANSIBLE / "playbooks" / "filter_plugins"
+TASKS = INFRA / "tasks" / "healthchecks.yml"
 
 
 def _load(name: str):
@@ -30,10 +32,8 @@ def _load(name: str):
 
 
 resolve = _load("smtp_resolve").catena_smtp_resolve
-secret_entries = _load("catena_admin_service").secret_entries
 
 PASSWORD = 're_ab"c$HOME'
-SECRET_KEY = "hc-secret-key-value"
 
 
 def _bool(value) -> bool:
@@ -42,43 +42,33 @@ def _bool(value) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
-def _jinja() -> jinja2.Environment:
-    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
-    env.filters["bool"] = _bool
-    return env
+def _tasks() -> list[dict]:
+    return yaml.safe_load(TASKS.read_text())
 
 
-def _render(provider: str, port: str = "") -> tuple[str, dict]:
+def _env_task() -> dict:
+    return next(t for t in _tasks()
+                if "_healthchecks_env" in (t.get("ansible.builtin.set_fact") or {}))
+
+
+def _environment(provider: str, port: str = "", deferred: bool = False) -> dict:
     smtp = resolve(provider, host="mail.acme.test", port=port,
                    sender="no-reply@acme.test", fallback_sender="admin@acme.test")
-    specs = yaml.safe_load((INFRA / "defaults" / "main.yml").read_text())[
-        "healthchecks_swarm_secrets"]
-    secrets = secret_entries([
-        {**s, "value": _jinja().from_string(s["value"]).render(
-            healthchecks_secret_key=SECRET_KEY, smtp_password=PASSWORD,
-            infrastructure_smtp=smtp)}
-        for s in specs
-    ])
-    text = _jinja().from_string(TEMPLATE.read_text()).render(
-        ansible_managed="",
-        healthchecks_image="healthchecks/healthchecks:test",
-        catena_public_surface_deferred=False,
-        healthchecks_network="catena-healthchecks",
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["bool"] = _bool
+    values = dict(
+        smtp_password=PASSWORD,
+        infrastructure_smtp=smtp,
+        catena_public_surface_deferred=deferred,
         healthchecks_network_alias="healthchecks",
         healthchecks_internal_port=8000,
-        healthchecks_data_volume="healthchecks-data",
-        healthchecks_sqlite_file="hc.sqlite",
-        healthchecks_host_localhost_port=18000,
         healthchecks_hostname="healthchecks.acme.test",
         cloudflare_zone="acme.test",
-        infrastructure_smtp=smtp,
-        _healthchecks_secrets=secrets,
+        inventory_hostname="host-a",
     )
-    return text, yaml.safe_load(text)
-
-
-def _environment(provider: str, port: str = "") -> dict:
-    return _render(provider, port)[1]["services"]["app"]["environment"]
+    spec = _env_task()["ansible.builtin.set_fact"]["_healthchecks_env"]
+    return {key: env.from_string(text).render(**values).strip()
+            for key, text in spec.items()}
 
 
 def test_mail_on_sends_through_the_chosen_relay():
@@ -99,58 +89,72 @@ def test_the_port_decides_the_connection_security():
         assert (env["EMAIL_USE_TLS"], env["EMAIL_USE_SSL"]) == (tls, ssl), port
 
 
-def test_no_credential_is_in_the_service_environment():
-    text, doc = _render("resend")
-    assert PASSWORD not in text and SECRET_KEY not in text
-    env = doc["services"]["app"]["environment"]
-    for key in ("SECRET_KEY", "EMAIL_HOST_PASSWORD", "SUPERUSER_PASSWORD", "PING_KEY"):
-        assert key not in env, f"{key} is in the service environment"
-
-
-def test_each_credential_is_a_mounted_secret_healthchecks_reads():
-    """hc/settings.py (v4.4) reads <NAME>_FILE through envsecret."""
-    doc = _render("resend")[1]
-    app = doc["services"]["app"]
-    mounted = {s["target"]: s["source"] for s in app["secrets"]}
-    assert set(mounted) == {"SECRET_KEY", "EMAIL_HOST_PASSWORD"}
-    for target, source in mounted.items():
-        assert app["environment"][f"{target}_FILE"] == f"/run/secrets/{target}"
-        assert doc["secrets"][source] == {"external": True}
+def test_the_mail_password_is_the_apps_own_and_never_written_by_the_converge():
+    """The block manages EMAIL_HOST_PASSWORD from the store's smtp_password, so
+    the engine would refuse a request that writes it, and the password is in no
+    request the converge sends."""
+    for provider in ("resend", "none"):
+        assert "EMAIL_HOST_PASSWORD" not in _environment(provider)
+    assert "smtp_password" not in json.dumps(_env_task())
 
 
 def test_mail_off_leaves_no_mailer_and_no_credential():
-    doc = _render("none")[1]
-    env = doc["services"]["app"]["environment"]
+    env = _environment("none")
     assert env["EMAIL_HOST"] == ""
-    for key in ("EMAIL_HOST_PASSWORD_FILE", "EMAIL_HOST_USER", "EMAIL_PORT"):
-        assert key not in env, f"{key} is rendered with mail turned off"
-    assert [s["target"] for s in doc["services"]["app"]["secrets"]] == ["SECRET_KEY"]
+    for key in ("EMAIL_HOST_USER", "EMAIL_PORT", "EMAIL_USE_TLS", "EMAIL_USE_SSL"):
+        assert env[key] == "", f"{key} is set with mail turned off"
     assert env["DEFAULT_FROM_EMAIL"] == "no-reply@acme.test"
 
 
-def test_a_new_mail_password_is_a_new_secret():
-    """Swarm secrets are immutable, so the service follows a rotation only
-    through a new name."""
-    one = secret_entries([{"base": "healthchecks_email_password",
-                           "target": "EMAIL_HOST_PASSWORD", "value": "a"}])
-    two = secret_entries([{"base": "healthchecks_email_password",
-                           "target": "EMAIL_HOST_PASSWORD", "value": "b"}])
-    assert one[0]["name"] != two[0]["name"]
+def test_the_env_map_never_names_the_seeds_credentials():
+    """The seed's values (superuser password, ping key, API keys) reach the
+    container on the seed's stdin, not in the app's .env."""
+    env = _environment("resend")
+    for key in ("SUPERUSER_PASSWORD", "PING_KEY", "API_KEY_READONLY", "API_KEY_READWRITE"):
+        assert key not in env
+    assert "SECRET_KEY" not in env, "the app generates its own secret key"
 
 
-def test_the_converge_creates_the_secrets_before_the_deploy():
-    tasks = yaml.safe_load((INFRA / "tasks" / "healthchecks.yml").read_text())
-    names = [t.get("name", "") for t in tasks]
-    create = names.index("Healthchecks: create the missing swarm secrets")
-    assert create < names.index("Healthchecks: deploy as a swarm stack")
-    assert tasks[create]["ansible.builtin.include_tasks"].endswith(
-        "/tasks/swarm_secrets.yml")
+def test_the_address_follows_the_domain():
+    env = _environment("resend")
+    assert env["SITE_ROOT"] == "https://healthchecks.acme.test"
+    assert env["SITE_NAME"] == "acme.test heartbeats"
+    deferred = _environment("resend", deferred=True)
+    assert deferred["SITE_ROOT"] == "http://healthchecks:8000"
+    assert deferred["SITE_NAME"] == "heartbeats"
 
 
-def test_the_seed_learns_whether_mail_is_on():
-    """The seed keeps the admin email channel only while there is a mailer to
-    send it, so the task hands it the same switch the compose renders from."""
-    tasks = yaml.safe_load((INFRA / "tasks" / "healthchecks.yml").read_text())
-    config = next(t["ansible.builtin.set_fact"]["_healthchecks_seed_config"] for t in tasks
-                  if "_healthchecks_seed_config" in (t.get("ansible.builtin.set_fact") or {}))
-    assert config["mail_enabled"] == "{{ infrastructure_smtp.enabled | bool | lower }}"
+def test_the_loopback_ip_is_an_allowed_host_in_both_addresses():
+    """Every host-side consumer dials the loopback publish by IP; Django answers
+    400 DisallowedHost to a Host it does not list."""
+    for deferred in (False, True):
+        hosts = _environment("resend", deferred=deferred)["ALLOWED_HOSTS"].split(",")
+        assert "127.0.0.1" in hosts and "healthchecks" in hosts, hosts
+    assert "healthchecks.acme.test" in _environment("resend")["ALLOWED_HOSTS"].split(",")
+
+
+def test_the_env_task_hides_its_values():
+    assert _env_task()["no_log"] is True
+
+
+def test_the_converge_holds_no_swarm_secret_for_the_app():
+    text = TASKS.read_text()
+    assert "swarm_secret" not in text
+    assert "swarm_stack.yml" not in text
+
+
+def test_the_values_are_written_before_the_app_is_added():
+    names = [t.get("name", "") for t in _tasks()]
+    assert names.index("Healthchecks: the values the converge owns") < names.index(
+        "Healthchecks: add the app")
+
+
+def test_the_project_is_named_after_the_host():
+    """The app's configure hook keeps the project it names."""
+    assert _environment("resend")["HC_PROJECT_NAME"] == "host-a"
+
+
+def test_the_converge_says_so_when_mail_is_off():
+    """A host whose alerts reach no mailbox must not look like a healthy one."""
+    warn = next(t for t in _tasks() if t.get("name") == "Healthchecks: warn when outgoing mail is off")
+    assert warn["when"] == "not (infrastructure_smtp.enabled | bool)"

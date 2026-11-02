@@ -2,8 +2,7 @@
 # Deploy one catena-DECLARED compose stack as SWARM services.
 #
 # Every app deployed through this file is something catena declares -- the
-# monitoring plane (gatus, healthchecks, beszel) and the SSO plane (keycloak,
-# oauth2-proxy).
+# Beszel agent and alert shim and the SSO plane (keycloak, oauth2-proxy).
 #
 # Inputs (caller sets via include_tasks vars):
 #
@@ -98,9 +97,8 @@
 # directly. Routing is not the control plane's job.
 #
 # Opt-out: intra-cluster-only services (e.g. oauth2-proxy, reached by their
-# catena-network alias) and services a sign-in gate serves (Gatus,
-# Healthchecks, Beszel's hub) pass svc_domain_host="" -> the route file is
-# removed instead of written.
+# catena-network alias) pass svc_domain_host="" -> the route file is removed
+# instead of written.
 - name: "Route: write Traefik file-provider route ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
   ansible.builtin.template:
     # Explicit playbook_dir-relative path: this file is include_tasks'd from

@@ -20,9 +20,10 @@ the catena-admin pin through the same rule. The floor wins ties and wins
 whenever the two cannot be compared, so an unclear comparison never downgrades.
 
 Two kinds of tag are comparable. A full semver tag compares with any other full
-semver tag. A two-part `<major>.<minor>` tag, optionally with one suffix
-(`18.7-trixie`), compares only with a two-part tag of the SAME major and the
-SAME suffix, so a minor of the pinned major moves and a major, a variant or a
+semver tag, and a two-part tag without a suffix (`v5.1`) is the semver tag
+`.0` of that release, so a floor `v5.1` is beaten by the lane's `v5.1.1`. A
+two-part `<major>.<minor>-<suffix>` tag (`18.7-trixie`) compares only with a
+two-part tag of the SAME major and the SAME suffix, so a minor of the pinned major moves and a major, a variant or a
 one-part floor (`postgres:18`) never does: a pin that appeared to beat those
 could be a major upgrade nobody asked for.
 
@@ -69,6 +70,10 @@ def _split_ref(ref):
 _MAJOR_MINOR = re.compile(r"^(\d+)\.(\d+)(?:-([A-Za-z][A-Za-z0-9]*))?$")
 
 
+# A two-part tag with no suffix, optionally v-prefixed: the release X.Y.0.
+_BARE_MAJOR_MINOR = re.compile(r"^v?(\d+)\.(\d+)$")
+
+
 def _order(tag):
     """(family, sortable key) for a comparable tag, or None when it is not one.
 
@@ -80,9 +85,12 @@ def _order(tag):
     beat v3.8.0. A build sorts above the plain version and below the next one,
     so a newer build of the running version survives the converge."""
     m = _MAJOR_MINOR.match(tag or "")
-    if m:
+    if m and m.group(3):
         major, minor, suffix = m.groups()
-        return ("mm", int(major), suffix or ""), (int(minor),)
+        return ("mm", int(major), suffix), (int(minor),)
+    m = _BARE_MAJOR_MINOR.match(tag or "")
+    if m:
+        return ("semver",), (int(m.group(1)), int(m.group(2)), 0, 0, 1, "")
     m = _SEMVER.match(tag or "")
     if not m:
         return None

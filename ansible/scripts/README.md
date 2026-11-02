@@ -23,12 +23,9 @@ declarations the roles write into `/etc/catena/public-ports.d/`.
 
 | File | What it does |
 | --- | --- |
-| `beszel-hc-shim.py` | Beszel -> Healthchecks alert shim. |
-| `beszel-seed.py` | Seed Beszel's hub configuration (idempotent): universal token, OIDC login, alert delivery and rules, outgoing mail. |
 | `catena-admin-runner.sh` | catena-admin action dispatcher -- the ONLY thing the catena-admin runner user's ssh key is allowed to run (enforced by authorized_keys' command= stanza, which runs catena-dispatch-entry.sh beside it). |
 | `catena-container.sh` | /usr/local/bin/catena-container [--required] <app> <service> -- print the name of the running container of one service of a deployed application. |
 | `catena-dispatch-entry.sh` | The forced command of the panel's dispatch: what sshd runs, as the runner account, for every request the panel sends. |
 | `catena-network-nudge.sh` | Recover containers stranded by the catena-network overlay race after a docker.service start (boot, daemon restart, snapshot restore). |
 | `catena-restic-key.py` | catena-restic-key -- generate, validate or rotate the restic repository password, and create the repository at the saved destination. |
 | `catena-tailnet-check.py` | catena-tailnet-check -- check tailnet credentials before the panel stores them. |
-| `healthchecks-seed.py` | Seed and reconcile self-hosted Healthchecks: the operator superuser, the project and its API keys, and the admin's email channel. |

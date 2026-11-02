@@ -5,6 +5,12 @@
    named by: the last path segment of the image the service runs
    (quay.io/phasetwo/phasetwo-keycloak -> phasetwo-keycloak).
 
+   stack names the app folder of a default app (Gatus, Healthchecks, Beszel's
+   hub). Every entry that probes one of the three, directly or through its
+   gate, carries it: catena-gatus-sync writes no endpoint for an entry whose
+   stack has no folder, so a monitor an admin removed stops alerting instead of
+   reading green through its gate.
+
    An entry that reaches its service through the public edge, at a name under
    the domain, is written only while the edge serves the domain: a Cloudflare
    token in the store, the tunnel engine on the host
@@ -36,7 +42,8 @@
     "ignore_redirect": true,
     "interval": "120s",
     "alert_slug": "{{ infrastructure_gatus_hostname | lower | replace('.', '-') }}",
-    "version_key": "gatus"
+    "version_key": "gatus",
+    "stack": "{{ gatus_stack }}"
   },
 {# catena-admin (the Go shell) is the admin panel. It sits behind the
    staff/admin oauth2-proxy slug, so an unauthenticated probe gets a 302
@@ -59,7 +66,8 @@
     "ignore_redirect": true,
     "interval": "120s",
     "alert_slug": "{{ healthchecks_hostname | lower | replace('.', '-') }}",
-    "version_key": "healthchecks"
+    "version_key": "healthchecks",
+    "stack": "{{ healthchecks_stack }}"
   },
 {# The Keycloak and Beszel consoles at the hosts their panel tiles link to: the
    panel pairs a tile with the endpoint whose newest probe asked the tile's
@@ -85,7 +93,8 @@
     "ignore_redirect": true,
     "interval": "120s",
     "alert_slug": "{{ beszel_hostname | lower | replace('.', '-') }}",
-    "version_key": null
+    "version_key": null,
+    "stack": "{{ beszel_hub_stack }}"
   },
 {# The tunnel, through a name under the domain's wildcard that nothing routes:
    the Cloudflare edge hands it to this host's connector, which passes it to
@@ -129,6 +138,7 @@
     "ignore_redirect": false,
     "interval": "60s",
     "alert_slug": "beszel-hub",
-    "version_key": "beszel"
+    "version_key": "beszel",
+    "stack": "{{ beszel_hub_stack }}"
   }
 ]

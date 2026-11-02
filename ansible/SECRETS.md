@@ -57,7 +57,7 @@ ride the backup, because it is what unlocks the backup.
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
 | `backup_restic_password` | decrypt the restic repo | generated in the settings page, **shown once** | **yes** |
-| `admin_password` | first login (Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
+| `admin_password` | first login (Keycloak + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
 | `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
@@ -113,14 +113,15 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `dashboard_sync_client_secret`
 - `catena_admin_panel_client_secret`
 - `catena_identity_probe_client_secret`
-- `healthchecks_secret_key`
-- `healthchecks_superuser_password`
 - `healthchecks_ping_key`
 - `healthchecks_api_key_readonly`
 - `healthchecks_api_key_readwrite`
-- `beszel_universal_token`
 - `beszel_oidc_client_secret`
 - `zap_api_key`
+
+Healthchecks' signing key is a generated setting of its catalog app. The
+converge writes the mail password (`smtp_password`) into the app's `.env` as
+`EMAIL_HOST_PASSWORD` (`catena-apps defaults`).
 
 ### 3. Non-secret config
 

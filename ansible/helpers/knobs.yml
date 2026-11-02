@@ -512,24 +512,6 @@ config:
     panel: {group: subdomains, section: config, kind: text, optional: true,
             default: dash}
 
-  - key: GATUS_SUBDOMAIN
-    residence: store
-    var: cfg_gatus_subdomain
-    panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: gatus}
-
-  - key: HEALTHCHECKS_SUBDOMAIN
-    residence: store
-    var: cfg_healthchecks_subdomain
-    panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: healthchecks}
-
-  - key: BESZEL_SUBDOMAIN
-    residence: store
-    var: cfg_beszel_subdomain
-    panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: beszel}
-
   # Prefixes the name of the tunnel a host creates. Blank leaves each host
   # owning one tunnel named after its inventory hostname; a prefix of "corp-"
   # on a host named "vps1" names the tunnel "corp-vps1". A store key because the

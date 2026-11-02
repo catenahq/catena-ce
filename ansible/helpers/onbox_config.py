@@ -232,19 +232,10 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # supervises could hide a drift by correcting it.
     "catena_identity_probe_client_secret": mint_strong_password,
     # Healthchecks (self-hosted heartbeat instance).
-    "healthchecks_secret_key": mint_strong_password,
-    "healthchecks_superuser_password": mint_strong_password,
     "healthchecks_ping_key": mint_url_safe,
     "healthchecks_api_key_readonly": mint_hc_api_key,
     "healthchecks_api_key_readwrite": mint_hc_api_key,
-    # Beszel resource-monitor token. Beszel is always deployed, so this is
-    # always in use. The hub LOGIN is deliberately NOT minted here: it is the
-    # shared admin_password (USER_HELD, surfaced once at install). A login
-    # minted in this table would be one the operator is never shown, for a hub
-    # the panel links to as a tab.
-    "beszel_universal_token": mint_url_safe,
-    # Beszel's OIDC client secret: "Sign in with Catena" on the hub
-    # (scripts/beszel-seed.py).
+    # Beszel's OIDC client secret: "Sign in with Catena" on the hub.
     "beszel_oidc_client_secret": mint_strong_password,
     # The auth header on the ZAP daemon's REST API while a pen-test scan is
     # running. Minted regardless of bench mode so a one-off scan against any
@@ -307,8 +298,7 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset(
 #     `panel`): the page reports which are set, and the tailnet and backup
 #     checks send the stored ones;
 #   - backup_restic_password: the disaster-recovery keyset the page reveals;
-#   - admin_password: the panel's native sign-in and the Beszel hub's superuser
-#     sign-in.
+#   - admin_password: the panel's native sign-in.
 PANEL_SECRETS: frozenset[str] = frozenset(
     entry["key"] for entry in _KNOBS["secrets"] if "panel" in entry
 ) | {"backup_restic_password", "admin_password"}

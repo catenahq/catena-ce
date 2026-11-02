@@ -1,11 +1,11 @@
 """Beszel's hub is public only through its own admin-only oauth2-proxy.
 
-The hub deploys as a swarm stack with no route of its own, on a network
-Traefik is not on. dashboard-sync gates only client stacks, so its one
-public route is the one reconcile/roles/oauth2_proxy writes from
-oauth2_proxy_apps. The hub's own login is behind that gate: its password is
-the shared admin password, and its Keycloak sign-in creates a hub account for
-any realm user (USER_CREATION in beszel-hub.compose.yml.j2).
+The hub is a catalog app with no route of its own, on a network Traefik is not
+on. dashboard-sync gates only client stacks, so its one public route is the one
+reconcile/roles/oauth2_proxy writes from oauth2_proxy_apps. The hub's own login
+is behind that gate: its password is the shared admin password, and its
+Keycloak sign-in creates a hub account for any realm user (USER_CREATION,
+written by reconcile/roles/infrastructure/tasks/beszel.yml).
 
 Run: uv run pytest tests/unit/test_beszel_hub_is_gated.py
 """

@@ -12,6 +12,7 @@ Run: uv run pytest tests/unit/test_backup_keeps_monitoring_volumes.py
 from __future__ import annotations
 
 import fnmatch
+import json
 import re
 
 import jinja2
@@ -20,33 +21,31 @@ from pathlib import Path
 
 import yaml
 
-ROLES = Path(__file__).resolve().parents[2] / "reconcile" / "roles"
+ANSIBLE = Path(__file__).resolve().parents[2]
+ROLES = ANSIBLE / "reconcile" / "roles"
 BACKUP = ROLES / "backup" / "defaults" / "main.yml"
 INFRA = ROLES / "infrastructure"
+GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
+WIRING = ANSIBLE.parents[1] / "contracts" / "default-apps" / "wiring.json"
 VOLUMES = "/srv/catena/docker/volumes"
 
-STACKS = {
-    "gatus.compose.yml.j2": "gatus_compose_name",
-    "healthchecks.compose.yml.j2": "healthchecks_compose_name",
-    "beszel-hub.compose.yml.j2": "beszel_hub_compose_name",
-}
+
+def _wiring() -> dict:
+    return json.loads(WIRING.read_text(encoding="utf-8"))["apps"]
+
+
+# app -> the docker volume names of its stack, from the wiring contract.
+APP_VOLUMES = {app: list(entry["volumes"].values()) for app, entry in _wiring().items()}
 
 
 def _defaults() -> dict:
     return yaml.safe_load((INFRA / "defaults" / "main.yml").read_text(encoding="utf-8"))
 
 
-def _volume_keys(template: str) -> list[str]:
-    """The keys of the compose template's top-level `volumes:` mapping, with a
-    `{{ name }}` key resolved from the infrastructure defaults."""
-    text = (INFRA / "templates" / template).read_text(encoding="utf-8")
-    block = re.search(r"^volumes:\n((?:[ \t]+.*\n|\n)*)", text, re.MULTILINE).group(1)
-    defaults = _defaults()
-    keys = []
-    for key in re.findall(r"^  ([^\s#][^:]*):\s*$", block, re.MULTILINE):
-        var = re.fullmatch(r"\{\{\s*(\w+)\s*\}\}", key)
-        keys.append(defaults[var.group(1)] if var else key)
-    return keys
+def _stacks() -> dict[str, str]:
+    """app -> stack, from the default apps."""
+    apps = yaml.safe_load(GROUP_VARS.read_text(encoding="utf-8"))["default_apps"]
+    return {a["app"]: a["stack"] for a in apps}
 
 
 def _components_match(pattern: list[str], parts: list[str]) -> bool:
@@ -84,16 +83,22 @@ def test_the_matching_follows_restics_rules():
 
 def test_no_pattern_leaves_out_a_monitoring_volume():
     patterns = yaml.safe_load(BACKUP.read_text(encoding="utf-8"))["backup_exclude_patterns"]
-    defaults = _defaults()
     checked = 0
-    for template, name in STACKS.items():
-        for volume in _volume_keys(template):
-            for path in (f"{VOLUMES}/{defaults[name]}_{volume}",
-                         f"{VOLUMES}/{defaults[name]}_{volume}/_data/data.db"):
+    for volumes in APP_VOLUMES.values():
+        for volume in volumes:
+            for path in (f"{VOLUMES}/{volume}", f"{VOLUMES}/{volume}/_data/data.db"):
                 checked += 1
                 hit = [p for p in patterns if _excludes(p, path)]
                 assert not hit, f"{hit} leave {path} out of the backup"
-    assert checked == 6
+    assert checked == 2 * sum(len(volumes) for volumes in APP_VOLUMES.values()) > 0
+
+
+def test_the_contract_names_each_volume_after_its_stack():
+    stacks = _stacks()
+    for app, entry in _wiring().items():
+        assert entry["stack"] == stacks[app]
+        for key, name in entry["volumes"].items():
+            assert name == f"{stacks[app]}_{key}", (app, key, name)
 
 
 class _Placeholder(jinja2.ChainableUndefined):
@@ -120,41 +125,37 @@ def _databases() -> list[str]:
     expr = _defaults()["infrastructure_sqlite_databases"]
     env = jinja2.nativetypes.NativeEnvironment()
     env.filters["regex_replace"] = lambda value, pattern, repl: re.sub(pattern, repl, value)
-    return env.from_string(expr).render(**_plain(INFRA / "defaults" / "main.yml"))
+    stacks = _stacks()
+    return env.from_string(expr).render(
+        **_plain(INFRA / "defaults" / "main.yml"),
+        gatus_stack=stacks["gatus"],
+        healthchecks_stack=stacks["healthchecks"],
+        beszel_hub_stack=stacks["beszel"])
 
 
 def test_the_copy_list_names_each_monitoring_database():
+    """The list is the contract's: each database file under its volume's host
+    folder."""
     listing = _render(ROLES / "backup" / "templates" / "backup-sqlite.j2",
                       ansible_managed="", storage_mount_point="/srv/catena",
                       infrastructure_sqlite_databases=_databases())
     lines = [ln for ln in listing.splitlines() if ln and not ln.startswith("#")]
-    defaults = _defaults()
-    expected = []
-    for template, name in STACKS.items():
-        [volume] = _volume_keys(template)
-        files = {"gatus.compose.yml.j2": [defaults["gatus_sqlite_file"]],
-                 "healthchecks.compose.yml.j2": [defaults["healthchecks_sqlite_file"]],
-                 "beszel-hub.compose.yml.j2": defaults["beszel_hub_sqlite_files"]}[template]
-        expected += [f"{VOLUMES}/{defaults[name]}_{volume}/_data/{f}" for f in files]
-    assert lines == expected
-    assert len(lines) == 4 and all(ln.startswith("/") for ln in lines)
+    assert lines == [
+        f"{VOLUMES}/{entry['volumes'][db['volume']]}/_data/{db['file']}"
+        for entry in (_wiring()[app] for app in ("gatus", "healthchecks", "beszel"))
+        for db in entry["sqlite"]
+    ]
 
 
-def test_the_listed_files_are_the_ones_the_services_open():
+def test_the_listed_files_are_the_names_the_defaults_hold():
     defaults = _defaults()
-    values = dict(_plain(INFRA / "defaults" / "main.yml"),
-                  catena_public_surface_deferred=False,
-                  infrastructure_smtp={"enabled": False, "sender": "x", "implicit_tls": False})
-    gatus = yaml.safe_load(_render(INFRA / "templates" / "gatus-base.yaml.j2", **values))
-    assert gatus["storage"]["path"] == f"/data/{defaults['gatus_sqlite_file']}"
-    hc = yaml.safe_load(_render(INFRA / "templates" / "healthchecks.compose.yml.j2", **values))
-    assert hc["services"]["app"]["environment"]["DB_NAME"] == f"/data/{defaults['healthchecks_sqlite_file']}"
-    hub = yaml.safe_load(_render(INFRA / "templates" / "beszel-hub.compose.yml.j2", **values))
-    assert f"{defaults['beszel_hub_data_volume']}:/beszel_data" in hub["services"]["app"]["volumes"]
+    assert defaults["gatus_sqlite_file"] == "gatus.db"
+    assert defaults["healthchecks_sqlite_file"] == "hc.sqlite"
     assert defaults["beszel_hub_sqlite_files"] == ["data.db", "auxiliary.db"]
 
 
 def test_the_patterns_name_no_monitoring_volume():
     patterns = yaml.safe_load(BACKUP.read_text(encoding="utf-8"))["backup_exclude_patterns"]
-    for volume in ("gatus-data", "healthchecks-data", "beszel-hub-data"):
-        assert not [p for p in patterns if volume in p], volume
+    for entry in _wiring().values():
+        for volume in entry["volumes"]:
+            assert not [p for p in patterns if volume in p], volume

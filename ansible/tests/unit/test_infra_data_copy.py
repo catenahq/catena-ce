@@ -1,32 +1,23 @@
 """Catena's own stacks that keep data declare it in an x-catena block, and the
 swarm stack helper asks the host for the copy before it deploys.
 
-A newer Healthchecks, Gatus or Beszel hub migrates its SQLite volume on its
-first start and the previous image cannot read the result. The block names the
-service and volume; catena-stack-update-managed infra-data copy copies the
-data of each declared service whose image the new stack file changes, and
-puts it back on a rollback of the move.
+Keycloak's schema migrates on the first start of a newer version and the older
+one cannot read it. The block names the service and its database;
+catena-stack-update-managed infra-data copy copies the data of each declared
+service whose image the new stack file changes, and puts it back on a rollback
+of the move.
 
 Run: uv run pytest tests/unit/test_infra_data_copy.py
 """
 from __future__ import annotations
 
 import jinja2
-import pytest
 import yaml
 
 from ansible_tree import PLAYBOOKS, panel_vars, role_dir, walk_tasks
 
 TEMPLATES = role_dir("infrastructure") / "templates"
 STACK = role_dir("infrastructure") / "tasks" / "swarm_stack.yml"
-
-# Template -> the volume its block names, with the variable values a render
-# gives the template.
-DECLARING = {
-    "healthchecks.compose.yml.j2": "healthchecks-data",
-    "gatus.compose.yml.j2": "gatus-data",
-    "beszel-hub.compose.yml.j2": "beszel-hub-data",
-}
 
 
 class _Placeholder(jinja2.ChainableUndefined):
@@ -45,9 +36,6 @@ def _render(name: str, templates=TEMPLATES, **values) -> dict:
     env.filters["bool"] = bool
     text = (templates / name).read_text(encoding="utf-8")
     return yaml.safe_load(env.from_string(text).render(
-        beszel_hub_data_volume="beszel-hub-data",
-        gatus_data_volume="gatus-data",
-        healthchecks_data_volume="healthchecks-data",
         catena_public_surface_deferred=False,
         infrastructure_smtp={"enabled": False, "sender": "x", "implicit_tls": False},
         **values,
@@ -60,22 +48,6 @@ def _keycloak_names() -> tuple[str, str]:
     for path in (KEYCLOAK / "defaults" / "main.yml", KEYCLOAK / "vars" / "main.yml"):
         names.update(yaml.safe_load(path.read_text(encoding="utf-8")))
     return names["keycloak_compose_name"], names["keycloak_server_service"]
-
-
-@pytest.mark.parametrize("name,volume", DECLARING.items())
-def test_a_stack_that_keeps_data_declares_it(name, volume):
-    doc = _render(name)
-    assert doc["x-catena"] == {
-        "schema": 2,
-        "data": {"app": {"volume": volume, "upgrade": "in_place"}},
-    }
-    assert "app" in doc["services"], f"{name}: the block names a service the file lacks"
-    assert volume in doc["volumes"], f"{name}: the block names a volume the file lacks"
-
-
-def test_the_block_is_the_only_x_key_of_these_files():
-    for name in DECLARING:
-        assert [k for k in _render(name) if k.startswith("x-")] == ["x-catena"]
 
 
 def _keycloak() -> dict:

@@ -7,12 +7,14 @@ therefore takes those headers only beside the gate secret its gate sends as a
 Basic password (catena-admin shell/auth Gate). Healthchecks cannot check a
 secret, so it is on a network no client app joins. Beszel's hub creates an
 account for any realm user who drives its sign-in, so it is on another such
-network, with the alert shim it calls. It also takes the signed-in email from
-its gate's header, but only from peers in the subnet of a third network that
-only the gate and the hub join.
+network. It also takes the signed-in email from its gate's header, but only
+from peers in the subnet of a third network that only the gate and the hub join.
 
-The compose templates are rendered the way the converge renders them and read
-back as YAML, and a gate's credentials file as the TOML oauth2-proxy reads.
+The gates are rendered the way the converge renders them and read back as YAML,
+and a gate's credentials file as the TOML oauth2-proxy reads. The networks the
+Healthchecks, Gatus and Beszel apps join are held by the catalog's tests
+(catena-templates tests/) and by test_default_apps.py against the wiring
+contract.
 
 Run: uv run pytest tests/unit/test_gated_identity_is_not_forgeable.py
 """
@@ -27,12 +29,10 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLES = ANSIBLE / "reconcile" / "roles"
-INFRA = ROLES / "infrastructure" / "templates"
 
 HC_NETWORK = "catena-healthchecks"
 BESZEL_NETWORK = "catena-beszel"
-GATE_NETWORK = "catena-beszel-gate"
-GATE_SUBNET = "10.0.7.0/24"
+GATE_NETWORK = "catena-beszelgate"
 GATE_SECRET = "gate+secret/value=="
 
 
@@ -106,32 +106,6 @@ def _credentials(app: dict) -> dict:
     return tomllib.loads(rendered)
 
 
-def _compose(name: str, **extra) -> dict:
-    variables = dict(
-        ansible_managed="",
-        healthchecks_network=HC_NETWORK,
-        beszel_network=BESZEL_NETWORK,
-        beszel_gate_network=GATE_NETWORK,
-        healthchecks_network_alias="healthchecks",
-        healthchecks_internal_port=8000,
-        _beszel_hc_shim_secrets=[{"name": "beszel_hc_shim_ping_key-0", "target": "HC_PING_KEY"}],
-        beszel_hc_shim_image="python:test",
-        beszel_hc_shim_internal_port=8099,
-        beszel_hc_shim_network_alias="beszel-hc-shim",
-        beszel_hc_shim_host_dir="/opt/shim",
-        gatus_image="gatus:test",
-        gatus_internal_port=8080,
-        gatus_host_config_dir="/etc/catena/gatus",
-        gatus_host_localhost_port=18080,
-        gatus_network_alias="gatus",
-        gatus_data_volume="gatus-data",
-        healthchecks_data_volume="healthchecks-data",
-        healthchecks_sqlite_file="hc.sqlite",
-    )
-    variables.update(extra)
-    return yaml.safe_load(_env().from_string((INFRA / name).read_text()).render(**variables))
-
-
 def test_only_the_panels_gate_sends_the_gate_secret():
     services = _gates()["services"]
     assert "--pass-basic-auth=true" in services["oauth2-proxy-catena-admin"]["command"]
@@ -154,40 +128,11 @@ def test_the_gated_apps_list_names_the_secret_not_its_value():
         assert "{{ " + app["cookie_secret_var"] not in text
 
 
-def test_healthchecks_is_on_its_own_network_only():
-    app = _compose(
-        "healthchecks.compose.yml.j2",
-        healthchecks_image="healthchecks/healthchecks:test",
-        catena_public_surface_deferred=False,
-        healthchecks_host_localhost_port=18000,
-        healthchecks_hostname="healthchecks.acme.test",
-        cloudflare_zone="acme.test",
-        infrastructure_smtp={"enabled": False, "sender": "no-reply@acme.test"},
-        _healthchecks_secrets=[{"name": "healthchecks_secret_key-0", "target": "SECRET_KEY"}],
-    )["services"]["app"]
-    assert app["environment"]["REMOTE_USER_HEADER"] == "HTTP_X_FORWARDED_EMAIL"
-    assert list(app["networks"]) == [HC_NETWORK]
-
-
-def test_healthchecks_route_is_only_its_gate():
-    """Traefik is not on the Healthchecks network, so a route of its own would
-    point nowhere; the gate's is the public path."""
-    tasks = yaml.safe_load((ROLES / "infrastructure" / "tasks" / "healthchecks.yml").read_text())
-    deploy = next(t for t in tasks if t.get("name") == "Healthchecks: deploy as a swarm stack")
-    assert deploy["vars"]["svc_domain_host"] == ""
-
-
 def test_every_caller_of_healthchecks_joins_its_network():
     gates = _gates()
     hc_gate = gates["services"]["oauth2-proxy-healthchecks"]["networks"]
     assert "catena-network" in hc_gate and HC_NETWORK in hc_gate
     assert gates["networks"][HC_NETWORK] == {"external": True}
-
-    gatus = _compose("gatus.compose.yml.j2")
-    shim = _compose("beszel-hc-shim.compose.yml.j2")
-    for doc in (gatus, shim):
-        assert HC_NETWORK in doc["services"]["app"]["networks"]
-        assert doc["networks"][HC_NETWORK] == {"external": True}
 
 
 def test_no_client_facing_gate_joins_the_healthchecks_network():
@@ -199,48 +144,15 @@ def test_no_client_facing_gate_joins_the_healthchecks_network():
             f"gate may")
 
 
-def _beszel_hub(**extra) -> dict:
-    return _compose(
-        "beszel-hub.compose.yml.j2",
-        beszel_image="henrygd/beszel:test",
-        catena_public_surface_deferred=False,
-        beszel_hostname="beszel.acme.test",
-        beszel_hub_network_alias="beszel-hub",
-        beszel_hub_internal_port=8090,
-        beszel_hub_data_volume="beszel-hub-data",
-        beszel_hub_host_localhost_port=18190,
-        **extra,
-    )
-
-
-def test_beszels_hub_is_on_its_own_networks_only():
-    hub = _beszel_hub(_beszel_gate_subnet=GATE_SUBNET)
-    assert list(hub["services"]["app"]["networks"]) == [BESZEL_NETWORK, GATE_NETWORK]
-    assert list(hub["networks"]) == [BESZEL_NETWORK, GATE_NETWORK]
-    for net in (BESZEL_NETWORK, GATE_NETWORK):
-        assert hub["services"]["app"]["networks"][net]["aliases"] == ["beszel-hub"]
-
-
-def test_the_sign_in_header_is_never_rendered_without_an_allowlist():
-    """Beszel trusts every peer when TRUSTED_PROXY_IPS is empty or unset."""
-    for subnet in (None, "", "  "):
-        extra = {} if subnet is None else {"_beszel_gate_subnet": subnet}
-        env = _beszel_hub(**extra)["services"]["app"]["environment"]
-        assert "TRUSTED_AUTH_HEADER" not in env and "TRUSTED_PROXY_IPS" not in env, (
-            f"rendered with subnet {subnet!r}")
-    env = _beszel_hub(_beszel_gate_subnet=GATE_SUBNET)["services"]["app"]["environment"]
-    assert env["TRUSTED_AUTH_HEADER"] == "X-Forwarded-Email"
-    assert env["TRUSTED_PROXY_IPS"] == GATE_SUBNET
-
-
-def test_the_converge_reads_and_checks_the_subnet_before_the_hub_deploys():
+def test_the_converge_reads_and_checks_the_subnet_before_the_hub_is_added():
     tasks = yaml.safe_load((ROLES / "infrastructure" / "tasks" / "beszel.yml").read_text())
     names = [str(t.get("name", "")) for t in tasks]
     read = next(i for i, n in enumerate(names) if "read the gate network's subnet" in n)
     check = next(i for i, n in enumerate(names) if "exactly one valid subnet" in n)
     pin = next(i for i, n in enumerate(names) if "pin the gate network's subnet" in n)
-    deploy = next(i for i, n in enumerate(names) if "deploy hub as a swarm stack" in n)
-    assert read < check < pin < deploy
+    values = next(i for i, n in enumerate(names) if "the values the converge owns" in n)
+    deploy = next(i for i, n in enumerate(names) if "add the app" in n)
+    assert read < check < pin < values < deploy
     assert tasks[read]["ansible.builtin.command"]["argv"][:3] == ["docker", "network", "inspect"]
     assert "_beszel_gate_subnet" in str(tasks[pin])
 
@@ -258,38 +170,21 @@ def test_the_subnet_check_accepts_one_cidr_and_refuses_the_rest():
         assert not pattern.match(bad), bad
 
 
-def test_the_hubs_address_follows_its_hostname():
-    """The hub writes APP_URL over its stored meta.appURL on every start, and
-    a changed value redeploys it."""
-    env = _beszel_hub()["services"]["app"]["environment"]
-    assert env["APP_URL"] == "https://beszel.acme.test"
-
-
 def test_every_caller_of_the_hub_joins_its_network():
-    """Its gate reaches the hub on the gate network, Gatus's probe on the
-    other, and the hub calls the alert shim. The panel reads its gauges from
-    the host and links to the hub, so it stays off both."""
+    """Its gate reaches the hub on the gate network. The panel reads its gauges
+    from the host and links to the hub, so it stays off both."""
     hub_gate = _gates()["services"]["oauth2-proxy-beszel"]["networks"]
     assert "catena-network" in hub_gate and GATE_NETWORK in hub_gate
     assert BESZEL_NETWORK not in hub_gate
-    assert BESZEL_NETWORK in _compose("gatus.compose.yml.j2")["services"]["app"]["networks"]
     deploy = (ROLES / "catena-admin" / "tasks" / "deploy.yml").read_text()
     assert '- "{{ beszel_network }}"' not in deploy
     assert "beszel_gate_network" not in deploy
 
 
-def test_the_alert_shim_is_reached_by_the_hub_alone():
-    """Any request the shim takes becomes a Healthchecks ping, so no client
-    app reaches it."""
-    shim = _compose("beszel-hc-shim.compose.yml.j2")["services"]["app"]["networks"]
-    assert set(shim) == {BESZEL_NETWORK, HC_NETWORK}
-
-
 def test_no_gate_joins_the_beszel_network():
     for name, svc in _gates()["services"].items():
         assert BESZEL_NETWORK not in svc["networks"], (
-            f"{name} joins the Beszel network, where Gatus and the alert shim "
-            f"can reach the hub")
+            f"{name} joins the Beszel network, where Gatus can reach the hub")
 
 
 def test_only_the_hubs_gate_and_the_hub_join_the_gate_network():
@@ -299,7 +194,6 @@ def test_only_the_hubs_gate_and_the_hub_join_the_gate_network():
             continue
         assert GATE_NETWORK not in svc["networks"], f"{name} joins the gate network"
     allowed = {
-        INFRA / "beszel-hub.compose.yml.j2",
         ROLES / "oauth2_proxy" / "defaults" / "main.yml",
         ROLES / "swarm" / "tasks" / "main.yml",
         ROLES / "infrastructure" / "tasks" / "beszel.yml",
@@ -347,14 +241,6 @@ def test_only_the_hubs_gate_refuses_cross_site_api_calls():
         flagged = app["slug"] == "beszel"
         assert (f"{app['slug']}-oauth2-proxy-cross-site-api" in doc["routers"]) is flagged
         assert ("middlewares" in doc) is flagged
-
-
-def test_the_beszel_agents_do_not_go_through_traefik():
-    """The agents dial the hub on the host loopback, so the refusal above does
-    not touch them."""
-    agent = (INFRA / "beszel-agent.compose.yml.j2").read_text()
-    assert "name: host" in agent
-    assert 'HUB_URL: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"' in agent
 
 
 def test_the_beszel_gate_strips_the_clients_headers_and_skips_no_auth():

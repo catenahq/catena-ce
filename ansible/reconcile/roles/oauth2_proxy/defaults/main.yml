@@ -152,10 +152,8 @@ oauth2_proxy_apps:
     allowed_groups: ["staff", "admin"]
     cookie_secret_var: "gatus_gate_cookie_secret"
   # Healthchecks takes X-Forwarded-Email as the signed-in user from whoever
-  # sends it (REMOTE_USER_HEADER in
-  # reconcile/roles/infrastructure/templates/healthchecks.compose.yml.j2), so
-  # it is on healthchecks_network only: this instance joins it, no client app
-  # does.
+  # sends it (REMOTE_USER_HEADER in the Healthchecks app's compose), so it is on
+  # healthchecks_network only: this instance joins it, no client app does.
   - slug: "healthchecks"
     host_var: "healthchecks_hostname"
     upstream_alias: "healthchecks"
@@ -185,9 +183,8 @@ oauth2_proxy_apps:
     basic_auth_password_var: "catena_admin_gate_secret"
   # Beszel's hub, admin-only. The hub's own login sits behind this gate, and
   # its Keycloak sign-in creates a hub account for any realm user who reaches
-  # it (USER_CREATION in reconcile/roles/infrastructure/templates/
-  # beszel-hub.compose.yml.j2), so the group filter here is what limits who
-  # gets one. This instance and the hub alone are on beszel_gate_network, and
+  # it (USER_CREATION, written by reconcile/roles/infrastructure/tasks/
+  # beszel.yml), so the group filter here is what limits who gets one. This instance and the hub alone are on beszel_gate_network, and
   # the hub signs in as the email this gate sets only for peers on it
   # (TRUSTED_AUTH_HEADER in the hub's compose), so no other service, and no
   # skip-auth route or --skip-auth-strip-headers, may be added here.
