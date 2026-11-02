@@ -38,7 +38,15 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          path: catena-ce
           persist-credentials: false
+      # The tests of the default apps read contracts default-apps/wiring.json
+      # from the sibling checkout.
+      - name: Check out sibling contracts
+        uses: catenahq/contracts/.github/actions/checkout-sibling@main
+        with:
+          repository: catenahq/contracts
+          path: contracts
       - name: Install uv
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       # In ansible/'s own project, on the ansible-core the host runs: some of
@@ -47,8 +55,8 @@ jobs:
       - name: Ansible tree and installer tests
         uses: catenahq/contracts/.github/actions/new-failures-only@main
         with:
-          working-directory: ${{ github.workspace }}
-          repo-path: ${{ github.workspace }}
+          working-directory: ${{ github.workspace }}/catena-ce
+          repo-path: ${{ github.workspace }}/catena-ce
           failure-lines: '^(FAILED|ERROR) [^ ]+'
           run: |
             rc=0
