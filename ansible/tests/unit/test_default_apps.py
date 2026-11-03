@@ -196,16 +196,20 @@ def test_the_verb_runs_held_with_its_request_on_stdin():
     assert task["no_log"] is True, "the env holds secrets"
 
 
-def test_exits_3_and_4_do_not_fail_the_converge_but_anything_else_does():
+def test_exits_3_4_and_5_do_not_fail_the_converge_but_anything_else_does():
     """The command never fails itself (it runs no_log, which would hide the
     reason); the engine's lines print, then a fail task stops the play. Exit 3
-    is a tag that cannot be fetched, exit 4 is printed the same way."""
+    is a tag that cannot be fetched, exit 4 is printed the same way, exit 5 is
+    an app held for a file changed by hand; exit 1 stops the play."""
     tasks = _tasks("default_app.yml")
     names = [t["name"] for t in tasks]
     command = next(t for t in tasks if "ansible.builtin.command" in t)
     assert command["failed_when"] is False and command["no_log"] is True
     stop = next(t for t in tasks if "ansible.builtin.fail" in t)
-    assert "_default_app.rc | default(1) not in [0, 3, 4]" in stop["when"]
+    assert "_default_app.rc | default(1) not in [0, 3, 4, 5]" in stop["when"]
+    stops = jinja2.Environment().compile_expression(stop["when"][1])
+    assert [rc for rc in range(0, 8) if stops(_default_app={"rc": rc})] == [1, 2, 6, 7]
+    assert stops(_default_app={}), "no exit status at all stops the play"
     shown = next(i for i, n in enumerate(names) if n.endswith("what the engine did"))
     assert names.index(command["name"]) < shown < names.index(stop["name"])
     assert "stderr_lines" in stop["ansible.builtin.fail"]["msg"]

@@ -12,8 +12,10 @@
 # yet, or writes the env into the folder it has, and leaves an app an admin
 # stopped or removed as it is. -held: the converge holds the host lock. Exit 3
 # means the tag could not be fetched and nothing changed; exit 4 is reported the
-# same way. Neither fails the converge, and the engine's own lines are printed as
-# they are.
+# same way; exit 5 means the app's file was changed by hand and uses a right only
+# the catalog's file has, so it gets no value and no new tag, and a service of it
+# that is gone is deployed again with the files it holds. None of them fails the
+# converge, and the engine's own lines are printed as they are.
 #
 # Output: _default_app_running, true while swarm holds the app's service with
 # at least one wanted replica.
@@ -49,7 +51,7 @@
       {{ (_default_app.stderr_lines | default([])) | join(' | ') }}
   when:
     - _default_app is not skipped
-    - _default_app.rc | default(1) not in [0, 3, 4]
+    - _default_app.rc | default(1) not in [0, 3, 4, 5]
 
 - name: "Default app {{ default_app.app }}: read its swarm service"
   ansible.builtin.command:
