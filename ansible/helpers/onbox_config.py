@@ -49,15 +49,26 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
+import fcntl
 import json
 import os
 import re
 import secrets as _secrets
 import sys
+import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 DEFAULT_STORE_PATH = "/etc/catena/config.json"
+
+# The store's leaf lock, the one every writer of the store holds from its read
+# to its write, the catena-admin engines' configstore.Update included
+# (catena-admin payload/engines/hostlock, the "store" leaf), so two writes of
+# different keys both stand. CATENA_STORE_LOCK names another file, for tests.
+DEFAULT_STORE_LOCK = "/run/catena-store.lock"
+# As long as any leaf lock waits (catena-admin payload/engines/hostlock LeafWait).
+STORE_LOCK_WAIT_S = 20 * 60
 
 # --- the knob registry ------------------------------------------------------
 #
@@ -484,6 +495,31 @@ def panel_view(store: dict) -> dict:
 
 
 # --- store I/O --------------------------------------------------------------
+@contextlib.contextmanager
+def store_lock(wait_s: float = STORE_LOCK_WAIT_S) -> Iterator[None]:
+    """Hold the store's leaf lock exclusively around one read-modify-write,
+    waiting up to wait_s for the writer that holds it. A writer that keeps it
+    past the wait ends the run with 75 and nothing written. The lock is a
+    flock, so it ends with the process, killed or not."""
+    path = os.environ.get("CATENA_STORE_LOCK") or DEFAULT_STORE_LOCK
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        deadline = time.monotonic() + wait_s
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    print(f"onbox_config: another writer held {path} for {wait_s:.0f}s, "
+                          "so nothing was written", file=sys.stderr)
+                    raise SystemExit(75)
+                time.sleep(0.2)
+        yield
+    finally:
+        os.close(fd)
+
+
 def load(path: str | Path = DEFAULT_STORE_PATH) -> dict:
     """Load the store. Returns a dict with 'secrets' and 'config' sub-dicts
     (empty when the file is absent). A malformed file is a hard error -- we
@@ -843,43 +879,45 @@ def main(argv: list[str] | None = None) -> int:
         req = json.loads(sys.stdin.read() or "{}")
         if not isinstance(req, dict):
             raise SystemExit("--dispatch-stdin: expected a JSON object")
-        store = load(args.path)
         op = req.get("op")
         if op == "read":
-            print(json.dumps(panel_view(store)))
+            print(json.dumps(panel_view(load(args.path))))
             return 0
         if op == "write":
-            apply_inputs(store, secrets_in=req.get("secrets"),
-                         config_in=req.get("config"), overwrite=True)
-            dump(store, args.path)
+            with store_lock():
+                store = load(args.path)
+                apply_inputs(store, secrets_in=req.get("secrets"),
+                             config_in=req.get("config"), overwrite=True)
+                dump(store, args.path)
             print(json.dumps({"ok": True}))
             return 0
         raise SystemExit(f"--dispatch-stdin: unknown op {op!r}")
 
-    store = load(args.path)
     adopt_raw = ""
     if args.adopt_stdin:
         adopt_raw = sys.stdin.read().strip()
     elif args.adopt_file:
         adopt_raw = Path(args.adopt_file).read_text().strip()
-    if adopt_raw:
-        incoming = json.loads(adopt_raw)
-        if not isinstance(incoming, dict):
-            raise SystemExit("--adopt-*: expected a JSON object")
-        adopt(store, incoming, overwrite=args.overwrite)
-    apply_inputs(
-        store,
-        secrets_in=_parse_kv(args.set_secret),
-        config_in=_parse_kv(args.set_config),
-        overwrite=args.overwrite,
-    )
-    settle_tailnet_provider(store)
-    if args.mint_user_held:
-        ensure_user_held_secrets(store)
-    elif not args.no_mint:
-        ensure_internal_secrets(store)
-        ensure_user_held_secrets(store)
-    dump(store, args.path)
+    incoming = json.loads(adopt_raw) if adopt_raw else None
+    if incoming is not None and not isinstance(incoming, dict):
+        raise SystemExit("--adopt-*: expected a JSON object")
+    with store_lock():
+        store = load(args.path)
+        if incoming:
+            adopt(store, incoming, overwrite=args.overwrite)
+        apply_inputs(
+            store,
+            secrets_in=_parse_kv(args.set_secret),
+            config_in=_parse_kv(args.set_config),
+            overwrite=args.overwrite,
+        )
+        settle_tailnet_provider(store)
+        if args.mint_user_held:
+            ensure_user_held_secrets(store)
+        elif not args.no_mint:
+            ensure_internal_secrets(store)
+            ensure_user_held_secrets(store)
+        dump(store, args.path)
 
     if args.emit == "secrets":
         print(json.dumps(store.get("secrets", {})))
