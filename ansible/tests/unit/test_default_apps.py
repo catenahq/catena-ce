@@ -117,18 +117,61 @@ def test_the_infrastructure_defaults_read_the_stacks_from_the_list():
         assert gone not in defaults, f"{gone} is back"
 
 
-def test_the_list_file_has_the_four_fields_and_no_secret():
+def _addresses(hostnames: dict[str, str]) -> dict[str, str]:
+    """The role's default_app_addresses, rendered for the given gate hostnames."""
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    stacks = {a["app"]: a["stack"] for a in _group_vars()["default_apps"]}
+    text = env.from_string(_defaults()["default_app_addresses"]).render(
+        gatus_stack=stacks["gatus"], healthchecks_stack=stacks["healthchecks"],
+        beszel_hub_stack=stacks["beszel"], **hostnames)
+    return ast.literal_eval(text.strip())
+
+
+def _list_file(addresses: dict[str, str]) -> list[dict]:
     template = (INFRA / "templates" / "default-apps.json.j2").read_text()
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     env.filters["to_nice_json"] = lambda v: json.dumps(v, indent=2)
     env.filters["combine"] = lambda a, b: {**a, **b}
     gv = _group_vars()
-    got = json.loads(env.from_string(template).render(
-        default_apps=gv["default_apps"], default_apps_repository=gv["default_apps_repository"]))
-    assert [set(e) for e in got] == [{"repository", "app", "tag", "stack"}] * 3
+    return json.loads(env.from_string(template).render(
+        default_apps=gv["default_apps"], default_apps_repository=gv["default_apps_repository"],
+        default_app_addresses=addresses))
+
+
+GATE_HOSTNAMES = {"infrastructure_gatus_hostname": "status.acme.test",
+                  "healthchecks_hostname": "hc.acme.test", "beszel_hostname": "metrics.acme.test"}
+
+
+def test_the_list_file_has_the_five_fields_and_no_secret():
+    got = _list_file(_addresses(GATE_HOSTNAMES))
+    gv = _group_vars()
+    assert [set(e) for e in got] == [{"repository", "app", "tag", "stack", "address"}] * 3
     assert {e["repository"] for e in got} == {"https://github.com/catenahq/catena-templates"}
     assert [(e["app"], e["tag"], e["stack"]) for e in got] == [
         (a["app"], a["tag"], a["stack"]) for a in gv["default_apps"]]
+
+
+def test_the_list_names_each_apps_gate_hostname_as_its_address():
+    got = {e["app"]: e["address"] for e in _list_file(_addresses(GATE_HOSTNAMES))}
+    assert got == {"gatus": "status.acme.test", "healthchecks": "hc.acme.test",
+                   "beszel": "metrics.acme.test"}
+
+
+def test_a_server_with_no_domain_lists_the_hostnames_it_renders():
+    """The panel opens no link for a name that ends in a dot."""
+    dotless = {"infrastructure_gatus_hostname": "gatus.", "healthchecks_hostname": "healthchecks.",
+               "beszel_hostname": "beszel."}
+    got = {e["app"]: e["address"] for e in _list_file(_addresses(dotless))}
+    assert got == {"gatus": "gatus.", "healthchecks": "healthchecks.", "beszel": "beszel."}
+
+
+def test_the_addresses_are_the_three_gate_hostnames_of_group_vars():
+    gv = _group_vars()
+    for var in GATE_HOSTNAMES:
+        assert var in gv, var
+    text = _defaults()["default_app_addresses"]
+    for var in GATE_HOSTNAMES:
+        assert var in text, var
 
 
 def test_the_list_file_is_world_readable():

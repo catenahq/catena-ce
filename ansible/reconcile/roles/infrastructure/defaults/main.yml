@@ -18,6 +18,13 @@ default_apps_list_path: /etc/catena/default-apps.json
 gatus_stack: "{{ default_apps | selectattr('app', 'eq', 'gatus') | map(attribute='stack') | first }}"
 healthchecks_stack: "{{ default_apps | selectattr('app', 'eq', 'healthchecks') | map(attribute='stack') | first }}"
 beszel_hub_stack: "{{ default_apps | selectattr('app', 'eq', 'beszel') | map(attribute='stack') | first }}"
+# The public hostname of each default app by stack, which the list names as the
+# app's address. A server with no domain yet renders a name ending in a dot,
+# which the panel opens no link for.
+default_app_addresses: >-
+  {{ {gatus_stack: infrastructure_gatus_hostname,
+      healthchecks_stack: healthchecks_hostname,
+      beszel_hub_stack: beszel_hostname} }}
 
 
 # Executing-prefix paths this role writes, for
