@@ -47,8 +47,10 @@ token would revoke the tunnel and fail to replace it.
 
 ## Side effects
 
-- Clears stale connectors, then deletes the prior CF Named Tunnel (if any).
-  Cloudflare refuses to delete a tunnel that still has active connections.
+- Deletes the prior CF Named Tunnel (if any) with its connections in one call
+  (`cascade=true`), while cloudflared still runs and may reconnect. A refused
+  delete is retried for about half a minute, then the run stops naming the
+  tunnel and the HTTP status, before anything new is made.
 - Creates a new tunnel and re-points the `*.<zone>` wildcard CNAME at it, via
   the `cloudflare_tunnel` handoff.
 - Rolls the cloudflared swarm service onto the new `TUNNEL_TOKEN`, so the new
