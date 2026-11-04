@@ -12,7 +12,7 @@
     group: root
     mode: "0755"
 
-# No secret in it: repository, app, tag and stack of each app.
+# No secret in it: repository, app, tag, stack and public address of each app.
 - name: "Default apps: write the list of default apps ({{ default_apps_list_path }})"
   ansible.builtin.template:
     src: default-apps.json.j2

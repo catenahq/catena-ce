@@ -9,8 +9,10 @@ catalog. `tasks/main.yml` is the map, in run order.
 Gatus, Healthchecks and Beszel are catalog apps every host runs, in the app
 folders `catena-gatus`, `catena-healthchecks` and `catena-beszel`. The list
 is `default_apps` in `playbooks/group_vars/all/main.yml` (app, first tag,
-stack); the role writes it to `/etc/catena/default-apps.json`, which
-catena-admin's whole-server restore reads to leave their stacks running.
+stack); the role writes it to `/etc/catena/default-apps.json` with each app's
+public address (`default_app_addresses`, the three gate hostnames). The
+whole-server restore reads the file to leave their stacks running, and the
+Apps page reads it to open each app at its address.
 `tasks/default_app.yml` adds one with `catena-apps defaults -held -stdin` and
 prints the engine's lines as they are; a tag that cannot be fetched (exit 3)
 and exit 4 are printed, not failures. The request is `{app, tag, stack, env}`:

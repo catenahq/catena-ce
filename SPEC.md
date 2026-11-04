@@ -50,6 +50,7 @@ website's [edition comparison](https://catena.run/en/#pricing) lists which.
 | Error reports leave a paid server only while its admin has switched them on, carry only the check, its state and the application, are listed in the dashboard, and stop at once when switched off | `bench:error_reports_opt_in`, `threat:CV18` |
 | A failed job's text reaches support only after the admin has reviewed it, and only as the admin edited it | `bench:error_reports_opt_in` |
 | The dashboard offers a failed job's text for download | **no bench yet** |
+| The dashboard image carries the licence text of every third-party Go module it compiles in, and a module added or changed without its text fails the build | **no bench yet** |
 
 ## How this repository is layered
 
@@ -110,7 +111,7 @@ itself, and, from the dashboard only, `lockdown.yml`, `rotate-tunnel.yml` and
 | The host converges itself from the tree inside the dashboard image | `bench:reconcile_is_a_noop#stage-1-first-reconcile` |
 | The host's own converge reads nothing from a controller inventory, and no installer verb runs it | `workflow:ci.yml#installer`, **no bench yet** |
 | `reconcile.yml` applies the roles of `converge.yml` in the same order, minus the roles a person must run | `workflow:ci.yml#installer`, **no bench yet** |
-| Validation checks every role's state and, from the server itself, the dashboard, the public hostnames once a domain is set, and the published ports; a converge ends with validation and fails when validation fails | `bench:ce_validate#stage-1-ce-validate` |
+| Validation checks every role's state and, from the server itself, the dashboard, the public hostnames once a domain is set, and the published ports; a converge ends with validation and fails when validation fails, and the validation judges the settings the converge started with, so a setting saved during a run is judged by the run that applies it | `bench:ce_validate#stage-1-ce-validate`, `bench:ce_install_suite#stage-3a7a-the-private-network-saved-during-a-domain-apply` |
 | Validation fails on an exposure the server does not declare | **no bench yet** |
 | Validation is the install's last step and runs on its own | `workflow:ci.yml#installer`, **no bench yet** |
 | `lockdown.yml` joins the server to the private network saved in the dashboard | `bench:ce_install_suite#stage-3a1-tailnet-joined`, `bench:fi_n11_lockdown_refuses_shields_up` |
@@ -214,6 +215,7 @@ is set at install; each is saved in the dashboard.
 | Once the private network is set back to none and the change applied, public 22 opens | `bench:ce_install_suite#stage-3a7-no-provider-reopens-22` |
 | An admin's SSH session survives the firewall being applied under it | `bench:fi_n8_ufw_concurrent_ssh` |
 | A server installs with no domain, tunnel or private network, and a domain saved later in the dashboard brings its public addresses up through the tunnel without a reinstall | `bench:ce_install_suite#stage-3-bare-install`, `bench:ce_install_suite#stage-3a-tunnel-live`, `bench:install_without_a_domain` |
+| Applying a domain from Settings shows its progress in the Domain section, a second Apply while one runs says so, and the section turns Applied without reloading the page once the settings are applied | `bench:ce_install_suite#stage-3a7a-the-private-network-saved-during-a-domain-apply` |
 | A credential entered in the dashboard is checked on the host before it is stored, and a refused one is never stored | `bench:ce_install_suite#stage-3a3-revoked-token-refused`, `bench:fi_s4_tailscale_oauth_revoked#stage-1-f-s4-save-refused`, `bench:s3_backup_keys_rotation_round_trip#stage-2-pair-b-saved-in-settings` |
 | A Cloudflare token the provider refuses fails the converge at the tunnel role | `bench:fi_n4_cf_zone_misconfigured` |
 | Until a domain exists, the dashboard is reached through the forward-only `panel` account | `bench:ce_install_suite#stage-3-bare-install` |
@@ -305,8 +307,10 @@ the offsite copy, the daily chain of nightly maintenance and updates, dashboard 
 converge, the external heartbeat or the vulnerability watch. Every lane ships
 with the host engines, each but the vulnerability watch with its timer off;
 `catena-schedule apply` turns one on, at the cadence set in the dashboard, when
-the host's edition covers it. Jobs that change the server or its backup
-repository share one host lock, so they run one at a time. Debian's
+the host's edition covers it. Jobs take the locks of what they change: a
+job that changes the whole server runs alone, and jobs that change different
+applications, or an application and the backup repository, run at the same
+time. Debian's
 unattended-upgrades applies OS packages.
 
 | Invariant | Enforced by |
@@ -366,7 +370,7 @@ unattended-upgrades applies OS packages.
 | In the daily chain, the engine upgrade stays within the major version the engine runs | **no bench yet** |
 | The daily chain's last step restarts the server when an update needs one, also after a night that stopped before any change, and checks that every service came back | `bench:daily_chain_reboot_round_trip#stage-3-the-chain-restarts-the-host`, `bench:daily_chain_reboot_round_trip#stage-4-everything-came-back`, `bench:daily_chain_step_list#stage-14-stopped-night-still-restarts` |
 | The daily chain reports to its own alert check and records its result, or the step that failed, in the maintenance log | `bench:daily_chain_step_list#stage-3-night-runs-only-the-chosen-steps`, `bench:daily_chain_step_list#stage-10-failed-step-recorded`, `bench:daily_umbrella_healthchecks#stage-1-success-path-pings-start-and-succeeded`, `bench:daily_umbrella_healthchecks#stage-2-abort-path-pings-fail`, `bench:nightly_update_real#stage-3-after-the-night` |
-| Jobs that change the server or its backup repository take the host lock one at a time; a scheduled job waits, and a dashboard change meanwhile answers busy | `bench:concurrent_backup_lock_contention#stage-1-units-take-the-host-lock`, `bench:concurrent_backup_lock_contention#stage-5-settings-answers-busy`, `bench:daily_chain_step_list#stage-13-night-waits-then-holds-the-lock`, `bench:ee_daily_cycle#stage-6-night-lends-the-host-lock` |
+| A job that changes the whole server waits for every other job and runs alone, and jobs made after it wait for it; jobs that change different applications, or an application and the backup repository, run at the same time; a dashboard change of the backup password meanwhile answers busy | `bench:concurrent_backup_lock_contention#stage-1-units-take-the-host-lock`, `bench:concurrent_backup_lock_contention#stage-5-settings-answers-busy`, `bench:concurrent_backup_lock_contention#stage-6-a-repository-check-runs-beside-an-application-start`, `bench:concurrent_backup_lock_contention#stage-7-a-configuration-run-waits-for-every-scoped-lane`, `bench:concurrent_backup_lock_contention#stage-8-a-waiting-whole-server-lane-goes-first`, `bench:daily_chain_step_list#stage-13-night-waits-then-holds-the-lock`, `bench:ee_daily_cycle#stage-6-night-lends-the-host-lock`, `bench:apps_folder_round_trip#stage-17-two-applications-change-side-by-side`, `bench:apps_folder_round_trip#stage-18-a-server-wide-task-waits-for-both` |
 | A nightly run of the daily chain that cannot take the host lock in time is skipped and reported, and the chain runs again the next night | `bench:daily_chain_step_list#stage-12-night-skipped-while-the-lock-is-held` |
 | A nightly run of the daily chain waits up to an hour for the host lock | **no bench yet** |
 | The vulnerability watch runs on every host with no licence, against a fresh vulnerability database and the list of vulnerabilities known to be exploited | `bench:community_security_alerts#stage-2-the-watch-runs-with-no-licence`, `bench:cve_watch_emergency_patch#stage-3-database-downloaded-into-place` |
@@ -408,9 +412,9 @@ tree. Every backup holds it.
 | `converge.yml` and `reconcile.yml` each stamp the version of the image whose tree they ran | `bench:reconcile_is_a_noop#stage-1-first-reconcile`, `bench:update_from_previous_release#stage-3-one-version-after-the-update` |
 | Every snapshot names the version that produced its data | `bench:recovery_readme_manual_restore#stage-2-readable-from-snapshot` |
 | The version stamp is the first thing a converge writes; a tree with no provenance writes no stamp and leaves the previous one | **no bench yet** |
-| A restore refuses a newer snapshot before it changes anything, and restores an older one only when the upgrade is asked for | `bench:inplace_restore_suite#skew-abort-stage-2-restore-refuses`, `bench:inplace_restore_suite#skew-abort-stage-3-zero-side-effects`, `bench:inplace_restore_suite#skew-upgrade-stage-2-refused-without-the-flag`, `bench:inplace_restore_suite#skew-upgrade-stage-4-upgrade-permits-this-direction` |
+| A restore refuses a newer snapshot before it changes anything, and restores an older one | `bench:inplace_restore_suite#skew-abort-stage-2-restore-refuses`, `bench:inplace_restore_suite#skew-abort-stage-3-zero-side-effects`, `bench:inplace_restore_suite#skew-upgrade-stage-2-an-older-snapshot-passes-the-gate`, `bench:fi_n5_provider_outage_mid_restore` |
 | A restore refuses a backup whose version stamp cannot be ordered against the server's | **no bench yet** |
-| A restore asked to upgrade runs each restored application's declared migration once its data is back, never stops a migration part-way, waits at least half an hour, and reports a migration still running then | **no bench yet** |
+| A restore of an older snapshot runs each restored application's declared migration once its data is back, never stops a migration part-way, waits at least half an hour, and reports a migration still running then | **no bench yet** |
 | A migration between two servers is refused unless both run the same version | **no bench yet** |
 
 ## Applications
@@ -466,12 +470,15 @@ application declares. Catena's sign-on extension
 | Each application's verify command runs hourly, and a failure is named once in the maintenance log | **no bench yet** |
 | A verify asked while an application is starting answers that it is starting, the dashboard says so, and once the start time its `x-catena` block allows passes without an answer the verify fails and the maintenance log names it | `bench:apps_folder_round_trip#stage-6-starting-until-ready` |
 | An application changed by hand, or holding a person's own version of its file, is not updated, and the dashboard says so | `bench:apps_folder_round_trip#stage-4-a-changed-folder-is-held`, `bench:app_origin_update#stage-5-changed-folder-is-held` |
+| An application from Catena's catalogue whose file was changed by hand and that uses a right only the catalogue's unchanged file has is held: it still starts and restarts with the files it has, gets no new value, says why on its page, and every other application goes on | `bench:monitoring_apps_from_the_catalog#stage-14-a-monitor-changed-by-hand-holds-only-itself` |
+| A default application whose file was changed by hand holds only itself: the configuration run, a restore and a move end ok, it runs with the files it has and gets its addresses and certificate on this server's domains, the applications that read it keep the values they have, and it gets new values again once the file is the catalogue's | `bench:monitoring_apps_from_the_catalog#stage-14-a-monitor-changed-by-hand-holds-only-itself`, `bench:wizard_migrate_round_trip#stage-1b-an-application-changed-by-hand`, `bench:wizard_migrate_round_trip#stage-6c-the-application-changed-by-hand-came-held-and-runs` |
 | A stopped application, or one changed through another tool, is left alone by the daily chain | **no bench yet** |
 | An update moves every service of an application that shares an image together, runs its declared migration once the application answers, and keeps the new version | `bench:nextcloud_update_migrates#stage-4-updated-and-migrated`, `bench:erpnext_helpdesk_update_migrates`, `bench:erpnext_update_migrates` |
 | The nightly update moves an application to a newer build its policy allows, and the maintenance log names it | `bench:nightly_update_real#stage-3-after-the-night` |
 | An application pinned on a nightly build moves onto its newest stable release under the major policy, all its images in one deploy | `bench:tag_scheme_migration#stage-3-moved-together` |
 | An application update, scheduled or by hand, moves at most one major version at a time | `bench:app_origin_update#stage-4b-one-major-at-a-time` |
 | An administrator moves an application added from a repository to a newer version from its page at any time after its first start, on every edition; the page names the version it runs and the version the update moves it to | `bench:app_origin_update#stage-4c-the-update-section-names-both-versions` |
+| An update whose repository cannot be read fails and says why on the application's page | **no bench yet** |
 | A failed update of an application or of a service Catena runs puts the previous version and its data back by itself | `bench:nextcloud_failed_migrate_rolls_back`, `bench:erpnext_failed_migrate_rolls_back`, `bench:espocrm_custom_survives_update#stage-5-rolled-back`, `bench:infra_stack_update_rollback#stage-4-keycloak-rolls-back-with-its-data`, `bench:infra_stack_update_rollback#stage-7-a-connector-that-never-connects`, `bench:control_plane_update_rollback#stage-3-auto-recovery` |
 | A rolled-back update is recorded with its version, which is quarantined once and kept out of every later update | `bench:fi_u5_persistent_quarantine#stage-3-durable-quarantine`, `bench:fi_u6_full_rollback_state#stage-3-state-records-rollback`, `bench:control_plane_update_rollback#stage-3-auto-recovery` |
 | A good update of a service Catena runs keeps its data, and the next converge leaves it on the new version | `bench:infra_stack_update_rollback#stage-5-keycloak-keeps-a-good-bump` |
@@ -491,6 +498,7 @@ application declares. Catena's sign-on extension
 | Gatus, Healthchecks or Beszel removed by an administrator is not installed again by the next converge, and nothing alerts for it | `bench:monitoring_apps_from_the_catalog#stage-9-a-removed-monitor-stays-removed` |
 | Gatus, Healthchecks or Beszel added back from the catalogue is wired into Catena again by the next converge | `bench:monitoring_apps_from_the_catalog#stage-10-added-back-it-is-wired-again` |
 | A Catena update moves Gatus, Healthchecks and Beszel up to the versions its release names, and never down | `bench:monitoring_apps_from_the_catalog#stage-11-a-newer-release-tag-lifts-the-app` |
+| Admins see each of the status, job and resource monitors once, among Catena's own services, with the version each runs and the page of its settings | `bench:monitoring_apps_from_the_catalog#stage-13-each-monitor-shows-once-among-catenas-services` |
 | The single sign-on signing keys, the dashboard's session-cookie secret and the sign-in gate's client secret can be replaced without breaking sign-in | `bench:keycloak_signing_keys_rotation_round_trip`, `bench:oauth2_proxy_cookie_rotation_round_trip`, `bench:fi_a2_oidc_secret_rotation#stage-1-rotate-secret-reconverges`, `bench:fi_a2_oidc_secret_rotation#stage-2-keycloak-client-secret-rotated` |
 | Every admin page and admin tool sits behind a sign-in gate, and the dashboard refuses a staff member every admin page and action | `bench:app_container_cannot_claim_an_identity`, `bench:gatus_probes_beszel_hub#stage-1-hub-sends-anonymous-to-sign-in`, `bench:fi_a5_wrong_group_assignment#stage-2-admin-host-rejects-staff`, `bench:fi_a5_wrong_group_assignment#stage-3-staff-host-allows-staff`, `bench:admin_staff_cannot_reach_admin_routes#stage-1-admin-pages-refuse-staff`, `bench:admin_staff_cannot_reach_admin_routes#stage-2-admin-actions-refuse-staff`, `threat:CV2` |
 | An application is deleted only while stopped | `bench:apps_folder_round_trip#stage-7-delete-needs-a-stopped-app` |
@@ -498,6 +506,11 @@ application declares. Catena's sign-on extension
 | An application's card shows the logo its package ships only after the server strips anything in it that could run a script or load an outside address, and serves it from the control panel's own address | `bench:apps_folder_round_trip#stage-9-a-package-logo-is-cleaned-and-shown` |
 | An administrator reads and changes an application's settings in one text editor of its settings file, which shows every value only in the answer to a request recorded without the text | `bench:apps_folder_round_trip#stage-11-the-files-open-whole-in-a-recorded-answer` |
 | Before an application's first start, an administrator can switch it to another version from its repository, and the settings the administrator changed are kept; after the first start, only updates change its version | `bench:apps_folder_round_trip#stage-14-the-version-changes-only-before-the-first-start` |
+| Adding an application answers on its button, which turns green and reads Added, with the link to its settings | `bench:apps_folder_round_trip#stage-15-an-add-answers-on-its-button` |
+| An application's page follows its start to the end, and the reason of a failed change stays on the page until the next change of that application | `bench:apps_folder_round_trip#stage-16-a-start-is-followed-to-its-end` |
+| An administrator reads the newest log lines of each service of an application on its page, or follows them live; each showing is recorded, the values its settings file keeps secret show as ***, and a follow ends soon after its page closes | `bench:apps_folder_round_trip#stage-19-the-logs-show-each-service-without-its-secrets`, `bench:apps_folder_round_trip#stage-20-a-follow-ends-when-nobody-watches` |
+| Every console of the dashboard follows the newest line until you scroll up, and gives search, copy and line wrap | **no bench yet** |
+| A line an application or a command writes shows its colours and text styles on the dashboard, and no link, image or cursor movement | **no bench yet** |
 | A setting the application's package marks for the first start only can be changed until the application first starts, and is refused after | `bench:apps_folder_round_trip#stage-8-a-first-start-setting-is-locked-after-the-start` |
 | A staff member's application tiles carry no badge | `bench:admin_apps_tab_staff_filtered#stage-1-staff-tiles` |
 | The Apps tab shows a staff member only the tiles their groups open and no admin tab, and an admin every tile and tab | `bench:admin_apps_tab_admin_full#stage-1-every-tile`, `bench:admin_apps_tab_admin_full#stage-2-every-tab`, `bench:admin_apps_tab_staff_filtered#stage-1-staff-tiles`, `bench:admin_apps_tab_staff_filtered#stage-2-no-admin-tab` |
@@ -528,7 +541,10 @@ application declares. Catena's sign-on extension
 | Gatus names each service without its version, so its history survives updates | **no bench yet** |
 | The installer's administrator opens the sign-on realm's own admin console; a role removed by hand stays removed | `bench:keycloak_master_realm_hardening#stage-8-realm-admin-opens-the-realm-console` |
 | The resource monitor opens signed in for an administrator who passed its sign-in gate, refuses a call from another site, and keeps its own password sign-in for when the sign-on service is down | `bench:gatus_probes_beszel_hub#stage-6-the-gate-signs-the-admin-in`, `bench:gatus_probes_beszel_hub#stage-7-a-forged-email-signs-no-one-in`, `bench:gatus_probes_beszel_hub#stage-8-a-cross-site-call-is-refused`, `threat:CV2` |
-| Each Settings section shows whether its last check passed after its last save; a value changed outside the dashboard clears that result | **no bench yet** |
+| Each Settings section shows whether its last check passed after its last save, and a passing check stands until the values change; a value changed outside the dashboard clears that result | **no bench yet** |
+| A Settings section reads Pending only while its own saved change waits for the server, and a change saved in another section leaves it as it is | `bench:ce_install_suite#stage-3a7b-a-time-zone-save-leaves-other-sections-applied` |
+| A section never saved reads Default when it has a default and Not set when it has none | **no bench yet** |
+| When the server's check after a configuration run fails, the section the failed check judges reads Failed, or, when it judges none, every section saved since the last run that ended well; the step that failed and its log stay in Settings, also after a later run starts | **no bench yet** |
 | Outgoing mail sends a test message to the admin address on request | **no bench yet** |
 | With Catena Business, each change made through the panel appears in the Log tab with who made it and whether it was refused | **no bench yet** |
 

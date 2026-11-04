@@ -6,9 +6,14 @@ separation, apply_inputs fill/overwrite/blank semantics, and the CLI."""
 from __future__ import annotations
 
 import base64
+import fcntl
 import importlib.util
 import json
+import os
 import stat
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -24,6 +29,86 @@ def oc():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+@pytest.fixture(autouse=True)
+def store_lock_path(tmp_path, monkeypatch):
+    """The store's leaf lock in a directory of the test, in place of /run."""
+    path = tmp_path / "catena-store.lock"
+    monkeypatch.setenv("CATENA_STORE_LOCK", str(path))
+    return path
+
+
+# --- the store's leaf lock --------------------------------------------------
+def _hold(path):
+    """Hold the lock at path exclusively on a descriptor of its own, as another
+    writer of the store does; the caller closes it."""
+    fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return fd
+
+
+def test_two_writers_of_different_keys_both_stand(oc, tmp_path, store_lock_path):
+    """Another writer (a catena-admin engine's configstore.Update) holds the
+    lock from its read to its write. A settings write that arrives meanwhile
+    waits for it and reads what it wrote, so neither write loses the other's
+    key."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"secrets": {}, "config": {"CLOUDFLARE_ZONE": "x.com"}}))
+    other = _hold(store_lock_path)
+    read_by_other = json.loads(p.read_text())
+    request = json.dumps({"op": "write", "config": {"CATENA_TZ": "America/Toronto"}})
+    script = ("import importlib.util, sys; "
+              f"spec = importlib.util.spec_from_file_location('onbox_config', {str(MOD_PATH)!r}); "
+              "mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); "
+              f"sys.exit(mod.main(['--path', {str(p)!r}, '--dispatch-stdin']))")
+    writer = subprocess.Popen([sys.executable, "-c", script], stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                              env={**os.environ, "CATENA_STORE_LOCK": str(store_lock_path)})
+    writer.stdin.write(request)
+    writer.stdin.close()
+    time.sleep(0.5)
+    assert writer.poll() is None, "the settings write ran while another writer held the lock"
+    read_by_other["config"]["BACKUP_RESTIC_REPO"] = "s3:https://s3.example/bucket"
+    p.write_text(json.dumps(read_by_other))
+    os.close(other)
+    assert writer.wait(timeout=30) == 0, writer.stderr.read()
+    got = json.loads(p.read_text())["config"]
+    assert got["BACKUP_RESTIC_REPO"] == "s3:https://s3.example/bucket"
+    assert got["CATENA_TZ"] == "America/Toronto"
+    assert got["CLOUDFLARE_ZONE"] == "x.com"
+
+
+def test_a_writer_that_keeps_the_lock_past_the_wait_leaves_the_store_alone(oc, tmp_path, store_lock_path):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"secrets": {}, "config": {}}))
+    before = p.read_text()
+    other = _hold(store_lock_path)
+    try:
+        with pytest.raises(SystemExit) as stopped:
+            with oc.store_lock(wait_s=0):
+                p.write_text("written without the lock")
+        assert stopped.value.code == 75
+    finally:
+        os.close(other)
+    assert p.read_text() == before
+    with oc.store_lock(wait_s=0):
+        pass
+
+
+def test_a_read_takes_no_lock(oc, tmp_path, monkeypatch, capsys, store_lock_path):
+    """The panel reads the store while a writer holds the lock: a read waits for
+    nothing and writes nothing."""
+    import io
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"secrets": {}, "config": {"CLOUDFLARE_ZONE": "x.com"}}))
+    other = _hold(store_lock_path)
+    try:
+        monkeypatch.setattr("sys.stdin", io.StringIO('{"op":"read"}'))
+        assert oc.main(["--path", str(p), "--dispatch-stdin"]) == 0
+    finally:
+        os.close(other)
+    assert json.loads(capsys.readouterr().out)["config"]["CLOUDFLARE_ZONE"] == "x.com"
 
 
 # --- load / dump ------------------------------------------------------------

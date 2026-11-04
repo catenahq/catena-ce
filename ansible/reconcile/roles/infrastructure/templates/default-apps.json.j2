@@ -1,1 +1,5 @@
-{{ default_apps | map('combine', {'repository': default_apps_repository}) | list | to_nice_json }}
+{%- set rows = [] -%}
+{%- for app in default_apps -%}
+{%- set _ = rows.append(app | combine({'repository': default_apps_repository}) | combine({'address': default_app_addresses.get(app.stack, '')})) -%}
+{%- endfor -%}
+{{ rows | to_nice_json }}
