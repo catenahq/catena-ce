@@ -18,7 +18,6 @@ host_maintenance_locale: "{{ cfg_common_locale | default('en_CA.UTF-8', true) | 
 host_maintenance_git_user: catena-git
 
 reboot_check_env_file: /etc/catena/reboot-check.env
-reboot_check_report_file: /var/lib/catena/reboot-required.json
 reboot_check_systemd_unit_name: catena-reboot-check
 
 # The Healthchecks check this reports through. One slug per host-level probe.

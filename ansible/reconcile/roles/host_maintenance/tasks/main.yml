@@ -295,6 +295,11 @@
     mode: "0600"
   no_log: true
 
+- name: "Reboot check: remove the report file no part reads"
+  ansible.builtin.file:
+    path: /var/lib/catena/reboot-required.json
+    state: absent
+
 - name: "Reboot check: is the payload-shipped timer expected on this host"
   ansible.builtin.include_role:
     name: common
