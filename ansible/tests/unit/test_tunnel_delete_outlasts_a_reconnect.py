@@ -96,7 +96,9 @@ def _run(tmp_path: Path, script: dict[str, list[int]]) -> tuple[subprocess.Compl
         playbook = tmp_path / "play.yml"
         playbook.write_text(yaml.safe_dump(play), encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if "proxy" not in k.lower()}
-        env.update(ANSIBLE_HOME=str(tmp_path / ".ansible"), ANSIBLE_NOCOLOR="1",
+        # ansible-playbook refuses to start without a UTF-8 locale.
+        env.update(LC_ALL="C.UTF-8", LANG="C.UTF-8",
+                   ANSIBLE_HOME=str(tmp_path / ".ansible"), ANSIBLE_NOCOLOR="1",
                    ANSIBLE_RETRY_FILES_ENABLED="0", NO_PROXY="127.0.0.1")
         result = subprocess.run(
             [sys.executable, "-m", "ansible.cli.playbook", "-i", "localhost,",
