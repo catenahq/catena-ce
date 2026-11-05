@@ -166,13 +166,24 @@
   become: false
   no_log: true
 
-- name: "CF regen: clean up stale connectors (refuses delete on tunnels with active connections)"
+# cloudflared keeps running on this host and reconnects at any moment, and
+# Cloudflare refuses to delete a tunnel with live connections.
+# cascade=true has Cloudflare drop the tunnel's connections and the tunnel in
+# the one call, the way `cloudflared tunnel delete --force` does. A refusal is
+# retried, then the task below says which tunnel and which status; 404 is a
+# tunnel already gone.
+- name: "CF regen: delete existing tunnel(s) with their connections"
   ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel/{{ item.id }}/connections"
+    url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel/{{ item.id }}?cascade=true"
     method: DELETE
     headers:
       Authorization: "Bearer {{ _cf_regen_api_token }}"
-    status_code: [200, 204, 404]
+    status_code: [200, 404]
+  register: _cf_regen_delete
+  until: _cf_regen_delete.status in [200, 404]
+  retries: 6
+  delay: 5
+  failed_when: false
   loop: "{{ _cf_regen_list.json.result }}"
   loop_control:
     label: "{{ item.id }}"
@@ -181,20 +192,22 @@
   become: false
   no_log: true
 
-- name: "CF regen: delete existing tunnel(s)"
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel/{{ item.id }}"
-    method: DELETE
-    headers:
-      Authorization: "Bearer {{ _cf_regen_api_token }}"
-    status_code: [200, 404]
-  loop: "{{ _cf_regen_list.json.result }}"
-  loop_control:
-    label: "{{ item.id }}"
+# Prints the tunnel id and the HTTP status alone: the registered
+# results also hold the call's headers.
+- name: "CF regen: stop when Cloudflare kept an old tunnel"
+  ansible.builtin.fail:
+    msg: >-
+      Cloudflare refused to delete the old tunnel, so no new one was made and
+      the host still serves the old one:
+      {% for r in _cf_regen_refused %}DELETE cfd_tunnel/{{ r.item.id }}?cascade=true
+      answered HTTP {{ r.status }} on every try{{ '; ' if not loop.last else '.' }}{% endfor %}
+      Apply the domain again in catena-admin > Settings.
+  vars:
+    _cf_regen_refused: "{{ _cf_regen_delete.results | rejectattr('status', 'in', [200, 404]) | list }}"
+  when: _cf_regen_refused | length > 0
   run_once: true
   delegate_to: localhost
   become: false
-  no_log: true
 
 # Hand off to the find-or-create. Nothing is passed: that role dispatches
 # catena-cloudflared-sync, and the engine reads the token out of the store

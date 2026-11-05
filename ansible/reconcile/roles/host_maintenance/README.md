@@ -62,13 +62,14 @@ problem as a backup nobody has verified.
 
 ## What it does
 
-`catena-reboot-check.timer` runs `catena-reboot-check` hourly. The script and
-both units ship in the catena-admin payload; this role renders
+`catena-reboot-check.timer` runs `catena-reboot-check` at boot and hourly. The
+script and both units ship in the catena-admin payload; this role renders
 `/etc/catena/reboot-check.env` and enables the timer. The probe reads
 `/var/run/reboot-required` and, when `needrestart` is installed, the services
-still running on replaced libraries. It writes
-`/var/lib/catena/reboot-required.json` and pings the self-hosted Healthchecks
-plane: `/fail` while a reboot is pending, success while it is not.
+still running on replaced libraries. It pings the self-hosted Healthchecks
+plane: `/fail` while a reboot is pending, success while it is not. The panel
+asks the probe itself (`catena-reboot-check --report`) when a page loads. The
+role removes any `/var/lib/catena/reboot-required.json` left on the host.
 
 Healthchecks notifies on the transition through its channels, the admin's email
 among them, so a person is told once when the host starts needing a reboot and
