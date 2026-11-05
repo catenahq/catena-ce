@@ -31,6 +31,7 @@ jobs:
     # it to a SHA, which froze callers at stale scanctl versions).
     uses: catenahq/scanctl/.github/workflows/github-reusable.yml@main
     permissions:
+      actions: read
       contents: read
       security-events: write
       pull-requests: write
