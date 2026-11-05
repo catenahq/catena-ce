@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 205 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 206 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -160,6 +160,7 @@ The 205 scenarios the maintainers' test bench carries, and the behaviour each on
 | `monitoring_apps_from_the_catalog` | A new server installs its status, job and resource monitors as applications from Catena's catalogue, Catena reads each of them, and one an administrator removes stays removed until it is added back. |
 | `monthly_report_renders` | The monthly report of a Catena Business server shows, in English and in French, the backups, restore tests, updates, vulnerabilities, availability and alerts the server recorded for last month and for the current one, and names as not shown a figure the server does not keep. |
 | `nextcloud_failed_migrate_rolls_back` | When a Nextcloud update's migration fails, the previous version, its code, configuration and add-ons, and its database are put back, and the instance starts on the previous version. |
+| `nextcloud_sign_in` | A Keycloak account signs in to Nextcloud through its own sign-in, and Nextcloud refuses a single sign-on app release other than the one its template names. |
 | `nextcloud_update_migrates` | A Nextcloud patch update runs the migration steps once the upgraded application answers, and the new version stays in place. |
 | `nextcloud_versions_retention_applied` | The file-version retention configured for the file-sync application reaches the running container instead of stopping at the catalogue. |
 | `nightly_update_real` | The real nightly update takes the newer build of a client application, leaves every infrastructure service it moved running, records the update in the maintenance feed, and ends the night done. |
