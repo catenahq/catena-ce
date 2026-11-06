@@ -21,10 +21,6 @@ Answers that do NOT qualify, each having been tried:
   "It is half of a pair." A statement about the other action, not about this
   one.
 
-  "Its command is not a payload binary." True of cloudflare-zones-save only
-  because NO repository built the binary, which made the Domains panel's save
-  answer "command not found" every time. The fix is to write the engine.
-
 The bodies' own property -- that each interpolates product constants rather
 than host facts -- is asserted where the bodies live, by catena-admin
 payload/actions.d/catena_actions_test.go.

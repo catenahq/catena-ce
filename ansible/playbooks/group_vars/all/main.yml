@@ -112,7 +112,7 @@ catena_public_surface_deferred: >-
   {{ (cloudflare_zone | default('') | trim | length) == 0 }}
 # cloudflare_zone above is the primary domain every <sub>.<zone> hostname
 # interpolates, and the only one a Community host serves. Additional domains
-# are attached in the catena-admin Domains panel and live in the on-box store;
+# are added in catena-admin Settings > Domain and live in the on-box store;
 # the host engine assembles the full list from there, caps it on the
 # subscription, and after a successful converge publishes the domains it
 # brought up to the projection below. playbooks/tasks/served_zones.yml reads it

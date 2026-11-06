@@ -52,7 +52,7 @@ ride the backup, because it is what unlocks the backup.
 | `headscale_api_key` | ^, on the self-hosted backend | settings page | no |
 | `headscale_preauth_key` | ^, static fallback | settings page | no |
 | `cloudflare_api_token` | Tunnel + DNS | settings page | no |
-| `cloudflare_api_tokens` | ^, one token per additional domain (zone -> token map) | domains page | no |
+| `cloudflare_api_tokens` | ^, one token per additional domain (zone -> token map) | Settings > Domain | no |
 | `BACKUP_RESTIC_REPO` (config) | restic repo URL | settings page | **yes** |
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
