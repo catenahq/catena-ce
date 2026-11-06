@@ -221,8 +221,12 @@ is set at install; each is saved in the dashboard.
 | Until a domain exists, the dashboard is reached through the forward-only `panel` account | `bench:ce_install_suite#stage-3-bare-install` |
 | Replacing the tunnel from the dashboard of a running server, with the token already in the on-box store, creates a new tunnel, points the wildcard name at it, deletes the old tunnel and moves the connector onto the new credential | `bench:cf_tunnel_regenerate_round_trip#stage-1-rotate-tunnel` |
 | A Community server serves one domain: given more, it serves the primary domain, keeps the others stored, and its converge still succeeds | `bench:fi_n10_multidomain_cap` |
-| A licensed host serves a second domain through the same tunnel | `bench:ee_multidomain` |
-| Of the domains a token reaches, only those chosen in the dashboard are attached | **no bench yet** |
+| A Catena Pro server serves every extra domain listed in the dashboard's Domain section, each with its own Cloudflare token, through the same tunnel | `bench:ee_multidomain#stage-1-attach-second-zone`, `bench:ee_multidomain#stage-3-single-tunnel` |
+| Of the domains a Cloudflare token reaches, only the ones chosen in the dashboard are added | **no bench yet** |
+| Removing an extra domain in the dashboard takes its wildcard name down, and the server drops its token once the name is gone | `bench:ee_multidomain#stage-5-removed-domain-retires-its-wildcard` |
+| Without Catena Pro, the dashboard adds no domain beyond the first and still removes the extra domains a server kept | **no bench yet** |
+| An extra domain whose Cloudflare token Cloudflare refuses is left out of the tunnel run, and the other domains are still served | `bench:ee_multidomain#stage-6-a-refused-extra-token-leaves-the-rest-served` |
+| The dashboard refuses an extra domain in another Cloudflare account than the first domain | **no bench yet** |
 | Changing the domain in the dashboard moves the server onto the new domain: the new domain serves, the old domain's tunnel rule, wildcard name and token are removed, the sign-in page and the applications follow, and a name given to the sign-in page by hand stays | `bench:primary_domain_change_round_trip#stage-3-the-move-is-a-move`, `bench:primary_domain_change_round_trip#stage-4-the-zone-list-names-the-new-domain`, `bench:primary_domain_change_round_trip#stage-4b-the-sign-in-page-names-the-new-domain`, `bench:primary_domain_change_round_trip#stage-5-the-new-domain-serves`, `bench:primary_domain_change_round_trip#stage-6-the-app-follows`, `bench:primary_domain_change_round_trip#stage-7-a-hand-set-sign-in-name-stays` |
 | A server joins a self-hosted private-network control server set in the dashboard, in place of the hosted one | `bench:ce_install_headscale` |
 
