@@ -33,6 +33,10 @@ error_report_systemd_unit_name: catena-error-report
 # catena-admin payload.
 app_verify_systemd_unit_name: catena-app-verify
 
+# The report of the services a label keeps off the updates, shipped in the
+# catena-admin payload.
+pinned_report_systemd_unit_name: catena-pinned-report
+
 # Executing-prefix paths this role writes, for
 # playbooks/tasks/prune_withdrawn_files.yml. Empty: the probe, the licence
 # check, the error reporter, the app verify and their units ship in the

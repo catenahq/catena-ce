@@ -476,3 +476,47 @@
   when:
     - not ansible_check_mode
     - catena_payload_missing | length == 0
+
+# The daily report of the services a label keeps off the updates:
+# `catena-stack-update-managed --pinned-report`, from the catena-admin payload,
+# with its own include as above.
+- name: "Pinned report: is the payload-shipped timer expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ pinned_report_systemd_unit_name }}.timer"
+
+- name: "Pinned report: the timer is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/{{ pinned_report_systemd_unit_name }}.timer is absent
+      although reconcile/roles/payload ran in this converge, so this host would
+      never report the services kept off the updates. The "Payload:" tasks
+      above say why the pinned-report timer was not extracted.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "Pinned report: timer staged out of band and not present yet"
+  ansible.builtin.debug:
+    msg: >-
+      The pinned-report timer waits for the payload, which this converge skips
+      (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's install
+      enables the timer.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# Enabled on every host, whatever its edition: a run reports the services a
+# label keeps off the updates and moves nothing.
+- name: "Pinned report: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: "{{ pinned_report_systemd_unit_name }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - not ansible_check_mode
+    - catena_payload_missing | length == 0
