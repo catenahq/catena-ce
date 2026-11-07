@@ -121,4 +121,4 @@ timer as it treats the licence check's.
 
 ## The pinned report
 
-`catena-pinned-report.timer` runs `catena-stack-update-managed --pinned-report` daily at 02:00: it names the version each service that a label keeps off the automatic updates can move to, chosen as the nightly updates choose it, and moves nothing. The binary and both units ship in the catena-admin payload; this role enables the timer on every host, whatever its edition, and treats a missing timer as it treats the licence check's.
+`catena-pinned-report.timer` runs `catena-stack-update-managed --pinned-report` daily at 02:00: it names the version each service that a label keeps off the automatic updates can move to, chosen as the nightly updates choose it, and moves nothing. Its binary and units ship, and its timer is enabled and checked, as the application verify's are.
