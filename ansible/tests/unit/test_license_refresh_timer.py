@@ -1,7 +1,7 @@
 """reconcile/roles/host_maintenance enables the payload's licence-check,
-error-report and app-verify timers.
+error-report, app-verify and pinned-report timers.
 
-catena-license, catena-error-report, catena-apps and their units ship in the
+catena-license, catena-error-report, catena-apps, the update engine and their units ship in the
 catena-admin payload; this role only enables each timer, on every host. Whether an absent
 timer is a defect depends on whether THIS converge installed the payload: one
 that did fails, one whose payload is staged out of band defers and says so, and
@@ -25,6 +25,7 @@ TIMERS = {
     "Licence check": ("license_refresh_systemd_unit_name", "catena-license-refresh"),
     "Error reports": ("error_report_systemd_unit_name", "catena-error-report"),
     "App verify": ("app_verify_systemd_unit_name", "catena-app-verify"),
+    "Pinned report": ("pinned_report_systemd_unit_name", "catena-pinned-report"),
 }
 
 

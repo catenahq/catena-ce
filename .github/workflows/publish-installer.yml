@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
+      actions: read
       contents: read
       id-token: write
     steps:
@@ -49,7 +50,20 @@ jobs:
           # A release build restores nothing another run could have written.
           enable-cache: false
 
+      # The installer tests are part of ci.yml: a tree whose CI passed is not
+      # tested again, a tree whose CI failed stops the publish.
+      - name: Result of CI on this tree
+        id: tree
+        uses: catenahq/contracts/.github/actions/same-tree@main
+        with:
+          name: ci
+          workflow: .github/workflows/ci.yml
+          branch: main
+          siblings: catenahq/contracts
+          record: false
+
       - name: Installer tests
+        if: steps.tree.outputs.run != 'false'
         run: uv run pytest -q
 
       - name: Version from the tag

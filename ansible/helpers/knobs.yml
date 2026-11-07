@@ -200,8 +200,9 @@ secrets:
   - key: cloudflare_api_token
     panel: {group: hostnames, section: secrets, kind: secret, optional: false}
 
-  # Multi-domain (Business): a JSON map of zone to API token, each token scoped
-  # to its one zone. The panel's domains page edits it.
+  # Multi-domain (Catena Pro): one token per extra domain, entered in
+  # Settings > Domain. A JSON map of zone to API token, each token scoped to its
+  # one zone.
   - key: cloudflare_api_tokens
 
   # Tailscale SaaS mints a tagged auth key from this client each time the

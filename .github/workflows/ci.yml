@@ -28,12 +28,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  same-tree:
+    # Reuses the result of an earlier run on the same tree; every job below
+    # needs it.
+    name: same tree (ci)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.tree.outputs.run }}
+    steps:
+      - id: tree
+        uses: catenahq/contracts/.github/actions/same-tree@main
+        with:
+          siblings: catenahq/contracts
+
   installer:
     # The Ansible tree's unit tests and those of `catena-installer`, the root
     # project, whose tests include the gate that holds the declaration, the
     # code it points at and the documented commands to one another, and what
     # a wheel carries.
     name: Installer and tree unit tests
+    needs: same-tree
+    if: needs.same-tree.outputs.run != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -69,6 +87,8 @@ jobs:
     # project and as the wheel uvx installs. The locks are held to their
     # pyprojects here, since resolving needs the index.
     name: Entry point and wheel
+    needs: same-tree
+    if: needs.same-tree.outputs.run != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -91,6 +111,8 @@ jobs:
     # build whose SHA-256 must equal the first's, so the same sources always
     # give the same bytes.
     name: Keycloak extension
+    needs: same-tree
+    if: needs.same-tree.outputs.run != 'false'
     runs-on: ubuntu-latest
     container:
       image: maven:3.9.16-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320
@@ -133,6 +155,8 @@ jobs:
     # -i localhost, because syntax-check parses rather than connects; the
     # inventory only has to exist.
     name: Ansible syntax-check
+    needs: same-tree
+    if: needs.same-tree.outputs.run != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -156,6 +180,8 @@ jobs:
     # exceeding it fails. Lower the threshold as duplication is paid
     # down, never raise it to admit new copy-paste.
     name: Duplication (jscpd)
+    needs: same-tree
+    if: needs.same-tree.outputs.run != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -175,6 +201,8 @@ jobs:
     # The same ratchet for prose: a sentence written in two places fails,
     # unless .github/duplicate-sentences-debt.txt carries it.
     name: Duplicate sentences
+    needs: same-tree
+    if: needs.same-tree.outputs.run != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -189,6 +217,8 @@ jobs:
     # catenahq/contracts and run from there, so this repo holds only its
     # own .github/prose-debt.txt.
     name: Comment prose
+    needs: same-tree
+    if: needs.same-tree.outputs.run != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7

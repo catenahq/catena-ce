@@ -18,7 +18,7 @@
 cloudflared_sync_bin: "/usr/local/bin/catena-cloudflared-sync"
 
 # The zone list is assembled by the host engine from the on-box store (the
-# primary scalar plus whatever the Domains panel attached), capped by the
+# primary scalar plus whatever Settings > Domain added), capped by the
 # licence the same store holds, and published to
 # /var/lib/catena/cloudflare-zones.json after a successful converge. Nothing in
 # this repo computes it, and nothing has to pass it between roles.
