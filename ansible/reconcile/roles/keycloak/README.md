@@ -87,7 +87,8 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      `catenaPostBrokerLoginFlow` holds on each provider that names none,
      when an administrator creates, updates or imports one and for the
      providers present when Keycloak starts; the converge first checks that
-     Keycloak lists the extension's three providers.
+     Keycloak lists the three providers the realm file and the identity
+     provider check depend on.
    - The login form of the three browser flows is one screen, username and
      password. In every flow but `catena-signin-admin` a client can choose Try
      Another Way and sign in with a code emailed by the extension's

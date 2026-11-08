@@ -289,7 +289,8 @@
       {{ ("the automation client " ~ keycloak_automation_client_id
           ~ " cannot manage Keycloak's master realm, and the master admin's password does not sign in to it."
           ~ " The client must exist in the master realm with keycloak_automation_client_secret from"
-          ~ " /etc/catena/config.json as its secret, and its service account must hold the master realm's admin role.")
+          ~ " /etc/catena/config.json as its secret, its service account must hold the master realm's admin role,"
+          ~ " and, where the master realm has the client scope kc-admin-api, the client must hold it as a default scope.")
          if _kc_automation_client.rc == 3
          else "the automation client step ran out of retries, Keycloak not ready or the client not made; its last attempt's errors follow." }}
   when: _kc_automation_client.rc != 0
