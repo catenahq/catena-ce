@@ -205,6 +205,16 @@ def test_keycloak_is_ordered_by_its_builds(manifest):
     assert kc["upstream"].get("scheme") == "build_suffix"
 
 
+def test_keycloak_is_held_on_the_2681_line(manifest):
+    """Rebuilds of 26.8.1 flow; no 26.8.2 build is offered."""
+    pattern = next(s for s in manifest
+                   if s["name"] == "keycloak")["upstream"]["tag_pattern"]
+    for tag in ("26.8.1.1793773817", "26.8.1.1800000000"):
+        assert re.fullmatch(pattern, tag), tag
+    for tag in ("26.8.2.1793909084", "26.8.10.1", "26.9.0.1", "27.0.0.1", "26.8.1"):
+        assert not re.fullmatch(pattern, tag), tag
+
+
 def test_nothing_carries_a_copy_of_how_the_service_was_built(manifest):
     for spec in manifest:
         assert "run_argv" not in spec

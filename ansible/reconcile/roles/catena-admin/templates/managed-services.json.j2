@@ -43,6 +43,10 @@
   connector's own readiness, a registered connection to the edge, decides
   whether the move stands.
 
+  The tag pattern of keycloak holds it on the 26.8.1 line and lets its
+  rebuilds through: Keycloak 26.8.2 rejects the admin tokens of Catena's own
+  service clients, so the lane offers no 26.8.2 build.
+
   The services this manifest leaves out, each with its reason:
 
     catena-admin      The panel cannot roll itself with a plain service update:
@@ -88,7 +92,7 @@
       "source": "quay",
       "repo": "phasetwo/phasetwo-keycloak",
       "scheme": "build_suffix",
-      "tag_pattern": "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
+      "tag_pattern": "^26\\.8\\.1\\.\\d+$"
     }
   },
   {
