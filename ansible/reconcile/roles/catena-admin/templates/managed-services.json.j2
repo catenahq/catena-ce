@@ -47,6 +47,31 @@
   rebuilds through: Keycloak 26.8.2 rejects the admin tokens of Catena's own
   service clients, so the lane offers no 26.8.2 build.
 
+  Every entry's `ready` argv asks whether Catena can still use the service.
+  The lane asks it once in the task running now, and a check that fails there
+  skips the move, the version staying eligible: the failure lies outside the
+  new version. Then it asks in the new task, and a move whose check never
+  passes within the stabilize window rolls back, puts its data back and is
+  quarantined (catena-admin payload/engines/stackupdate/ready.go):
+
+    catena-postgres   a query on the local socket, in the database Keycloak
+                      keeps there (local connections are trusted; the
+                      converge's own psql calls sign in the same way).
+    traefik           a request on the web entrypoint for Keycloak's public
+                      host, through the entrypoint's middlewares and the route
+                      the converge writes.
+    keycloak          the automation client signs in and reads the master
+                      realm through the admin API, as the converge does. kcadm's
+                      one-off form (--no-config) signs in only when a
+                      credentials option is given, and reads the secret from
+                      KC_CLI_CLIENT_SECRET when no --secret is; --alias, which
+                      only a keystore sign-in uses, is that option.
+
+  `ready_secrets` maps an environment name of the check to the name of a value
+  in /etc/catena/config.json's secrets. The lane passes it as `docker exec -e
+  NAME` with the value in its own environment, so the secret reaches the
+  check's environment and no argv, log line or file.
+
   The services this manifest leaves out, each with its reason:
 
     catena-admin      The panel cannot roll itself with a plain service update:
@@ -64,6 +89,7 @@
     "kind": "infra-swarm",
     "swarm_service": "catena-postgres",
     "policy": "minor",
+    "ready": ["psql", "-U", "{{ catena_postgres_superuser }}", "-d", "{{ keycloak_db_name }}", "-tAc", "SELECT 1"],
     "upstream": {
       "source": "dockerhub",
       "repo": "library/postgres",
@@ -76,6 +102,7 @@
     "kind": "infra-swarm",
     "swarm_service": "{{ traefik_container_name }}",
     "policy": "patch",
+    "ready": ["wget", "-q", "-O", "/dev/null", "-T", "10", "--header", "Host: {{ keycloak_hostname }}", "http://127.0.0.1/realms/master"],
     "upstream": {
       "source": "github",
       "repo": "traefik/traefik",
@@ -88,6 +115,10 @@
     "compose_name": "{{ keycloak_compose_name }}",
     "swarm_service": "{{ keycloak_compose_name }}_{{ keycloak_server_service }}",
     "policy": "patch",
+    "ready": ["/opt/keycloak/bin/kcadm.sh", "get", "realms/master", "--fields", "realm", "--no-config",
+              "--server", "http://localhost:{{ keycloak_internal_port }}", "--realm", "master",
+              "--client", "{{ keycloak_automation_client_id }}", "--alias", "{{ keycloak_automation_client_id }}"],
+    "ready_secrets": {"KC_CLI_CLIENT_SECRET": "keycloak_automation_client_secret"},
     "upstream": {
       "source": "quay",
       "repo": "phasetwo/phasetwo-keycloak",

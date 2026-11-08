@@ -30,7 +30,8 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
      admin's password once per address per attempt and stopping at a refusal,
      which counts toward the master realm's lockout; that works until the
      master admin has a second factor, which is asked for only once the client
-     exists.
+     exists. The update lane's ready check of a Keycloak move signs in with the
+     same client (`catena-ce/ansible/reconcile/roles/catena-admin/templates/managed-services.json.j2`).
    - Before any import, an `admin_email` that differs from the one the last
      import ran under (`/var/lib/catena/keycloak-realm-admin-email`) moves
      the admin's master-realm and realm accounts to the new address by id,
