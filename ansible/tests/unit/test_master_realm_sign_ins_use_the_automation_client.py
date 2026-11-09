@@ -441,6 +441,23 @@ def test_the_client_exists_before_any_session_uses_it():
     assert keep < first
 
 
+def test_the_client_s_sessions_outlast_the_kcadm_steps_before_the_first_shared_sign_in():
+    """A client-credentials sign-in gets no refresh token, so kcadm's session
+    ends with the access token (AuthUtil, Keycloak 26.8.2); the lifespan is the
+    client's own `access.token.lifespan` (OIDCConfigAttributes), set before
+    the sign-in whose token must carry it."""
+    tasks = yaml.safe_load((TASKS / "realm_bootstrap.yml").read_text())
+    names = [str(t.get("name", "")) for t in tasks]
+    first = next(i for i, n in enumerate(names) if BOOTSTRAP_STEP in n)
+    lifespan = next(i for i, n in enumerate(names) if "sessions outlast the kcadm steps" in n)
+    login = next(i for i, n in enumerate(names) if "sign kcadm in to the master realm" in n)
+    assert first < lifespan < login
+    script = tasks[lifespan]["ansible.builtin.shell"]
+    assert "access.token.lifespan" in script and "keycloak_automation_token_lifespan_s" in script
+    defaults = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
+    assert defaults["keycloak_automation_token_lifespan_s"] >= 600
+
+
 def test_every_other_master_realm_session_is_the_shared_sign_in():
     for path in sorted(TASKS.glob("*.yml")):
         for task in walk_tasks(yaml.safe_load(path.read_text())):

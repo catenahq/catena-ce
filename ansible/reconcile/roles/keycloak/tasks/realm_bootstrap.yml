@@ -295,6 +295,29 @@
          else "the automation client step ran out of retries, Keycloak not ready or the client not made; its last attempt's errors follow." }}
   when: _kc_automation_client.rc != 0
 
+# The automation client's own access-token lifespan (keycloak_automation_token_lifespan_s),
+# set on the session the step above signed in, before the sign-ins below that
+# carry it. kcadm keeps the client's secret beside the token in the container
+# (kcadm.config), so a longer-lived token there reaches nothing the secret does
+# not.
+- name: "Keycloak realm: the automation client's sessions outlast the kcadm steps"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    client={{ keycloak_automation_client_id | quote }}
+    want={{ keycloak_automation_token_lifespan_s | string | quote }}
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
+    kc() { docker exec "$ct" /opt/keycloak/bin/kcadm.sh "$@"; }
+    id=$(kc get clients -r master -q "clientId=$client" --fields id --format csv --noquotes)
+    have=$(kc get "clients/$id" -r master | python3 -I -c 'import json, sys; print((json.load(sys.stdin).get("attributes") or {}).get("access.token.lifespan", ""))')
+    if [ "$have" != "$want" ]; then
+      kc update "clients/$id" -r master -s "attributes.\"access.token.lifespan\"=$want"
+      echo "set: $want"
+    fi
+  args:
+    executable: /bin/bash
+  register: _kc_automation_lifespan
+  changed_when: "'set:' in _kc_automation_lifespan.stdout"
+
 # The session the admin move and the realm list run on. Its `always` is the
 # one the realm seed's import below explains.
 - name: "Keycloak realm: sign kcadm in to the master realm"
