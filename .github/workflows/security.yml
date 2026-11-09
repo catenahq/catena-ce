@@ -9,7 +9,7 @@ on:
   pull_request:
   # The same branches as ci.yml.
   push:
-    branches-ignore: ['renovate/**', 'engine-bump/**', 'scanctl/**']
+    branches-ignore: ['renovate/**', 'engine-bump/**', 'scanctl/**', 'agent/**']
   schedule:
     - cron: '17 6 * * 1'
 
