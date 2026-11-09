@@ -40,6 +40,11 @@ services:
       # The extension's binding listener leaves the updates of this client
       # alone (catena-ce/ansible/reconcile/roles/keycloak/provider/README.md).
       - "--spi-events-listener--catena-tier-binding--exempt-client={{ keycloak_automation_client_id }}"
+      # The clients the extension gives the Admin REST API's client scope to,
+      # as realm/clientId pairs: the converge's in the master realm, and the
+      # service accounts of the host's settings sync, the panel and the identity
+      # probe in this realm (catena-ce/ansible/reconcile/roles/keycloak/provider/README.md).
+      - "--spi-events-listener--catena-admin-api-scope--clients=master/{{ keycloak_automation_client_id }},{{ keycloak_realm }}/dashboard-sync,{{ keycloak_realm }}/{{ catena_admin_panel_client_id }},{{ keycloak_realm }}/{{ catena_identity_probe_client_id }}"
     environment:
       # --- Build-time options preserved across `start`'s rebuild ---
       # Without --optimized, every container start re-runs the

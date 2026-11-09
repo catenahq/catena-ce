@@ -22,7 +22,7 @@ keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
 # re-pushes the plain <kc-version> tag on every rebuild, so that tag names
 # different bytes over time; a build tag names one image, and the update
 # engine orders builds of one version by their build time.
-keycloak_image_tag: "26.8.1.1793773817"
+keycloak_image_tag: "26.8.2.1793909084"
 keycloak_image: >-
   {{ ('quay.io/phasetwo/phasetwo-keycloak:' ~ keycloak_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
@@ -189,6 +189,11 @@ keycloak_realm_mail_attribute: "catenaMailSettings"
 # the converge signs in with (tasks/_master_login.yml), holding the master
 # realm's admin role. Its secret is keycloak_automation_client_secret.
 keycloak_automation_client_id: "catena-automation"
+# Seconds a kcadm session of the automation client lasts. Its client-credentials
+# sign-in gets no refresh token, so a session ends with its access token (the
+# master realm's 60 s by default) and must outlast the kcadm steps between two
+# sign-ins on a slow host.
+keycloak_automation_token_lifespan_s: 1800
 
 # The catena-admin panel's realm service account (users + groups). The panel
 # reads the id from its own env default, so this is the converge's copy of a

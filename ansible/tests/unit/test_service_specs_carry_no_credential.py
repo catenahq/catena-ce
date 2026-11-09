@@ -53,6 +53,9 @@ def _keycloak_service() -> tuple[dict, dict]:
         "_keycloak_providers_config": "keycloak-providers-0123abcd",
         "keycloak_providers_jar": defaults["keycloak_providers_jar"],
         "keycloak_automation_client_id": defaults["keycloak_automation_client_id"],
+        "keycloak_realm": defaults["keycloak_realm"],
+        "catena_admin_panel_client_id": defaults["catena_admin_panel_client_id"],
+        "catena_identity_probe_client_id": defaults["catena_identity_probe_client_id"],
         "keycloak_http_enabled": True,
         "catena_secondary_zones": [],
         "keycloak_hostname": "auth.acme.test",
@@ -88,12 +91,16 @@ def test_keycloak_mounts_the_extension_jar_from_a_swarm_config():
     assert doc["configs"] == {"keycloak-providers-0123abcd": {"external": True}}
 
 
-def test_keycloak_is_told_which_client_the_binding_leaves_alone():
+def test_keycloak_is_told_which_client_the_binding_leaves_alone_and_which_get_the_admin_api_scope():
     doc, defaults = _keycloak_service()
+    realm = defaults["keycloak_realm"]
     assert doc["services"]["server"]["command"] == [
         "start",
         "--spi-events-listener--catena-tier-binding--exempt-client="
-        + defaults["keycloak_automation_client_id"]]
+        + defaults["keycloak_automation_client_id"],
+        "--spi-events-listener--catena-admin-api-scope--clients="
+        + f"master/{defaults['keycloak_automation_client_id']},{realm}/dashboard-sync,"
+        + f"{realm}/{defaults['catena_admin_panel_client_id']},{realm}/{defaults['catena_identity_probe_client_id']}"]
 
 
 def test_the_extension_jar_is_checked_then_given_to_swarm_before_the_stack_deploys():

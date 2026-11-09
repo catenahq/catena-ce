@@ -1,1 +1,2 @@
 run.catena.keycloak.CatenaTierBindingListenerFactory
+run.catena.keycloak.CatenaAdminApiScopeListenerFactory

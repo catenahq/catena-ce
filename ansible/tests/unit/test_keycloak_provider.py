@@ -102,6 +102,14 @@ def test_the_compose_sets_the_binding_listeners_option_by_its_id():
     assert f"--spi-events-listener--{binding}--exempt-client=" in compose
 
 
+def test_the_compose_names_the_admin_api_scope_clients_by_the_listeners_id():
+    grant = _provider_id("CatenaAdminApiScopeListenerFactory")
+    source = (SOURCES / "run" / "catena" / "keycloak" / "CatenaAdminApiScopeListenerFactory.java").read_text()
+    assert 'CLIENTS = "clients"' in source
+    compose = (ROLE / "templates" / "keycloak.compose.yml.j2").read_text()
+    assert f"--spi-events-listener--{grant}--clients=" in compose
+
+
 @pytest.mark.parametrize("service", _service_files(), ids=lambda p: p.name)
 def test_every_service_entry_names_an_existing_class(service):
     entries = [line.strip() for line in service.read_text().splitlines()

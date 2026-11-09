@@ -55,6 +55,8 @@ CLIENT = "catena-automation"
 SECRET = "c1ient+sec/ret="
 PASSWORD = "Adm1n-pass_word"
 ADMIN = "admin@acme.test"
+LIFESPAN = 1800
+SET = {"access.token.lifespan": str(LIFESPAN)}
 
 
 def _yml_files():
@@ -193,6 +195,16 @@ FAKE_DOCKER = textwrap.dedent('''\
         if cid in state["clients"]:
             print(state["clients"][cid]["id"])
         done()
+    if kc[0] == "get" and kc[1].startswith("clients/"):
+        client = next(c for c in state["clients"].values() if c["id"] == kc[1].split("/")[1])
+        print(json.dumps({k: v for k, v in client.items() if k != "roles"}))
+        done()
+    if kc[0] == "update" and kc[1].startswith("clients/") and "-s" in kc:
+        key, value = opt("-s").split("=", 1)
+        assert key == 'attributes."access.token.lifespan"', kc
+        client = next(c for c in state["clients"].values() if c["id"] == kc[1].split("/")[1])
+        client.setdefault("attributes", {})["access.token.lifespan"] = value
+        done()
     if kc[:2] == ["create", "clients"]:
         assert opt("-f") == "-" and stdin is not None, kc
         rep = json.loads(stdin)
@@ -228,7 +240,8 @@ def _script(task: dict, **extra) -> str:
         "keycloak_compose_name": "keycloak", "keycloak_server_service": "server",
         "keycloak_internal_port": 8080, "keycloak_management_port": 9000,
         "keycloak_health_path": "/health/ready", "keycloak_automation_client_id": CLIENT,
-        "admin_email": ADMIN, "_kc_recorded_admin_email": "", **extra,
+        "admin_email": ADMIN, "_kc_recorded_admin_email": "",
+        "keycloak_automation_token_lifespan_s": LIFESPAN, **extra,
     }
     return _template(task["ansible.builtin.shell"], variables)
 
@@ -317,7 +330,8 @@ def test_an_optional_sign_in_leaves_its_failure_to_the_caller(variables, ignored
 
 
 def test_a_client_that_signs_in_needs_no_password(tmp_path):
-    realm = _realm(clients={CLIENT: {"id": "c1", "secret": SECRET, "roles": ["admin"]}})
+    realm = _realm(clients={CLIENT: {"id": "c1", "secret": SECRET, "roles": ["admin"],
+                                     "attributes": dict(SET)}})
     proc, state = _run(tmp_path, _bootstrap(), realm, _bootstrap_stdin())
     assert proc.returncode == 0, proc.stderr
     assert state["logins"] == [[CLIENT, True]]
@@ -439,6 +453,43 @@ def test_the_client_exists_before_any_session_uses_it():
         assert first < login < next(i for i, n in enumerate(names) if later in n), later
     keep = next(i for i, n in enumerate(names) if "keep the admin email" in n)
     assert keep < first
+
+
+def _lifespan_updates(state: dict) -> list:
+    return [a for a in state["argv"] if "-s" in a and "update" in a]
+
+
+@pytest.mark.parametrize("attributes, changed", [
+    (None, True), ({"access.token.lifespan": "60"}, True), (dict(SET), False)],
+    ids=["absent", "different", "equal"])
+def test_the_client_s_sessions_outlast_the_kcadm_steps(tmp_path, attributes, changed):
+    """A client-credentials sign-in gets no refresh token, so kcadm's session
+    ends with the access token (AuthUtil, Keycloak 26.8.2). The client's own
+    `access.token.lifespan` (OIDCConfigAttributes) is set on the step's own
+    session, before the shared sign-in whose token carries it."""
+    client = {"id": "c1", "secret": SECRET, "roles": ["admin"]}
+    if attributes is not None:
+        client["attributes"] = attributes
+    proc, state = _run(tmp_path, _bootstrap(), _realm(clients={CLIENT: client}), _bootstrap_stdin())
+    assert proc.returncode == 0, proc.stderr
+    assert state["clients"][CLIENT]["attributes"]["access.token.lifespan"] == str(LIFESPAN)
+    assert (f"lifespan set: {LIFESPAN}" in proc.stdout) is changed
+    assert len(_lifespan_updates(state)) == (1 if changed else 0)
+    task = _bootstrap()
+    assert _template("{{ " + task["changed_when"] + " }}",
+                     {task["register"]: {"stdout": proc.stdout}}) is changed
+
+
+def test_a_created_client_gets_the_lifespan_on_its_first_session(tmp_path):
+    proc, state = _run(tmp_path, _bootstrap(), _realm(), _bootstrap_stdin())
+    assert proc.returncode == 0, proc.stderr
+    assert state["clients"][CLIENT]["attributes"]["access.token.lifespan"] == str(LIFESPAN)
+    assert state["session"] == "client"
+
+
+def test_the_lifespan_outlasts_a_slow_host():
+    defaults = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
+    assert defaults["keycloak_automation_token_lifespan_s"] >= 600
 
 
 def test_every_other_master_realm_session_is_the_shared_sign_in():

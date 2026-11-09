@@ -12,10 +12,10 @@ name: CI
 # second build gives other bytes.
 
 on:
-  # Every pushed branch. Renovate and engine-bump branches always carry a pull
-  # request, which tests each push to them.
+  # Every pushed branch. Renovate, engine-bump and agent branches always carry
+  # a pull request, which tests each push to them.
   push:
-    branches-ignore: ['renovate/**', 'engine-bump/**', 'scanctl/**']
+    branches-ignore: ['renovate/**', 'engine-bump/**', 'scanctl/**', 'agent/**']
   pull_request:
 
 permissions:

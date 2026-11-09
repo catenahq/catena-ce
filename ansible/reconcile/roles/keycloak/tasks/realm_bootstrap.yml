@@ -207,6 +207,13 @@
 # task's stdin, and the client's representation on kcadm's stdin, never an
 # argv.
 #
+# Once it signs in, the client gets its own access-token lifespan
+# (keycloak_automation_token_lifespan_s) on that session, before the sign-ins
+# below carry it: its client-credentials sign-in gets no refresh token, so a
+# kcadm session ends with its token. kcadm keeps the client's secret beside the
+# token in the container (kcadm.config), so a longer-lived token there reaches
+# nothing the secret does not.
+#
 # A refused password counts toward the master realm's lockout: 30 failures by
 # Keycloak's default failureFactor, which the lockout step below leaves as it
 # finds it, and two within a second lock the account for a minute
@@ -230,7 +237,17 @@
       kc config credentials --server "$server" --realm master --client "$client" \
         && kc get realms/master --fields realm >/dev/null
     }
+    lifespan() {
+      want={{ keycloak_automation_token_lifespan_s | string | quote }}
+      id=$(kc get clients -r master -q "clientId=$client" --fields id --format csv --noquotes)
+      have=$(kc get "clients/$id" -r master | python3 -I -c 'import json, sys; print((json.load(sys.stdin).get("attributes") or {}).get("access.token.lifespan", ""))')
+      if [ "$have" != "$want" ]; then
+        kc update "clients/$id" -r master -s "attributes.\"access.token.lifespan\"=$want"
+        echo "lifespan set: $want"
+      fi
+    }
     if acts; then
+      lifespan
       exit 0
     fi
     admin=
@@ -260,6 +277,7 @@
     fi
     kc add-roles -r master --uusername "service-account-$client" --rolename admin
     acts
+    lifespan
   args:
     executable: /bin/bash
     stdin: "{{ keycloak_automation_client_secret }}\n{{ admin_password }}"
@@ -267,6 +285,7 @@
   changed_when: >-
     'created:' in _kc_automation_client.stdout
     or 'secret reset:' in _kc_automation_client.stdout
+    or 'lifespan set:' in _kc_automation_client.stdout
   # Reported by the task below, which no_log here would leave unexplained.
   # Retries that run out fail the task whatever failed_when says, so the error
   # is ignored here and that task stops the converge.
@@ -289,7 +308,8 @@
       {{ ("the automation client " ~ keycloak_automation_client_id
           ~ " cannot manage Keycloak's master realm, and the master admin's password does not sign in to it."
           ~ " The client must exist in the master realm with keycloak_automation_client_secret from"
-          ~ " /etc/catena/config.json as its secret, and its service account must hold the master realm's admin role.")
+          ~ " /etc/catena/config.json as its secret, its service account must hold the master realm's admin role,"
+          ~ " and, where the master realm has the client scope kc-admin-api, the client must hold it as a default scope.")
          if _kc_automation_client.rc == 3
          else "the automation client step ran out of retries, Keycloak not ready or the client not made; its last attempt's errors follow." }}
   when: _kc_automation_client.rc != 0

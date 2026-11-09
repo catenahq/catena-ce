@@ -15,6 +15,7 @@ engine's own max(default, pin) (catena-admin payload/cmd/catena-cloudflared-sync
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -52,6 +53,15 @@ def manifest() -> list[dict]:
     return json.loads(rendered)
 
 
+@pytest.fixture(scope="module")
+def oc():
+    """helpers/onbox_config.py, which names the store's secrets."""
+    spec = importlib.util.spec_from_file_location("onbox_config", ANSIBLE / "helpers" / "onbox_config.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def test_the_manifest_renders_and_is_a_list_of_specs(manifest):
     assert isinstance(manifest, list) and manifest, "no specs at all"
     for spec in manifest:
@@ -79,7 +89,52 @@ def test_cloudflared_is_a_service_the_engine_creates_judged_by_its_edge_connecti
     # The metrics address is the one the connector is started with (catena-admin
     # payload/engines/cloudflared MetricsAddr).
     assert spec["ready"] == ["cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
-    assert [s["name"] for s in manifest if "ready" in s] == ["cloudflared"]
+
+
+def test_every_entry_asks_whether_catena_can_still_use_it(manifest):
+    """A move whose check never passes rolls back and is quarantined, so every
+    entry carries one: a list of words the lane runs in the new task."""
+    for spec in manifest:
+        ready = spec.get("ready")
+        assert isinstance(ready, list) and ready, spec
+        assert all(isinstance(w, str) and w for w in ready), spec
+
+
+def test_catena_postgres_answers_a_query_in_keycloaks_database(manifest):
+    v = _role_vars()
+    spec = next(s for s in manifest if s["name"] == "catena-postgres")
+    assert spec["ready"] == ["psql", "-U", v["catena_postgres_superuser"],
+                             "-d", v["keycloak_db_name"], "-tAc", "SELECT 1"]
+    assert "ready_secrets" not in spec
+
+
+def test_traefik_serves_keycloaks_route_on_the_web_entrypoint(manifest):
+    """The route the converge writes for Keycloak's public host
+    (reconcile/roles/keycloak/tasks/deploy.yml svc_domain_host), asked on the
+    entrypoint's port inside the proxy's own task."""
+    v = _role_vars()
+    spec = next(s for s in manifest if s["name"] == v["traefik_container_name"])
+    assert spec["ready"] == ["wget", "-q", "-O", "/dev/null", "-T", "10",
+                             "--header", f"Host: {v['keycloak_hostname']}",
+                             "http://127.0.0.1/realms/master"]
+    assert "ready_secrets" not in spec
+
+
+def test_keycloak_is_judged_by_the_automation_client_signing_in(manifest, oc):
+    """The converge's own sign-in: the automation client reads the master realm
+    through the admin API. Its secret comes from the store through the check's
+    environment (KC_CLI_CLIENT_SECRET, which kcadm reads), and no argv word
+    carries a credential."""
+    v = _role_vars()
+    spec = next(s for s in manifest if s["name"] == "keycloak")
+    client = v["keycloak_automation_client_id"]
+    assert spec["ready"] == [
+        "/opt/keycloak/bin/kcadm.sh", "get", "realms/master", "--fields", "realm", "--no-config",
+        "--server", f"http://localhost:{v['keycloak_internal_port']}", "--realm", "master",
+        "--client", client, "--alias", client]
+    assert spec["ready_secrets"] == {"KC_CLI_CLIENT_SECRET": "keycloak_automation_client_secret"}
+    assert "keycloak_automation_client_secret" in oc.INTERNAL_SECRETS
+    assert not {"--secret", "--password", "--user"} & set(spec["ready"])
 
 
 def test_cloudflared_admits_only_release_tags(manifest):
@@ -203,6 +258,16 @@ def test_keycloak_is_ordered_by_its_builds(manifest):
     rebuild never ranks above the running build."""
     kc = next(s for s in manifest if s["name"] == "keycloak")
     assert kc["upstream"].get("scheme") == "build_suffix"
+
+
+def test_keycloak_admits_every_build_tag(manifest):
+    """Every build of every Keycloak version is a candidate; a bare version is not."""
+    pattern = next(s for s in manifest
+                   if s["name"] == "keycloak")["upstream"]["tag_pattern"]
+    for tag in ("26.8.1.1793773817", "26.8.2.1793909084", "26.9.0.1"):
+        assert re.fullmatch(pattern, tag), tag
+    for tag in ("26.8.2", "26.8", "latest"):
+        assert not re.fullmatch(pattern, tag), tag
 
 
 def test_nothing_carries_a_copy_of_how_the_service_was_built(manifest):
