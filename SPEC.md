@@ -487,6 +487,7 @@ application declares. Catena's sign-on extension
 | A stopped application, or one changed through another tool, is left alone by the daily chain | **no bench yet** |
 | An update moves every service of an application that shares an image together, runs its declared migration once the application answers, and keeps the new version | `bench:app_update_migrates_and_rolls_back#stage-5-moved-together-and-migrated` |
 | The nightly update moves an application to a newer build its policy allows, and the maintenance log names it | `bench:nightly_update_real#stage-3-after-the-night` |
+| An update takes a new version only once it has been out for the wait set on the Schedules page; a version published again does not restart the wait | **no bench yet** |
 | An application pinned on a nightly build moves onto its newest stable release under the major policy, all its images in one deploy | `bench:tag_scheme_migration#stage-3-moved-together` |
 | An application update, scheduled or by hand, moves at most one major version at a time | `bench:app_origin_update#stage-4b-one-major-at-a-time` |
 | An administrator moves an application added from a repository to a newer version from its page at any time after its first start, on every edition; the page names the version it runs and the version the update moves it to | `bench:app_origin_update#stage-4c-the-update-section-names-both-versions` |
