@@ -15,7 +15,7 @@ The product's data prefix, and an optional remote bulk tier.
 
 Catena does not manage block devices. A client who needs more space mounts a
 disk themselves, bind-mounts it into the app, and declares the path in
-`backup_extra_paths` so the backup set and the nightly coverage lane both know
+`backup_extra_paths` so the backup set and the maintenance's coverage check both know
 about it.
 
 That solves coverage, not capacity, and the limits are worth knowing before the

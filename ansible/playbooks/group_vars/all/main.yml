@@ -314,7 +314,7 @@ catena_baseline_packages:
   - python3-apt
   - rsync
   - systemd-timesyncd
-  # jq is the JSON writer for every on-host report the daily lane and backup
+  # jq is the JSON writer for every on-host report the maintenance and backup
   # machinery emit (catena-restic-check.json, cve-findings.json, verify-hot/
   # cold status, the maintenance log) and that catena-admin reads back. Those
   # scripts gate their report write on `command -v jq`, so a host without it

@@ -165,10 +165,10 @@ catena_schedule_bin: /usr/local/bin/catena-schedule
 catena_admin_stack_update_bin: /usr/local/bin/catena-stack-update-managed
 
 # --- the host lanes' configuration (lanes.yml) -------------------------
-# Per-host configuration for the daily chain. catena-daily.service and
+# Per-host configuration for the maintenance. catena-daily.service and
 # catena-daily-resume.service declare EnvironmentFile for it with no leading
 # dash, so systemd fails the unit when it is missing. Paths and toggles only:
-# the chain reads its credentials from the config store.
+# the maintenance reads its credentials from the config store.
 catena_daily_env_path: /etc/catena/daily.env
 
 # The container-bump lane's configuration and the spec list it bumps from.
@@ -183,14 +183,14 @@ catena_managed_services_path: /etc/catena/managed-services.json
 catena_stack_update_stabilize_seconds: 120
 catena_stack_update_cve_severity: "HIGH,CRITICAL"
 # Gatus's endpoint statuses, on the loopback port reconcile/roles/infrastructure
-# publishes it on. The daily chain's pre-update gate reads it (daily.env), and
+# publishes it on. The maintenance's pre-update gate reads it (daily.env), and
 # so does the health baseline the update lanes compare a bump against
 # (stack-update.env); both run on the host.
 catena_gatus_statuses_url: "http://127.0.0.1:{{ gatus_host_localhost_port }}/api/v1/endpoints/statuses"
 
-# The daily chain's own Healthchecks check, which catena-schedule (catena-admin
-# payload/engines/schedule) keeps on the daily lane's schedule: the chain pings
-# it when it starts, on a failed step, and when it completes. The loopback
+# The maintenance's own Healthchecks check, which catena-schedule (catena-admin
+# payload/engines/schedule) keeps on the maintenance's schedule: the maintenance
+# pings it when it starts, on a failed step, and when it completes. The loopback
 # publish, for the reason reconcile/roles/backup/defaults gives for the
 # backup's checks; ?create=1 provisions the check a first ping finds missing.
 daily_healthcheck_chain_url: >-

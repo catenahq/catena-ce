@@ -82,11 +82,12 @@ public-port reconciliation and the reboot-required probe. Each is an enumerated 
 rather than conventional, and none of them spends object storage.
 
 The managed lifecycle -- backup verification, container updates with
-rollback, CVE remediation, the catena-daily orchestrator chain, and a backup
-more often than weekly -- is the Pro edition; offsite copies and attestation
-are Business. Its engines ship in the public catena-admin payload and install
-on every host, but the license check gates their features at runtime, so on a
-Community host only the weekly backup and the vulnerability watch run. On a
+rollback, CVE remediation, the maintenance (the catena-daily orchestrator), and
+a backup more often than once a week -- is the Pro edition; offsite copies and
+attestation are Business. Its engines ship in the public catena-admin payload
+and install on every host, but the license check gates their features at
+runtime, so on a Community host only the backup (at most once a week) and the
+vulnerability watch run. On a
 host whose edition covers a lane, `catena-schedule` turns on the lanes set on
 the panel's Schedules page.
 

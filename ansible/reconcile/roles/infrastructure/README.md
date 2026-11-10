@@ -32,7 +32,7 @@ app an admin stopped or removed stays so.
   `templates/gatus-infra-spec.json.j2`, whose probes through the public edge
   are written once the edge serves a domain.
 - **Healthchecks** (`healthchecks.<zone>`) -- the dead-man-switch plane the
-  backup, the nightly chain, the offsite copy, the off-site heartbeat, the
+  backup, the maintenance, the offsite copy, the off-site heartbeat, the
   reboot-required probe and Beszel's alerts ping. Missed pings alert the admin's
   email, through the outgoing mail set in catena-admin, and the channels added
   in Healthchecks. The app's hook keeps the project and the email channel;

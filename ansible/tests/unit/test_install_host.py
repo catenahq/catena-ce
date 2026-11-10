@@ -112,7 +112,7 @@ def _converge_on(lock: Path) -> subprocess.Popen:
 
 def test_the_converge_waits_for_the_host_lock_and_holds_it(tmp_path):
     """A lane holding /run/catena.lock (catena-admin's catena-converge, the
-    engine reinstall, the nightly lanes) holds the install's converge back, and
+    engine reinstall, the scheduled lanes) holds the install's converge back, and
     the play runs holding the lock, so nothing refills the payload stage
     beside it. The lock is free again once the play ends."""
     lock = tmp_path / "catena.lock"
