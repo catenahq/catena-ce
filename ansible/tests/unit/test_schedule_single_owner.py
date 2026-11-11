@@ -156,6 +156,12 @@ def test_the_daily_env_carries_no_secret():
         )
 
 
+def test_daily_env_names_no_backup_mode_dir():
+    # The backup verb owns the applications' backup mode and the host's
+    # quiesce.d hooks around a backup; the maintenance reads no such directory.
+    assert "DAILY_QUIESCE_DIR" not in DAILY_ENV.read_text(encoding="utf-8")
+
+
 def test_the_daily_env_does_not_carry_a_schedule():
     # Which timers run and when is catena-schedule's, from the config store.
     body = _code(DAILY_ENV)
