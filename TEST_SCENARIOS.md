@@ -32,7 +32,7 @@ The 202 scenarios the maintainers' test bench carries, and the behaviour each on
 | `backup_quarter_hourly` | A backup scheduled every 15 minutes on a Catena Pro server runs every 15 minutes, and each backup after the first uploads only what changed. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
 | `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing but the vulnerability watch. |
-| `bucket_copy_with_the_backup` | A backup copies the bucket of an application that keeps its files in one while that application is in its backup mode, and a restore puts the bucket back as it was then. |
+| `bucket_copy_with_the_backup` | A backup copies the bucket of an application that keeps its files in one while that application is in its backup mode, and a restore puts the bucket back as at that moment. |
 | `catalog_app_sign_in` | Keycloak's tier refusal, access levels, emailed code and brokered realm hold at stub applications that ask for their own sign-in. |
 | `catalog_apps_read_green_in_gatus` | Every catalog application deployed in a run reads green in Gatus on its own address or addresses, and the Apps tab shows it healthy. |
 | `catena_admin_resources_tab_links_beszel` | The panel's System tab shows this server's own processor readings and links out to the resource monitor, and the Resources address leads there. |
