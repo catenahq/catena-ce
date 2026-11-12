@@ -301,6 +301,11 @@ another provider.
 | A backup repository is never recovered into the bucket it was copied from, and its copy continues only once the locked bucket proves to hold the same repository | **no bench yet** |
 | A restore from a backup brings back the content the backup held, and the applications with it | `bench:backup_rollback`, `bench:ce_restore` |
 | An application keeps data in a folder outside its volumes only once an admin lists that folder in Settings; that folder is then backed up, also when it sits on another disk, and a restore brings it back | `bench:app_extra_disk_round_trip` |
+| An application keeps its data in a folder inside a folder listed in Settings, never in the listed folder itself | **no bench yet** |
+| A one-application restore brings back the application's data kept under a folder listed in Settings, and nothing else of that folder; it refuses before touching anything when the server no longer lists the folder | `bench:app_extra_disk_round_trip#stage-11-one-application-restore` |
+| While a listed folder that was on a mounted disk at the last backup is not mounted, a backup stops before any application enters its backup mode, a restore refuses before touching anything, and the applications using that disk are not deployed | `bench:app_extra_disk_round_trip#stage-12-unmounted-disk-refused` |
+| A restore refuses before touching anything when a disk it writes to lacks room for the data it puts back | **no bench yet** |
+| An application whose disk is not mounted at start-up stays stopped, and comes back at the next start-up or when it is deployed once the disk is mounted again | `bench:app_extra_disk_round_trip#stage-13-held-at-start-up`, `bench:app_extra_disk_round_trip#stage-14-back-once-mounted` |
 | The backup repository's password can be replaced with no backup lost | `bench:restic_password_rotation_round_trip` |
 | With the dashboard deleted, backups still run, restores still work and the applications stay online | `bench:sovereign_exit`, `bench:recovery_readme_manual_restore` |
 
