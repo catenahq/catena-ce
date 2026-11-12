@@ -1,6 +1,6 @@
-"""One predicate for "is the payload expected on this host", not five.
+"""One predicate for "is the payload expected on this host".
 
-Five callers ask the question, across two read paths. reconcile/roles/payload
+Several callers ask the question, across two read paths. reconcile/roles/payload
 publishes `catena_payload_engines_expected` during a converge, so
 reconcile/roles/cloudflare_tunnel and reconcile/roles/backup/tasks/install.yml
 read the fact; a standalone validate play cannot see a set_fact from a role that
@@ -35,13 +35,8 @@ CALLERS = {
         "/etc/systemd/system/gatus-sync.timer",
         "/etc/systemd/system/catena-version-check.timer",
     ]],
-    "reconcile/roles/host_maintenance/tasks/main.yml": [
-        ["/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"],
-        ["/etc/systemd/system/{{ license_refresh_systemd_unit_name }}.timer"],
-        ["/etc/systemd/system/{{ error_report_systemd_unit_name }}.timer"],
-        ["/etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer"],
-        ["/etc/systemd/system/{{ pinned_report_systemd_unit_name }}.timer"],
-    ],
+    "reconcile/roles/host_maintenance/tasks/_payload_unit.yml":
+        [["/etc/systemd/system/{{ _payload_unit.unit }}"]],
     "reconcile/roles/backup/tasks/validate.yml": [[
         "{{ backup_wrapper_script }}",
         "{{ backup_coverage_script }}",
@@ -89,6 +84,25 @@ def test_every_caller_uses_the_shared_predicate():
     for rel, expected in CALLERS.items():
         incs = _includes(ANSIBLE / rel)
         assert [i["vars"]["_payload_paths"] for i in incs] == expected, rel
+
+
+def test_host_maintenance_wires_each_payload_unit_through_the_shared_tasks():
+    """Every unit host_maintenance enables from the payload goes through
+    _payload_unit.yml, the one place its expected/missing/deferred handling
+    lives."""
+    main = ANSIBLE / "reconcile/roles/host_maintenance/tasks/main.yml"
+    (loop,) = [t for t in _tasks(main)
+               if t.get("ansible.builtin.include_tasks") == "_payload_unit.yml"]
+    assert [u["unit"] for u in loop["loop"]] == [
+        "{{ reboot_check_systemd_unit_name }}.timer",
+        "{{ license_refresh_systemd_unit_name }}.timer",
+        "{{ error_report_systemd_unit_name }}.timer",
+        "{{ app_verify_systemd_unit_name }}.timer",
+        "{{ pinned_report_systemd_unit_name }}.timer",
+        "{{ backup_mode_release_systemd_unit_name }}.service",
+        "{{ app_mount_hold_systemd_unit_name }}.service",
+    ]
+    assert loop["loop_control"]["loop_var"] == "_payload_unit"
 
 
 def test_no_caller_still_hand_rolls_the_decision():

@@ -575,8 +575,8 @@ config:
   # Absolute paths outside /srv/catena to include in the backup, separated by
   # commas: what a client who mounted their own disk declares, since the
   # product does not manage block devices and a bind mount from elsewhere is
-  # invisible to the backup set until it is named here. The nightly coverage
-  # lane reads the same value, so one declaration both captures the path and
+  # invisible to the backup set until it is named here. The maintenance's
+  # coverage check reads the same value, so one declaration both captures the path and
   # stops it reading as an uncovered bind-mount source.
   - key: BACKUP_EXTRA_PATHS
     residence: store

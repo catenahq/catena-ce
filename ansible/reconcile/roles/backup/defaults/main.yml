@@ -20,7 +20,7 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 
 # Offsite copy (ransomware mitigation).
 #
-# A nightly `rclone copy` (additive-only -- never issues DELETEs against
+# An `rclone copy` (additive-only -- never issues DELETEs against
 # the destination) from each declared LIVE (mutable) bucket to a SEPARATE
 # bucket at a DIFFERENT provider with Object Lock + bucket versioning both
 # enabled. The live bucket stays mutable so `restic forget --prune` and an
@@ -45,12 +45,12 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # can't reach both copies.
 #
 # Ordering: sequencing across backup + verify + copy + auto-update +
-# container-update is owned by the catena-daily orchestrator chain.
+# container-update is owned by the maintenance (the catena-daily orchestrator).
 # COLD_MIRROR runs AFTER BACKUP_RUN + VERIFY_HOT + RESTIC_CHECK in the
-# chain, and the chain aborts before COLD_MIRROR when VERIFY_HOT fails
+# maintenance, and it aborts before COLD_MIRROR when VERIFY_HOT fails
 # (VERIFY_HOT is in ABORT_STATES). The lane's own timer is the fallback for
-# off-chain invocations (manual systemctl start, bench scenarios); the
-# chain drives the unit synchronously via systemctl start --wait in
+# invocations outside the maintenance (manual systemctl start, bench
+# scenarios); the maintenance drives the unit synchronously via systemctl start --wait in
 # do_COLD_MIRROR. The cadence is the `offsite_copy` lane in the admin
 # panel, off by default like every other lane -- it writes into a second
 # provider's bucket, which is exactly the quota nobody has confirmed the
@@ -58,9 +58,9 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 #
 # Fail-soft contract: if nothing is declared OR a destination's creds are
 # missing OR a destination bucket is unreachable, the lane logs the reason,
-# records it on the attempted check below, and exits 0. Daily backups never
+# records it on the attempted check below, and exits 0. Backups never
 # read any of it and stay unaffected -- a misconfigured copy cannot brick
-# the primary chain.
+# the primary backup path.
 #
 # One healthcheck pair for the whole lane rather than one per copy: a check
 # that appears and disappears as a client edits the list is a monitoring
@@ -81,7 +81,7 @@ offsite_healthcheck_attempted_url: >-
     if healthchecks_ping_key is defined else ''
   }}
 # Two healthchecks per backup, not one. Restic / S3 are flaky enough that a
-# single nightly failure should not page; two consecutive failures should.
+# single failed backup should not page; two consecutive failures should.
 #
 # - succeeded: pinged at end-of-run on success.
 # - attempted: pinged on /start always, /fail on hard error (pg_dumpall
@@ -112,9 +112,9 @@ backup_healthcheck_attempted_url: >-
     ~ '/catena-backup-attempted?create=1'
     if healthchecks_ping_key is defined else ''
   }}
-# The weekly integrity check's own check: catena-restic-check --subset pings it
+# The deep integrity check's own check: catena-restic-check --subset pings it
 # with /fail when the deep read fails and success when it passes, whatever state
-# the nightly chain is in. catena-schedule keeps it on the restic_check_subset
+# the maintenance is in. catena-schedule keeps it on the restic_check_subset
 # lane's schedule.
 restic_check_healthcheck_url: >-
   {{
@@ -147,7 +147,7 @@ restore_test_healthcheck_url: >-
 # the last two hours and twenty-two more across the rest of the day. No single
 # name carries that.
 
-# Paths the nightly timer backs up. Restic walks each listed path
+# Paths the backup walks. Restic walks each listed path
 # recursively; we pick the subtrees we want rather than listing the
 # parent and excluding most of it.
 #
@@ -196,10 +196,10 @@ restore_test_healthcheck_url: >-
 #   E. Absolute bind mounts anywhere else (/opt/..., /home/..., a disk the
 #      client mounted themselves)
 #      ✗ NOT covered by default. catena-backup-coverage (a lane script in the
-#      catena-admin image payload) runs at the end of every nightly and fails
-#      the run listing any uncovered bind-mount sources. The client's answer is
+#      catena-admin image payload) runs at the end of every maintenance run and
+#      fails the run listing any uncovered bind-mount sources. The client's answer is
 #      BACKUP_EXTRA_PATHS in catena-admin > Settings, which appends to the set
-#      below and which the coverage lane reads as well -- so declaring a path
+#      below and which the coverage check reads as well -- so declaring a path
 #      both backs it up and stops it reading as uncovered. Moving the data
 #      under {{ storage_mount_point }}/apps works too.
 #
@@ -237,7 +237,7 @@ backup_product_paths:
   # not host-loss-safe -- the one failure mode the whole product is built
   # around.
   #
-  # It holds the chain, recovery and migration state, the verify-hot report,
+  # It holds the maintenance, recovery and migration state, the verify-hot report,
   # the backup stats, and the hash-chained audit trail the panel writes.
   # Losing it means a rebuilt host cannot tell what its predecessor had already
   # done: whether the last verify passed, where a half-finished recovery had
@@ -382,7 +382,7 @@ backup_restic_mount_script: /usr/local/bin/catena-restic-mount
 backup_restic_unmount_script: /usr/local/bin/catena-restic-unmount
 # Repo integrity probe, shipped in the engine payload. catena-backup-run calls it
 # with --metadata after the first backup of each day, together with the removal
-# of the backups past retention; the weekly 5% bit-rot read is a separate timer
+# of the backups past retention; the deep 5% bit-rot read is a separate timer
 # (catena-restic-check-subset.timer) because that one is time-based, not
 # backup-driven.
 backup_restic_check_script: /usr/local/bin/catena-restic-check

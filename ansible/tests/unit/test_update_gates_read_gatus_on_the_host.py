@@ -1,7 +1,7 @@
 """Both update gates read Gatus's endpoint statuses on the host, at the port
 Gatus is published on.
 
-The daily chain's pre-update gate (DAILY_GATUS_API_URL in daily.env) and the
+The maintenance's pre-update gate (DAILY_GATUS_API_URL in daily.env) and the
 health baseline the update lanes compare a bump against
 (AUTO_UPDATE_GATUS_API_URL in stack-update.env) each leave Gatus out while
 their key is blank. Both run as units on the host, so the address is Gatus's

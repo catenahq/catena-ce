@@ -3,8 +3,8 @@
 # Rendered on every converge from either path, so a change to any of them
 # reaches a host that converges itself.
 
-# The daily chain's paths and toggles. No secrets, so no rotated value for a
-# re-render to clobber, and harmless on a host with no chain: the ordering is
+# The maintenance's paths and toggles. No secrets, so no rotated value for a
+# re-render to clobber, and harmless on a host without it: the ordering is
 # one less thing to get wrong on a first converge.
 - name: "Catena-admin: daily orchestrator configuration ({{ catena_daily_env_path }})"
   ansible.builtin.template:

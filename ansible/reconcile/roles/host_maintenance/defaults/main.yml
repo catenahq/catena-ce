@@ -37,6 +37,12 @@ app_verify_systemd_unit_name: catena-app-verify
 # catena-admin payload.
 pinned_report_systemd_unit_name: catena-pinned-report
 
+# The boot units, shipped in the catena-admin payload: the release of the
+# applications a cut-short backup left in their backup mode, and the hold of the
+# applications whose listed disk is not mounted.
+backup_mode_release_systemd_unit_name: catena-backup-mode-release
+app_mount_hold_systemd_unit_name: catena-app-mount-hold
+
 # Executing-prefix paths this role writes, for
 # playbooks/tasks/prune_withdrawn_files.yml. Empty: the probe, the licence
 # check, the error reporter, the app verify and their units ship in the

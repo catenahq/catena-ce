@@ -300,223 +300,54 @@
     path: /var/lib/catena/reboot-required.json
     state: absent
 
-- name: "Reboot check: is the payload-shipped timer expected on this host"
-  ansible.builtin.include_role:
-    name: common
-    tasks_from: _payload_expected
-  vars:
-    _payload_paths:
-      - "/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"
-
-- name: "Reboot check: the timer is missing from a converge that installs it"
-  ansible.builtin.fail:
-    msg: >-
-      /etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer is absent
-      although reconcile/roles/payload ran in this converge, so this host would
-      never report a pending reboot. Check the "Payload:" tasks above for why
-      the extract did not land.
-  when:
-    - catena_payload_missing | length > 0
-    - catena_payload_expected | bool
-
-- name: "Reboot check: timer staged out of band and not present yet"
-  ansible.builtin.debug:
-    msg: >-
-      The reboot-check timer is not on the host and this converge does not
-      install the payload (CATENA_PAYLOAD_INSTALL=false). It is enabled by the
-      first converge after the payload install.
-  when:
-    - catena_payload_missing | length > 0
-    - not (catena_payload_expected | bool)
-
-# Enabled unconditionally, unlike every lane catena-schedule owns. This one
-# spends no object storage and changes nothing on the host: it reads two files
-# and pings loopback. A host that opted out of it would be a host that applies
-# patches and never mentions that they are not in effect.
-- name: "Reboot check: enable + start timer"
-  ansible.builtin.systemd_service:
-    name: "{{ reboot_check_systemd_unit_name }}.timer"
-    enabled: true
-    state: started
-    daemon_reload: true
-  when:
-    - not ansible_check_mode
-    - catena_payload_missing | length == 0
-
-# The licence check: `catena-license refresh`, hourly, the one call this host
-# makes to Polar about its licence key. Its binary and both units ship in the
-# catena-admin payload. Its own include, because the predicate's facts are
-# overwritten by the next one and read right after.
-- name: "Licence check: is the payload-shipped timer expected on this host"
-  ansible.builtin.include_role:
-    name: common
-    tasks_from: _payload_expected
-  vars:
-    _payload_paths:
-      - "/etc/systemd/system/{{ license_refresh_systemd_unit_name }}.timer"
-
-- name: "Licence check: the timer is missing from a converge that installs it"
-  ansible.builtin.fail:
-    msg: >-
-      /etc/systemd/system/{{ license_refresh_systemd_unit_name }}.timer is
-      absent although reconcile/roles/payload ran in this converge, so this
-      host would never check its licence key with Polar. The "Payload:" tasks
-      above say why the licence timer was not extracted.
-  when:
-    - catena_payload_missing | length > 0
-    - catena_payload_expected | bool
-
-- name: "Licence check: timer staged out of band and not present yet"
-  ansible.builtin.debug:
-    msg: >-
-      The licence-check timer is not on the host and this converge does not
-      install the payload (CATENA_PAYLOAD_INSTALL=false). The next converge
-      once the payload is installed enables it.
-  when:
-    - catena_payload_missing | length > 0
-    - not (catena_payload_expected | bool)
-
-# Enabled on every host, whatever its edition: the check is how a key gets
-# its first answer, and with no key in the store it asks nothing.
-- name: "Licence check: enable + start timer"
-  ansible.builtin.systemd_service:
-    name: "{{ license_refresh_systemd_unit_name }}.timer"
-    enabled: true
-    state: started
-    daemon_reload: true
-  when:
-    - not ansible_check_mode
-    - catena_payload_missing | length == 0
-
-# The error reports to Catena support: `catena-error-report run`, every five
-# minutes, from the catena-admin payload like the licence check, with its own
-# include as there.
-- name: "Error reports: is the payload-shipped timer expected on this host"
-  ansible.builtin.include_role:
-    name: common
-    tasks_from: _payload_expected
-  vars:
-    _payload_paths:
-      - "/etc/systemd/system/{{ error_report_systemd_unit_name }}.timer"
-
-- name: "Error reports: the timer is missing from a converge that installs it"
-  ansible.builtin.fail:
-    msg: >-
-      /etc/systemd/system/{{ error_report_systemd_unit_name }}.timer is absent
-      although reconcile/roles/payload ran in this converge, so this host could
-      not send the error reports its administrator switches on. The "Payload:"
-      tasks above say why the error-report timer was not extracted.
-  when:
-    - catena_payload_missing | length > 0
-    - catena_payload_expected | bool
-
-- name: "Error reports: timer staged out of band and not present yet"
-  ansible.builtin.debug:
-    msg: >-
-      The error-report timer waits for the payload, which this converge skips
-      (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's install
-      enables the timer.
-  when:
-    - catena_payload_missing | length > 0
-    - not (catena_payload_expected | bool)
-
-# Enabled on every host, whatever its edition and whatever the switch says:
-# the unit runs only while the licence is active, and a run sends nothing
-# until the administrator switches error reports on in the panel.
-- name: "Error reports: enable + start timer"
-  ansible.builtin.systemd_service:
-    name: "{{ error_report_systemd_unit_name }}.timer"
-    enabled: true
-    state: started
-    daemon_reload: true
-  when:
-    - not ansible_check_mode
-    - catena_payload_missing | length == 0
-
-# The verify hook of each application: `catena-apps verify --all`, hourly, from
-# the catena-admin payload like the licence check, with its own include as
-# there.
-- name: "App verify: is the payload-shipped timer expected on this host"
-  ansible.builtin.include_role:
-    name: common
-    tasks_from: _payload_expected
-  vars:
-    _payload_paths:
-      - "/etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer"
-
-- name: "App verify: the timer is missing from a converge that installs it"
-  ansible.builtin.fail:
-    msg: >-
-      /etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer is absent
-      although reconcile/roles/payload ran in this converge, so this host would
-      never run the verify hook of its applications. The "Payload:" tasks above
-      say why the app-verify timer was not extracted.
-  when:
-    - catena_payload_missing | length > 0
-    - catena_payload_expected | bool
-
-- name: "App verify: timer staged out of band and not present yet"
-  ansible.builtin.debug:
-    msg: >-
-      The app-verify timer waits for the payload, which this converge skips
-      (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's install
-      enables the timer.
-  when:
-    - catena_payload_missing | length > 0
-    - not (catena_payload_expected | bool)
-
-# Enabled on every host, whatever its edition: a run verifies the applications
-# that declare a verify hook and does nothing on a host with none.
-- name: "App verify: enable + start timer"
-  ansible.builtin.systemd_service:
-    name: "{{ app_verify_systemd_unit_name }}.timer"
-    enabled: true
-    state: started
-    daemon_reload: true
-  when:
-    - not ansible_check_mode
-    - catena_payload_missing | length == 0
-
-# The daily report of the services a label keeps off the updates:
-# `catena-stack-update-managed --pinned-report`, from the catena-admin payload,
-# with its own include as above.
-- name: "Pinned report: is the payload-shipped timer expected on this host"
-  ansible.builtin.include_role:
-    name: common
-    tasks_from: _payload_expected
-  vars:
-    _payload_paths:
-      - "/etc/systemd/system/{{ pinned_report_systemd_unit_name }}.timer"
-
-- name: "Pinned report: the timer is missing from a converge that installs it"
-  ansible.builtin.fail:
-    msg: >-
-      /etc/systemd/system/{{ pinned_report_systemd_unit_name }}.timer is absent
-      although reconcile/roles/payload ran in this converge, so this host would
-      never report the services kept off the updates. The "Payload:" tasks
-      above say why the pinned-report timer was not extracted.
-  when:
-    - catena_payload_missing | length > 0
-    - catena_payload_expected | bool
-
-- name: "Pinned report: timer staged out of band and not present yet"
-  ansible.builtin.debug:
-    msg: >-
-      The pinned-report timer waits for the payload, which this converge skips
-      (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's install
-      enables the timer.
-  when:
-    - catena_payload_missing | length > 0
-    - not (catena_payload_expected | bool)
-
-# Enabled on every host, whatever its edition: a run reports the services a
-# label keeps off the updates and moves nothing.
-- name: "Pinned report: enable + start timer"
-  ansible.builtin.systemd_service:
-    name: "{{ pinned_report_systemd_unit_name }}.timer"
-    enabled: true
-    state: started
-    daemon_reload: true
-  when:
-    - not ansible_check_mode
-    - catena_payload_missing | length == 0
+# The units the catena-admin payload ships for the host's upkeep, each wired by
+# _payload_unit.yml. All are enabled on every host, whatever its edition:
+#   - the reboot check reads two files and pings loopback; a host without it
+#     applies patches and never says they wait for a reboot;
+#   - the licence check (`catena-license refresh`, hourly) is the one call this
+#     host makes to Polar about its key, and with no key it asks nothing;
+#   - the error reports (`catena-error-report run`, every five minutes) run
+#     only while the licence is active and send nothing until the administrator
+#     switches them on in the panel;
+#   - the app verify (`catena-apps verify --all`, hourly) runs the verify hook
+#     of each application that declares one;
+#   - the pinned report (`catena-stack-update-managed --pinned-report`, daily)
+#     reports the services a label keeps off the updates and moves nothing;
+#   - the backup-mode release and the app mount hold are oneshots with no timer,
+#     enabled and not started, so each runs at the next boot: the release acts
+#     only while a cut-short backup left its record, the hold on the
+#     applications whose listed disk is not mounted at that boot.
+- name: "Payload units"
+  ansible.builtin.include_tasks: _payload_unit.yml
+  loop:
+    - unit: "{{ reboot_check_systemd_unit_name }}.timer"
+      what: "reboot-check timer"
+      without: "this host would never report a pending reboot"
+      start: true
+    - unit: "{{ license_refresh_systemd_unit_name }}.timer"
+      what: "licence-check timer"
+      without: "this host would never check its licence key with Polar"
+      start: true
+    - unit: "{{ error_report_systemd_unit_name }}.timer"
+      what: "error-report timer"
+      without: "this host could not send the error reports its administrator switches on"
+      start: true
+    - unit: "{{ app_verify_systemd_unit_name }}.timer"
+      what: "app-verify timer"
+      without: "this host would never run the verify hook of its applications"
+      start: true
+    - unit: "{{ pinned_report_systemd_unit_name }}.timer"
+      what: "pinned-report timer"
+      without: "this host would never report the services kept off the updates"
+      start: true
+    - unit: "{{ backup_mode_release_systemd_unit_name }}.service"
+      what: "backup-mode release unit"
+      without: "a host restarted in the middle of a backup would leave its applications in their backup mode"
+      start: false
+    - unit: "{{ app_mount_hold_systemd_unit_name }}.service"
+      what: "app mount hold unit"
+      without: "a host restarted with a listed disk missing would start the applications that keep their files on it"
+      start: false
+  loop_control:
+    loop_var: _payload_unit
+    label: "{{ _payload_unit.unit }}"

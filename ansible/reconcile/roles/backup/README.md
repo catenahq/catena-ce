@@ -93,8 +93,7 @@ because an unreadable answer is not evidence of a gap.
 ## Offsite copy sizing
 
 The offsite-copy lane runs `rclone copy` incrementally -- only new or
-changed objects transfer each run, not a full re-push -- on a daily
-cadence by default. WHICH buckets it copies is not configured in this
+changed objects transfer each run, not a full re-push. WHICH buckets it copies is not configured in this
 role: the list lives in `/etc/catena/config.json`, written by the panel
 and read straight off disk by the lane.
 
@@ -107,7 +106,7 @@ permanently, even after the source's own retention has pruned it.
 That matters most for an application's own object storage, where it keeps
 file versions: its own retention setting bounds that live bucket's
 steady-state size. Raising it mainly grows the LIVE bucket, not the
-accumulation rate offsite -- a daily copy catches new versions well before
+accumulation rate offsite -- the copy catches new versions well before
 a 7-day or 30-day live-side cap prunes them. The real cost driver over a
 deployment's lifetime is cumulative file and version churn, unbounded by
 design, with pruning intentionally left to a separate delete-capable

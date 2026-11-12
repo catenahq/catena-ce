@@ -128,13 +128,13 @@ def test_the_converge_applies_the_stored_schedule():
     assert "stat.exists" in gate
 
 
-# --- the daily chain can start at all ----------------------------------------
+# --- the maintenance can start at all ----------------------------------------
 
 
 def test_the_daily_env_file_is_rendered_every_converge():
     # catena-daily.service declares EnvironmentFile for this path with no
     # leading dash. A missing file fails the unit outright, and the whole
-    # scheduled chain with it.
+    # scheduled maintenance with it.
     tasks = yaml.safe_load(ADMIN_LANES.read_text())
     renders = [
         t for t in tasks
@@ -156,6 +156,12 @@ def test_the_daily_env_carries_no_secret():
         )
 
 
+def test_daily_env_names_no_backup_mode_dir():
+    # The backup verb owns the applications' backup mode and the host's
+    # quiesce.d hooks around a backup; the maintenance reads no such directory.
+    assert "DAILY_QUIESCE_DIR" not in DAILY_ENV.read_text(encoding="utf-8")
+
+
 def test_the_daily_env_does_not_carry_a_schedule():
     # Which timers run and when is catena-schedule's, from the config store.
     body = _code(DAILY_ENV)
@@ -164,7 +170,7 @@ def test_the_daily_env_does_not_carry_a_schedule():
 
 
 def test_the_daily_env_does_not_choose_the_chains_steps():
-    # Which steps the chain runs is the Schedules page's, in the config store's
+    # Which steps the maintenance runs is the Schedules page's, in the config store's
     # nightly_steps, written by catena-schedule. A switch here would be a second
     # writer, and the converge would put back a step the client left out.
     body = _code(DAILY_ENV)
@@ -173,7 +179,7 @@ def test_the_daily_env_does_not_choose_the_chains_steps():
         key = line.split("=", 1)[0].strip()
         for word in ("STEP", "SKIP", "ENABLE", "DISABLE"):
             assert word not in key, (
-                f"{key} in daily.env reads as a step switch; the chain's steps "
+                f"{key} in daily.env reads as a step switch; the maintenance's steps "
                 "are catena-schedule's, from the config store"
             )
 
