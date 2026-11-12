@@ -539,8 +539,8 @@
       /etc/systemd/system/{{ backup_mode_release_systemd_unit_name }}.service is
       absent although reconcile/roles/payload ran in this converge, so a host
       restarted in the middle of a backup would leave its applications in their
-      backup mode. The "Payload:" tasks above say why the unit was not
-      extracted.
+      backup mode. The "Payload:" tasks above say why the backup-mode release
+      unit was not extracted.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool
@@ -579,8 +579,8 @@
       /etc/systemd/system/{{ app_mount_hold_systemd_unit_name }}.service is
       absent although reconcile/roles/payload ran in this converge, so a host
       restarted with a listed disk missing would start the applications that
-      keep their files on it. The "Payload:" tasks above say why the unit was
-      not extracted.
+      keep their files on it. The "Payload:" tasks above say why the app mount
+      hold unit was not extracted.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool
