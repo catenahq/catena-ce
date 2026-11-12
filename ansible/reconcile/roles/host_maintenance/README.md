@@ -2,8 +2,8 @@
 
 The host's own upkeep, applied on every converge from either path, so a
 change here reaches a host that converges itself: apt's settings, the host
-resolving its own name, the baseline packages, Debian's unattended-upgrades
-and its origins, needrestart's restart policy, the journal's storage, the NTP
+resolving its own name, the baseline packages, the hold on the container
+engine, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the NTP
 servers, the host mail agent kept off port 25, the settings the client changes
 in catena-admin > Settings, whether this host needs a reboot, the hourly
 licence check, the error reports to Catena support and the hourly verify hook
@@ -17,6 +17,9 @@ of each application. It runs right after `payload`.
   `bootstrap/roles/common`, which applies both before its first apt operation.
 - `catena_baseline_packages` (in `playbooks/group_vars/all/main.yml`, shared
   with `bootstrap/roles/common`, which installs them at bootstrap).
+- apt holds `catena_held_engine_packages` (in `playbooks/group_vars/all/main.yml`), so a dist-upgrade or a
+  person's `apt upgrade` leaves the container engine to catena-admin's `catena-engine-upgrade`. A hold
+  released by hand comes back on the next converge; `playbooks/uninstall.yml` releases it.
 - `catena-git`, a system user with no login and no home, which
   `catena-apps` runs git as when it adds an application from a repository.
 - `/etc/apt/apt.conf.d/20auto-upgrades` enables unattended-upgrades; its

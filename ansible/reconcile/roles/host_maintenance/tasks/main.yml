@@ -1,6 +1,7 @@
 ---
 # The host's own upkeep, applied on every converge from either path: apt's
-# settings, the host resolving its own name, the baseline packages, Debian's
+# settings, the host resolving its own name, the baseline packages, the hold on
+# the container engine, Debian's
 # unattended-upgrades and its origins, needrestart's restart policy, the
 # journal's storage, the NTP servers, the host mail agent kept off port 25, the
 # time zone and locale set in catena-admin > Settings, the reboot-required
@@ -24,6 +25,15 @@
     state: present
     cache_valid_time: 3600
     lock_timeout: 300
+
+# Held, so a dist-upgrade or a person's apt upgrade leaves the container
+# engine to catena-admin's catena-engine-upgrade, which checks the host came
+# back. A hold released by hand comes back on the next converge.
+- name: "Host: hold the container engine packages"
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ catena_held_engine_packages }}"
 
 # The account catena-apps runs git as when it adds an application from a
 # repository: no login, no home, no group but its own.

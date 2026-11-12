@@ -1,7 +1,7 @@
 # docker
 
 Install Docker CE from the official upstream apt repository (matched to
-the host's own distro codename) at the pinned engine version, held, with a
+the host's own distro codename) at the pinned engine version, with a
 pre-staged `daemon.json` and a custom `data-root` placed BEFORE the
 package install -- so the daemon starts on first boot already pointed
 at the operator-chosen directory (`{{ storage_mount_point }}/docker` by
@@ -37,9 +37,6 @@ configures it.
 - On a host without an engine, installs `docker-ce`, `docker-ce-cli` and
   `containerd.io` at the pinned versions; an installed engine is left where
   it is. Installs `docker-buildx-plugin` and `docker-compose-plugin`.
-- Holds `catena_held_engine_packages` (the engine trio), so a
-  `dist-upgrade` and unattended-upgrades leave them alone;
-  `playbooks/uninstall.yml` releases the hold.
 - Detects and recovers a phantom-installed dpkg state (purge + clean
   reinstall) -- seen after a DR restore.
 - Initializes a single-node swarm advertising on `docker_swarm_advertise_addr`.

@@ -66,6 +66,21 @@
       Missing baseline packages:
       {{ catena_baseline_packages | reject('in', ansible_facts.packages) | list }}
 
+- name: "validate/host_maintenance: read apt's held packages"
+  ansible.builtin.command:
+    argv: [apt-mark, showhold]
+  register: _hm_held
+  changed_when: false
+
+- name: "validate/host_maintenance: the container engine packages are held"
+  ansible.builtin.assert:
+    that:
+      - item in _hm_held.stdout_lines
+    fail_msg: >-
+      {{ item }} is not held, so a dist-upgrade or an apt upgrade moves the
+      container engine with no health check behind it
+  loop: "{{ catena_held_engine_packages }}"
+
 - name: "validate/host_maintenance: the git user exists"
   ansible.builtin.getent:
     database: passwd
