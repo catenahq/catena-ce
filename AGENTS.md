@@ -2,14 +2,11 @@
 
 Instructions for AI agents (Claude Code, Codex, etc.) to follow.
 
-- Do not modify SPEC.md
+## SPEC.md
+
+- Keep SPEC.md up to date according to the latest modifications in the code or test tooling
 - Report any feature or code snippet not included in SPEC.md
 - Report any item in SPEC.md that is not implemented.
-
-## SPEC.md drafts
-
-The owner edits SPEC.md; these rules shape the deltas you report.
-
 - The editions part explains the licensing method only and links the website's edition comparison; it lists no
   feature per edition.
 - Each row names its subject and the outcome a person sees, makes one claim, and never points at another row.
