@@ -1,0 +1,52 @@
+---
+# One systemd unit the catena-admin payload ships, wired on this host: enabled
+# once the payload put it in /etc/systemd/system, a failure when a converge that
+# installs the payload left it out, and a note when this converge skips the
+# payload. Called from main.yml once per unit, with `_payload_unit`:
+#
+#   unit     the unit file name, e.g. catena-reboot-check.timer
+#   what     the words that name it in the messages
+#   without  what this host could not do without it
+#   start    start it now as well (a timer); false enables it for the next boot
+#
+# Each call includes the predicate and reads its facts right after, before the
+# next call overwrites them.
+
+- name: "{{ _payload_unit.what | capitalize }}: is it expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ _payload_unit.unit }}"
+
+- name: "{{ _payload_unit.what | capitalize }}: missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/{{ _payload_unit.unit }} is absent although
+      reconcile/roles/payload ran in this converge, so {{ _payload_unit.without }}.
+      The "Payload:" tasks above say why the {{ _payload_unit.what }} was not
+      extracted.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "{{ _payload_unit.what | capitalize }}: staged out of band and not present yet"
+  ansible.builtin.debug:
+    msg: >-
+      The {{ _payload_unit.what }} waits for the payload, which this converge
+      skips (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's
+      install enables it.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+- name: "{{ _payload_unit.what | capitalize }}: enable"
+  ansible.builtin.systemd_service:
+    name: "{{ _payload_unit.unit }}"
+    enabled: true
+    state: "{{ 'started' if _payload_unit.start else omit }}"
+    daemon_reload: true
+  when:
+    - not ansible_check_mode
+    - catena_payload_missing | length == 0
