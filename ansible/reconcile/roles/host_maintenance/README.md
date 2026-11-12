@@ -122,3 +122,7 @@ timer as it treats the licence check's.
 ## The pinned report
 
 `catena-pinned-report.timer` runs `catena-stack-update-managed --pinned-report` daily at 02:00: it names the version each service that a label keeps off the automatic updates can move to, chosen as the maintenance's updates choose it, and moves nothing. Its binary and units ship, and its timer is enabled and checked, as the application verify's are.
+
+## The boot units
+
+`catena-backup-mode-release.service` takes the applications a cut-short backup left in their backup mode out of it, and `catena-app-mount-hold.service` stops at start-up the applications whose listed disk is not mounted. Both ship in the catena-admin payload and run once at boot on every host, whatever its edition. This role enables them without starting them, and treats a missing unit as it treats the licence check's timer.

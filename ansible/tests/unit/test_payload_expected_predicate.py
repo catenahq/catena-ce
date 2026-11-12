@@ -41,6 +41,8 @@ CALLERS = {
         ["/etc/systemd/system/{{ error_report_systemd_unit_name }}.timer"],
         ["/etc/systemd/system/{{ app_verify_systemd_unit_name }}.timer"],
         ["/etc/systemd/system/{{ pinned_report_systemd_unit_name }}.timer"],
+        ["/etc/systemd/system/{{ backup_mode_release_systemd_unit_name }}.service"],
+        ["/etc/systemd/system/{{ app_mount_hold_systemd_unit_name }}.service"],
     ],
     "reconcile/roles/backup/tasks/validate.yml": [[
         "{{ backup_wrapper_script }}",

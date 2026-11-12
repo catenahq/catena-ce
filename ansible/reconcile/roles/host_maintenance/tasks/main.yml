@@ -520,3 +520,87 @@
   when:
     - not ansible_check_mode
     - catena_payload_missing | length == 0
+
+# The boot units of the catena-admin payload: a oneshot with no timer, enabled
+# and not started, so each runs at the next boot. The release acts only while a
+# cut-short backup left its record, and the hold acts on the applications whose
+# listed disk is not mounted at that boot. Each has its own include, as above.
+- name: "Backup-mode release: is the payload-shipped unit expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ backup_mode_release_systemd_unit_name }}.service"
+
+- name: "Backup-mode release: the unit is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/{{ backup_mode_release_systemd_unit_name }}.service is
+      absent although reconcile/roles/payload ran in this converge, so a host
+      restarted in the middle of a backup would leave its applications in their
+      backup mode. The "Payload:" tasks above say why the unit was not
+      extracted.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "Backup-mode release: unit staged out of band and not present yet"
+  ansible.builtin.debug:
+    msg: >-
+      The backup-mode release waits for the payload, which this converge skips
+      (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's install
+      enables the unit.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# Enabled on every host, whatever its edition: every edition backs up.
+- name: "Backup-mode release: enable unit"
+  ansible.builtin.systemd_service:
+    name: "{{ backup_mode_release_systemd_unit_name }}.service"
+    enabled: true
+    daemon_reload: true
+  when:
+    - not ansible_check_mode
+    - catena_payload_missing | length == 0
+
+- name: "App mount hold: is the payload-shipped unit expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ app_mount_hold_systemd_unit_name }}.service"
+
+- name: "App mount hold: the unit is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/{{ app_mount_hold_systemd_unit_name }}.service is
+      absent although reconcile/roles/payload ran in this converge, so a host
+      restarted with a listed disk missing would start the applications that
+      keep their files on it. The "Payload:" tasks above say why the unit was
+      not extracted.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "App mount hold: unit staged out of band and not present yet"
+  ansible.builtin.debug:
+    msg: >-
+      The app mount hold waits for the payload, which this converge skips
+      (CATENA_PAYLOAD_INSTALL=false); a converge after the payload's install
+      enables the unit.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# Enabled on every host, whatever its edition.
+- name: "App mount hold: enable unit"
+  ansible.builtin.systemd_service:
+    name: "{{ app_mount_hold_systemd_unit_name }}.service"
+    enabled: true
+    daemon_reload: true
+  when:
+    - not ansible_check_mode
+    - catena_payload_missing | length == 0
