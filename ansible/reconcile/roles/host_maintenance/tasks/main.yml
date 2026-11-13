@@ -28,7 +28,7 @@
 
 # Held, so a dist-upgrade or a person's apt upgrade leaves the container
 # engine to catena-admin's catena-engine-upgrade, which checks the host came
-# back. A hold released by hand comes back on the next converge.
+# back.
 - name: "Host: hold the container engine packages"
   ansible.builtin.dpkg_selections:
     name: "{{ item }}"
