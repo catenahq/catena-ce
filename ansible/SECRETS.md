@@ -185,7 +185,9 @@ the backup with the rest of the file:
 catena-admin reads the store through the settings API's `read`, which
 returns `onbox_config.py` `panel_view`: the whole `config` and the secrets
 in `PANEL_SECRETS`, the ones the panel uses. Every other secret stays on the
-host, the master realm's automation client among them. A settings write
+host, the master realm's automation client and its admin's password among
+them: the panel's own sign-in sends the typed password to the host, whose
+`sign-in` op answers only whether it matched. A settings write
 merges into the whole file, so the panel's writes keep what its read leaves
 out.
 
