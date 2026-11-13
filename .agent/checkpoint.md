@@ -8,11 +8,15 @@
 
 ## In flight
 
-- Step 1 (dispatch_path).
+- Steps 1 to 5 built, uncommitted in the tree; manifests in /var/tmp/issues/444/notes/step{1..4}-*.manifest.md.
+  Step 4 follow-up running: regen `_read_store.yml` sets `_cf_regen_zone`, not `cloudflare_zone`.
 
 ## Next
 
-- Steps 2 to 6, one implementer at a time; briefs in /var/tmp/issues/444/briefs, notes in /var/tmp/issues/444/notes.
+- Step 6: review done (fleet:code-reviewer, 4 findings, all fixed: verify refuses a second authorized_keys line;
+  dispatch_path run/parse/assert shared in tasks/_run_helper.yml; a stale comment; catena-admin
+  shell/settings/checks.go judged the moved cloudflared task under infrastructure, fixed in the catena-admin clone
+  on the agent branch). Then commit per manifest (four catena-ce commits, one catena-admin commit).
 
 ## Hypotheses
 

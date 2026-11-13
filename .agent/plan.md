@@ -25,14 +25,14 @@ Nine roles have no `tasks/validate.yml`: bootstrap `ansible_runtime`, `catena_ad
 
 ## Steps
 
-1. [Open] dispatch_path. `helpers/dispatch_path.py` gains `--verify`: writes nothing; ok only when the panel key's
+1. [Done] dispatch_path. `helpers/dispatch_path.py` gains `--verify`: writes nothing; ok only when the panel key's
    line runs this tree's generation, its directory is intact, the link, the sudo and AcceptEnv rules are this
    generation's, no `-next` rule, other generation or proof key directory is left (negative), and the panel key's
    proof passes (the entry refuses an extra word: negative). The input dict moves to the role defaults so
    `tasks/main.yml` and `tasks/validate.yml` send the same one. `tasks/validate.yml` runs the tree's helper with
    `--verify` and asserts. Tests: `tests/unit/test_dispatch_path.py` (verify ok after a switch and writes nothing;
    fails on each left-over or mismatch; validate.yml runs `--verify`).
-2. [Open] Bootstrap roles.
+2. [Done] Bootstrap roles.
    - `ansible_runtime`: the version check moves from `tasks/main.yml` into `tasks/validate.yml`, which main.yml
      includes; validate adds the venv is root-owned 0755 (negative: nothing but root changes what the reconcile
      runs).
@@ -42,7 +42,7 @@ Nine roles have no `tasks/validate.yml`: bootstrap `ansible_runtime`, `catena_ad
      stats/state/export dirs, and `sshd -T -C user=<migrate>` resolving the Match block (negative: no tty, no
      forwarding, key file and forced command fixed). `common/tasks/_assert_path_perms.yml` gains an optional
      `uid` key.
-3. [Open] Reconcile roles without an edge.
+3. [Done] Reconcile roles without an edge.
    - `payload`: with `catena_payload_install`, the marker equals the image ID of `catena_admin_image`; the stage
      dir, when present, root 0700 (negative: the panel cannot write what root installs); the catalog cache absent.
    - `public_ports`: fragment dir root 0755 (negative: only root declares a port), docker drop-in root 0644
@@ -53,7 +53,7 @@ Nine roles have no `tasks/validate.yml`: bootstrap `ansible_runtime`, `catena_ad
    - `catena-admin`: lane files and modes (`stack-update.env` 0600: negative), the UI-port fragment declares
      `catena_admin_ui_port` with scope `loopback` (negative), catalog files root 0644, overlay dir root 0755
      (negative), and with `catena_admin_deploy_from_converge` the service at 1/1.
-4. [Open] The edge.
+4. [Done] The edge.
    - `cloudflare_tunnel`: owns the edge verdict and the cloudflared check, moved out of infrastructure's validate;
      the verdict is renamed `_cf_edge_up` and read by Vantage 2 and oauth2_proxy's validate; the engine path from
      the role's own default; adds cloudflared publishes no port (negative: the tunnel is outbound only). Tests:
@@ -61,10 +61,13 @@ Nine roles have no `tasks/validate.yml`: bootstrap `ansible_runtime`, `catena_ad
    - `cloudflare_tunnel_regenerate`: the store read and the tunnel lookup move into task files main.yml and
      validate.yml share; validate, with a token and a zone in the store, asserts at most one live tunnel carries
      this host's name (negative: a rotation leaves no old tunnel), and exactly one when `_cf_edge_up`.
-5. [Open] `playbooks/validate.yml` `validate_roles` lists all 22 roles; a new unit test
+5. [Done] `playbooks/validate.yml` `validate_roles` lists all 22 roles; a new unit test
    `tests/unit/test_every_role_has_a_validate.py`: every role directory under both roots has `tasks/validate.yml`
    and is in `validate_roles`.
-6. [Open] Review (fleet:code-reviewer), gates (Ansible unit tests touched, prose, unicode, core app names), commit.
+6. [Done] Review (fleet:code-reviewer), gates (Ansible unit tests, prose, unicode, core app names), commit.
+7. [Done] catena-admin `shell/settings/checks.go` `ChecksJudging`: the Domain section is judged by
+   `cloudflare_tunnel`'s cloudflared tasks and by `cloudflare_tunnel_regenerate`, since the cloudflared check left
+   infrastructure's validate (`shell/settings/checks_judging_test.go` reads the sibling catena-ce).
 
 ## Bench to prove it
 
