@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 196 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 195 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -75,7 +75,6 @@ The 196 scenarios the maintainers' test bench carries, and the behaviour each on
 | `docker_engine_upgrade_round_trip` | The container engine moves to the version the panel image pins, and goes back to the one it ran when the new one does not come up. |
 | `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service and the synced files back at the state that backup captured, including a file deleted after the backup. |
 | `ee_attest` | A signed monthly compliance attestation is produced from a host's own evidence and verifies against the published key. |
-| `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
 | `ee_ce_regression` | Community actions keep working on a host that has been licensed for Pro. |
 | `ee_compliance_panel` | The compliance panel of a Catena Business server lists every control of the registry in English and in French, shows each framework's controls alone, fills what the server measures from its own reports, and keeps the organization's attestations, controls, review timings and evidence files in a hash-chained record that a panel redeploy leaves in place, the backup covers and the export carries. |
 | `ee_daily_cycle` | The maintenance engine drives a full run on a licensed host, step by step, to completion. |
