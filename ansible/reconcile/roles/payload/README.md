@@ -83,6 +83,11 @@ The panel's self-update and its `install-payload` verb (catena-admin
 `payload/engines/stackupdate/selfupdate.go`) extract into the same directory
 the same way.
 
+`tasks/validate.yml` checks that the marker holds the ID of the image this tree
+runs (skipped when the engines are staged out of band), that the stage
+directory, when present, is root:root 0700, and that the templates catalog cache
+is absent.
+
 ## Marker semantics
 
 The marker holds an image ID, not a timestamp or a bare "installed" flag:

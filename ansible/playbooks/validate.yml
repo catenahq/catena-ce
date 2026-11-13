@@ -36,16 +36,23 @@
       - tailscale
       - storage
       - docker
+      - catena_admin_host
+      - ansible_runtime
+      - dispatch_path
+      - payload
+      - public_ports
       - host_maintenance
       - swarm
       - traefik
       - postgres
+      - cloudflare_tunnel
+      - cloudflare_tunnel_regenerate
       - backup
       - infrastructure
       - keycloak
       - oauth2_proxy
-    # reconcile/roles/infrastructure/tasks/validate.yml carries the cloudflared
-    # swarm check for the tunnel reconcile/roles/cloudflare_tunnel brings up.
+      - catena-admin
+      - tier1_stack
 
   pre_tasks:
     # Load the on-box config store so the validate checks that read its
@@ -331,13 +338,13 @@
     # is a host fact from the Vantage-1 load_onbox_config pre_task.
     #
     # A token alone is not an edge: the tunnel also defers while its engine is
-    # not on the host, and while the host has no domain. Vantage 1's reconcile/roles/infrastructure validate
-    # resolves both into _infra_edge_up, a host fact that outlives its play;
+    # not on the host, and while the host has no domain. Vantage 1's reconcile/roles/cloudflare_tunnel validate
+    # resolves both into _cf_edge_up, a host fact that outlives its play;
     # token presence is the fallback for a run that skipped Vantage 1.
     - name: "Resolve whether the edge should be up"
       ansible.builtin.set_fact:
         _v2_edge_up: >-
-          {{ (_infra_edge_up
+          {{ (_cf_edge_up
               | default((cloudflare_api_token | default('')) | length > 0)
               | bool)
              and not (catena_public_surface_deferred | default(false) | bool) }}
