@@ -62,6 +62,14 @@ dispatcher (the two scripts' text). Output: one JSON object on stdout, {"ok",
 "changed", "generation", "wrote", "summary"}, and exit 0 whatever the verdict;
 the caller asserts on it. "wrote" is every path this run created, changed or
 removed, which the converge's drift report leaves out.
+
+With the argument --verify the same input is checked and nothing is written
+("wrote" stays empty). The verdict is ok only when the panel's public key may
+go in authorized_keys, the panel's line runs this tree's generation and is
+the file's only key line, that
+generation's directory is intact, the link points at its dispatcher, the main
+sudo and AcceptEnv files hold its rules, no -next file, other generation or
+proof key directory is left, and the panel's key proves the path.
 """
 from __future__ import annotations
 
@@ -545,25 +553,38 @@ def prove_beside(host: Host, cfg: dict, gen: str, keys_file: RunnerKeys,
 
 # --- the switch ---------------------------------------------------------------
 
+def _verdict(host: Host, gen: str) -> Callable[[bool, str], dict]:
+    def verdict(ok: bool, summary: str) -> dict:
+        return {"ok": ok, "changed": bool(host.wrote), "generation": gen,
+                "wrote": sorted(set(host.wrote)), "summary": summary}
+    return verdict
+
+
+def panel_public_key(host: Host, panel_key: str) -> tuple[str, str]:
+    """The panel's public key text and why it may not go in the runner's
+    authorized_keys; the problem is "" when it may."""
+    pub = (host.read(f"{panel_key}.pub") or "").strip()
+    if not key_blob(pub):
+        return pub, (f"the panel's public key {panel_key}.pub is missing or empty; "
+                     "the install writes it")
+    if not PANEL_KEY.fullmatch(pub):
+        return pub, (f"the panel's public key {panel_key}.pub is not exactly one "
+                     "ssh-ed25519 line, so it is not put in the runner's authorized_keys")
+    return pub, ""
+
+
 def switch(cfg: dict, host: Host) -> dict:
     problem = passthrough_problem(cfg["passthrough"])
     if problem:
         return {"ok": False, "changed": False, "generation": "", "wrote": [], "summary": problem}
     gen = generation(cfg)
     panel_key = f"{cfg['panel_key_dir']}/id_ed25519"
+    verdict = _verdict(host, gen)
 
-    def verdict(ok: bool, summary: str) -> dict:
-        return {"ok": ok, "changed": bool(host.wrote), "generation": gen,
-                "wrote": sorted(set(host.wrote)), "summary": summary}
-
-    panel_pub = (host.read(f"{panel_key}.pub") or "").strip()
+    panel_pub, problem = panel_public_key(host, panel_key)
+    if problem:
+        return verdict(False, problem)
     blob = key_blob(panel_pub)
-    if not blob:
-        return verdict(False, f"the panel's public key {panel_key}.pub is missing or empty; "
-                              "the install writes it")
-    if not PANEL_KEY.fullmatch(panel_pub):
-        return verdict(False, f"the panel's public key {panel_key}.pub is not exactly one "
-                              "ssh-ed25519 line, so it is not put in the runner's authorized_keys")
     try:
         keys = RunnerKeys(host, cfg["runner_home"], cfg["runner_user"])
     except Refused as e:
@@ -702,6 +723,61 @@ def _retire(host: Host, path: Rendered, keys: RunnerKeys) -> None:
         shutil.rmtree(stale, ignore_errors=True)
 
 
+# --- the check ----------------------------------------------------------------
+
+def verify(cfg: dict, host: Host) -> dict:
+    """Whether the panel dispatches through this tree's generation and nothing
+    else is open, written to no file. Every state problem is named; the proof
+    dispatches only when the state is right."""
+    problem = passthrough_problem(cfg["passthrough"])
+    if problem:
+        return {"ok": False, "changed": False, "generation": "", "wrote": [], "summary": problem}
+    gen = generation(cfg)
+    panel_key = f"{cfg['panel_key_dir']}/id_ed25519"
+    verdict = _verdict(host, gen)
+
+    panel_pub, problem = panel_public_key(host, panel_key)
+    if problem:
+        return verdict(False, problem)
+    try:
+        keys = RunnerKeys(host, cfg["runner_home"], cfg["runner_user"])
+        try:
+            keys_text = keys.read()
+        finally:
+            keys.close()
+    except Refused as e:
+        return verdict(False, str(e))
+    path = Rendered(cfg, gen, panel_key, panel_pub)
+
+    problems = []
+    running = running_generation(line_for(keys_text, key_blob(panel_pub)))
+    if running != gen:
+        problems.append(f"the panel's key line runs {describe(running)}, not generation {gen}")
+    elif keys_text != path.panel_keys:
+        problems.append(f"{keys.path} holds more than the panel's line for generation {gen}")
+    if not host.generation_intact(gen, {"entry": path.entry, "dispatcher": path.dispatcher}):
+        problems.append(f"generation {gen}'s directory is not exactly this tree's two executables")
+    link = host.at(cfg["link"])
+    if not link.is_symlink() or os.readlink(link) != dispatcher_path(gen):
+        problems.append(f"{cfg['link']} is not a link to generation {gen}'s dispatcher")
+    for rule_path, text in ((SUDOERS, path.rule), (ACCEPTENV, path.accept)):
+        if host.read(rule_path) != text:
+            problems.append(f"{rule_path} does not hold generation {gen}'s rule")
+    for left in (SUDOERS_NEXT, ACCEPTENV_NEXT):
+        if host.at(left).exists() or host.at(left).is_symlink():
+            problems.append(f"{left} is left from a switch that did not finish")
+    if host.generations() != [gen]:
+        problems.append(f"the generation directories are {host.generations()}, not only {gen}")
+    if list(host.at(PROOF_KEY_PARENT).glob("catena-dispatch-proof.*")):
+        problems.append(f"a proof key directory is left under {PROOF_KEY_PARENT}")
+    if not problems:
+        problems = prove(host, cfg, panel_key, gen)
+    if problems:
+        return verdict(False, "; ".join(problems))
+    return verdict(True, f"the panel dispatches through generation {gen}, proven, and "
+                         "nothing else is open")
+
+
 def main() -> int:
     try:
         cfg = json.load(sys.stdin)
@@ -709,7 +785,7 @@ def main() -> int:
         print(json.dumps({"ok": False, "changed": False, "generation": "", "wrote": [],
                           "summary": f"the input is not JSON: {e}"}))
         return 0
-    print(json.dumps(switch(cfg, Host())))
+    print(json.dumps((verify if sys.argv[1:] == ["--verify"] else switch)(cfg, Host())))
     return 0
 
 

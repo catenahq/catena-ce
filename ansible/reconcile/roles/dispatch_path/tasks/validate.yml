@@ -1,0 +1,10 @@
+---
+# Validation tasks for reconcile/roles/dispatch_path, run by playbooks/validate.yml via
+# include_role: tasks_from: validate. Read-only: helpers/dispatch_path.py --verify
+# takes the input the switch takes and writes nothing.
+
+- name: "validate/dispatch_path: check the running generation and what the role closes"
+  ansible.builtin.include_tasks: _run_helper.yml
+  vars:
+    _dispatch_path_label: "validate/dispatch_path"
+    _dispatch_path_argv: [python3, "{{ playbook_dir }}/../helpers/dispatch_path.py", --verify]

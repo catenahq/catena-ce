@@ -46,6 +46,9 @@ ends on this role's own render.
   itself) include. Both reach the two shared task files through the service
   roles.
 
+`tasks/validate.yml` checks the modes of `/etc/catena/stacks` and `tier1.yml`,
+and that `docker stack config` loads the file with every required service.
+
 ## Related
 
 - Callers: the `traefik` and `postgres` roles, beside this one in

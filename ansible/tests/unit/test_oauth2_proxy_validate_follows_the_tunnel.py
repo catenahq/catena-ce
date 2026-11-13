@@ -43,18 +43,18 @@ def test_the_edge_needs_the_token_and_the_engine():
     assert "_cf_sync_present" in edge
 
 
-def test_the_validate_play_reads_the_infrastructure_verdict():
-    """The tunnel role is not in the validate play, so _cf_sync_present is
-    undefined there and would default to present, making the probe wait on
-    an edge the converge deferred. infrastructure's validate runs first in
-    that play and has already decided."""
-    assert "default(_infra_edge_up" in _edge()
+def test_the_validate_play_reads_the_tunnel_verdict():
+    """The tunnel role's main tasks are not in the validate play, so
+    _cf_sync_present is undefined there and would default to present, making
+    the probe wait on an edge the converge deferred. cloudflare_tunnel's
+    validate runs first in that play and has already decided."""
+    assert "default(_cf_edge_up" in _edge()
 
 
-def test_a_play_with_neither_role_still_validates():
+def test_a_play_with_neither_fact_still_validates():
     """Neither fact defined must read as present, or validation would be off
     on a host whose edge is up."""
-    assert "_infra_edge_up | default(true)" in _edge()
+    assert "_cf_edge_up | default(true)" in _edge()
 
 
 def test_a_host_with_no_domain_has_no_edge_to_probe():
@@ -88,25 +88,44 @@ def test_the_infrastructure_edge_gate_also_follows_the_tunnel():
         "a gate still reads the token-only fact")
 
 
-INFRA_VALIDATE = INFRA_MAIN.parent / "validate.yml"
+TUNNEL_VALIDATE = (
+    Path(__file__).resolve().parents[2]
+    / "reconcile" / "roles" / "cloudflare_tunnel" / "tasks" / "validate.yml"
+)
 PLAYBOOK_VALIDATE = Path(__file__).resolve().parents[2] / "playbooks" / "validate.yml"
 
 
 def test_the_standalone_validate_asks_whether_the_engine_is_here():
     """A converge that defers the edge is followed by the install's validate,
     which must not assert cloudflared 1/1 just because a token exists."""
-    tasks = yaml.safe_load(INFRA_VALIDATE.read_text())
+    tasks = yaml.safe_load(TUNNEL_VALIDATE.read_text())
     edge = next(t for t in tasks
                 if "resolve whether the edge should be up" in (t.get("name") or ""))
-    assert "catena_payload_missing" in edge["ansible.builtin.set_fact"]["_infra_edge_up"]
+    assert "catena_payload_missing" in edge["ansible.builtin.set_fact"]["_cf_edge_up"]
     for t in tasks:
-        if "cloudflared" in (t.get("name") or ""):
-            assert "_infra_edge_up" in str(t.get("when")), t["name"]
+        if "cloudflared" in (t.get("name") or "") and "deferred" not in t["name"]:
+            assert "_cf_edge_up" in str(t.get("when")), t["name"]
+
+
+def test_the_cloudflared_service_publishes_no_port():
+    """The tunnel only dials out. Read from the service spec, as traefik's
+    validate does, and only while the edge is up: a deferred tunnel has no
+    service to inspect."""
+    tasks = yaml.safe_load(TUNNEL_VALIDATE.read_text())
+    inspect = next(t for t in tasks if t.get("name", "").endswith(": published ports"))
+    cmd = inspect["ansible.builtin.command"]
+    assert "docker service inspect cloudflared" in cmd
+    assert "Spec.EndpointSpec.Ports" in cmd
+    check = next(t for t in tasks if t.get("name", "").endswith("cloudflared publishes no port"))
+    assert "['[]', 'null']" in " ".join(check["ansible.builtin.assert"]["that"])
+    for t in (inspect, check):
+        assert "_cf_edge_up" in str(t.get("when")), t["name"]
 
 
 def test_the_via_tunnel_probes_follow_the_edge():
     text = PLAYBOOK_VALIDATE.read_text()
-    assert "_infra_edge_up" in text
+    assert "_cf_edge_up" in text
+    assert "_infra_edge_up" not in text
     for name in ("Tunnel probes deferred", "Probe Keycloak (auth.<zone>)",
                  "Build gated-host probe set"):
         block = text[text.index(name):]
@@ -118,8 +137,8 @@ def test_every_edge_verdict_defers_on_a_missing_domain():
     """The three places that decide whether the edge is up each count a host
     with no domain as deferred, or a tokened install without a zone probes
     https://auth./ and fails."""
-    infra_validate = next(
-        t for t in yaml.safe_load(INFRA_VALIDATE.read_text())
+    tunnel_validate = next(
+        t for t in yaml.safe_load(TUNNEL_VALIDATE.read_text())
         if "resolve whether the edge should be up" in (t.get("name") or ""))
     infra_main = next(t for t in yaml.safe_load(INFRA_MAIN.read_text())
                       if t.get("name") == "Resolve the tunnel-deferred gate")
@@ -127,7 +146,7 @@ def test_every_edge_verdict_defers_on_a_missing_domain():
                   if p["name"].startswith("Vantage 2"))
     play = next(t for t in access["tasks"]
                 if t.get("name") == "Resolve whether the edge should be up")
-    for expr in (infra_validate["ansible.builtin.set_fact"]["_infra_edge_up"],
+    for expr in (tunnel_validate["ansible.builtin.set_fact"]["_cf_edge_up"],
                  infra_main["ansible.builtin.set_fact"]["_infra_edge_up"],
                  play["ansible.builtin.set_fact"]["_v2_edge_up"]):
         assert "not (catena_public_surface_deferred" in expr, expr

@@ -80,6 +80,11 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   route). The test bench renders its argv from the same filter plugin when it
   recreates a panel a scenario removed.
 
+`tasks/validate.yml` checks the lane files' modes (the update lane's 0600),
+that the managed-services list and the UI port fragment parse and the port is
+loopback only, the catalog files and the root-only overlay directory, and that
+the panel service is 1/1.
+
 ## What this role does NOT do
 
 - It does **not** create a Keycloak realm client. The admin sits

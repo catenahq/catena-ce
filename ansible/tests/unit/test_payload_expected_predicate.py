@@ -50,10 +50,12 @@ CALLERS = {
     # inside systemd on ModuleNotFoundError.
     "reconcile/roles/infrastructure/tasks/dashboard_sync.yml":
         ["{{ dashboard_sync_required_paths }}"],
+    "reconcile/roles/public_ports/tasks/validate.yml":
+        [["/etc/systemd/system/catena-public-ports.service"]],
     # Two questions, asked apart: whether the tunnel engine is expected (the
     # cloudflared and via-tunnel checks), and whether the reconciler is.
+    "reconcile/roles/cloudflare_tunnel/tasks/validate.yml": [["{{ cloudflared_sync_bin }}"]],
     "reconcile/roles/infrastructure/tasks/validate.yml": [
-        ["{{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }}"],
         "{{ dashboard_sync_required_paths }}",
     ],
 }

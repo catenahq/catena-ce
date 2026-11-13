@@ -40,6 +40,10 @@ passes none and does not check for one:
   later against an edge nobody configured. A host whose engines were staged
   out of band defers.
 
+`tasks/validate.yml` resolves whether the edge should be up (`_cf_edge_up`: a
+token, a domain and the engine on the host), then checks that the
+`cloudflared` swarm service runs 1/1 and publishes no port.
+
 ## Position in the converge
 
 The role runs after `reconcile/roles/payload` (the engine) and
