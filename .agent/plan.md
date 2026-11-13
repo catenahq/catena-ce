@@ -19,19 +19,19 @@
 
 ## Steps
 
-1. [Open] Filter `ansible/playbooks/filter_plugins/swarm_deploy_retry.py`: `swarm_deploy_transient(rc, output,
+1. [Done] Filter `ansible/playbooks/filter_plugins/swarm_deploy_retry.py`: `swarm_deploy_transient(rc, output,
    tasks, converged=False)`. rc 124 is transient only when the per-task state shows a task Preparing, a pull error
    or a registry transient; other rcs keep the registry/daemon transient patterns over output and task state.
-2. [Open] `_swarm_stack_deploy_attempt.yml`: the classifier calls the filter; the retry line and the fail-hard
+2. [Done] `_swarm_stack_deploy_attempt.yml`: the classifier calls the filter; the retry line and the fail-hard
    message carry the per-task state; the fail-hard message names a timeout with no pull as its cause.
-3. [Open] `swarm_stack.yml`: the exhausted-attempts message carries the last attempt's rc, stderr and per-task
+3. [Done] `swarm_stack.yml`: the exhausted-attempts message carries the last attempt's rc, stderr and per-task
    state. Task names unchanged (`test_infra_data_copy.py` reads one).
-4. [Open] `defaults/main.yml` comment on `swarm_stack_deploy_timeout`.
-5. [Open] Tests: new `ansible/tests/unit/test_swarm_deploy_retry.py` (filter behaviour + wiring + message);
+4. [Done] `defaults/main.yml` comment on `swarm_stack_deploy_timeout`.
+5. [Done] Tests: new `ansible/tests/unit/test_swarm_deploy_retry.py` (filter behaviour + wiring + message);
    `test_swarm_deploy_is_bounded.py` and `test_swarm_addr_conflict_reclaim.py` move their pattern checks onto the
    filter.
-6. [Open] Gates: the touched unit tests, `test_filter_references_resolve.py`, prose, unicode, core-app-names.
-7. [Open] Review (fleet:code-reviewer), commit.
+6. [Done] Gates: the touched unit tests, `test_filter_references_resolve.py`, prose, unicode, core-app-names.
+7. [Done] Review (fleet:code-reviewer: three comment fixes, applied), commit a3007ccd.
 
 ## Bench
 
