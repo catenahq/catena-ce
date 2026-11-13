@@ -54,28 +54,7 @@
   changed_when: >-
     'Successfully installed' in (_ansible_runtime_pip.stdout | default(''))
 
-# Prove it runs before anything depends on it. A venv whose pip succeeded and
-# whose ansible-playbook cannot start is a failure this role can see and the
-# converge engine cannot: by then it is a transient systemd unit on a host
-# nobody is watching.
-- name: "ansible runtime: the interpreter answers"
-  ansible.builtin.command:
-    argv:
-      - "{{ ansible_runtime_dir }}/bin/ansible-playbook"
-      - --version
-  register: _ansible_runtime_version
-  changed_when: false
-
-- name: "ansible runtime: and it is new enough for the reconcile to accept"
-  ansible.builtin.assert:
-    that:
-      - _ansible_runtime_version.stdout is search('core ' ~ ansible_runtime_minimum)
-        or (_ansible_runtime_version.stdout
-            | regex_search('core ([0-9]+\\.[0-9]+)', '\\1') | first
-            is version(ansible_runtime_minimum, '>='))
-    fail_msg: >-
-      {{ ansible_runtime_dir }} installed an ansible-core below
-      {{ ansible_runtime_minimum }}, which playbooks/reconcile.yml refuses.
-      Installed: {{ _ansible_runtime_version.stdout_lines | first | default('nothing') }}.
-      The host would take the engines and then decline to run them, which is a
-      worse state than not having installed it at all.
+# The interpreter answers and is new enough: tasks/validate.yml, which
+# playbooks/validate.yml runs too.
+- name: "ansible runtime: prove the venv runs"
+  ansible.builtin.include_tasks: validate.yml

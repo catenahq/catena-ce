@@ -17,8 +17,10 @@
 #         - { path: /usr/local/bin/restic, mode: "0755" }
 #
 # Each entry: path (required); type ('file'|'directory', optional --
-# omit to skip the type check); owner / group / mode (optional). Bundle
-# every predicate for one path into a single assert so the failure
+# omit to skip the type check); owner / group / mode (optional); uid / gid
+# (optional, numeric, compared as integers: stat sets no owner or group name
+# for an id with no passwd or group entry, such as the container's 65532).
+# Bundle every predicate for one path into a single assert so the failure
 # output names the path, not the field.
 
 - name: "validate: stat fixture paths"
@@ -37,12 +39,16 @@
       - (item.item.owner is not defined) or (item.stat.pw_name == item.item.owner)
       - (item.item.group is not defined) or (item.stat.gr_name == item.item.group)
       - (item.item.mode is not defined) or (item.stat.mode == item.item.mode)
+      - (item.item.uid is not defined) or (item.stat.uid == item.item.uid | int)
+      - (item.item.gid is not defined) or (item.stat.gid == item.item.gid | int)
     fail_msg: >-
       {{ item.item.path }}: exists={{ item.stat.exists }}
       isdir={{ item.stat.isdir | default('n/a') }}
       isreg={{ item.stat.isreg | default('n/a') }}
       owner={{ item.stat.pw_name | default('n/a') }}
       group={{ item.stat.gr_name | default('n/a') }}
+      uid={{ item.stat.uid | default('n/a') }}
+      gid={{ item.stat.gid | default('n/a') }}
       mode={{ item.stat.mode | default('n/a') }}
       -- expected {{ item.item }}
   loop: "{{ _assert_path_stats.results }}"

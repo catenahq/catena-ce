@@ -1,0 +1,155 @@
+---
+# Validation tasks for bootstrap/roles/catena_admin_host, run by
+# playbooks/validate.yml via include_role: tasks_from: validate. Read-only.
+
+# --- The two accounts ---------------------------------------------------
+- name: "validate/catena_admin_host: the accounts to check"
+  ansible.builtin.set_fact:
+    _cah_accounts:
+      - { user: "{{ catena_admin_runner_user }}", shell: /bin/bash, home: "{{ catena_admin_runner_home }}" }
+      - { user: "{{ catena_migrate_user }}", shell: /bin/sh, home: "{{ catena_migrate_home }}" }
+
+- name: "validate/catena_admin_host: read both accounts"
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ item.user }}"
+  register: _cah_found
+  loop: "{{ _cah_accounts }}"
+  loop_control:
+    label: "{{ item.user }}"
+  failed_when: false
+  changed_when: false
+
+- name: "validate/catena_admin_host: the accounts exist with their shell and home"
+  ansible.builtin.assert:
+    that:
+      - item.item.user in (item.ansible_facts.getent_passwd | default({}))
+      - item.ansible_facts.getent_passwd[item.item.user][4] == item.item.home
+      - item.ansible_facts.getent_passwd[item.item.user][5] == item.item.shell
+    fail_msg: >-
+      {{ item.item.user }} must exist with shell {{ item.item.shell }} and home
+      {{ item.item.home }} (`getent passwd {{ item.item.user }}` shows what is
+      there). The runner is how the panel's dispatch signs in and the migration account
+      is how a server taking this one over does; without either, that sign-in
+      fails.
+  loop: "{{ _cah_found.results }}"
+  loop_control:
+    label: "{{ item.item.user }}"
+
+# `!` locks an account and sshd then refuses its key; `*` is "no password"
+# without the lock.
+- name: "validate/catena_admin_host: read both accounts' shadow entries"
+  ansible.builtin.getent:
+    database: shadow
+    key: "{{ item.user }}"
+  register: _cah_shadow
+  loop: "{{ _cah_accounts }}"
+  loop_control:
+    label: "{{ item.user }}"
+  failed_when: false
+  changed_when: false
+
+- name: "validate/catena_admin_host: neither account is locked"
+  ansible.builtin.assert:
+    that:
+      - item.item.user in (item.ansible_facts.getent_shadow | default({}))
+      - item.ansible_facts.getent_shadow[item.item.user][0] == '*'
+    fail_msg: >-
+      {{ item.item.user }} must have `*` as its shadow password. Anything else,
+      `!` above all, makes sshd refuse the account's key with "account is
+      locked", and every sign-in through it fails.
+  loop: "{{ _cah_shadow.results }}"
+  loop_control:
+    label: "{{ item.item.user }}"
+
+# --- Paths ----------------------------------------------------------------
+# The container's uid has no passwd entry, so its paths are checked by number.
+- name: "validate/catena_admin_host: the dirs, keys and config on the host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: "{{ catena_admin_runner_home }}/.ssh", type: directory, owner: "{{ catena_admin_runner_user }}", group: "{{ catena_admin_runner_user }}", mode: "0700" }
+      - { path: /etc/catena, type: directory, owner: root, group: root, mode: "0755" }
+      - { path: "{{ catena_migrate_home }}", type: directory, owner: root, group: root, mode: "0755" }
+      - { path: "{{ catena_admin_host_ssh_dir }}", type: directory, uid: "{{ catena_container_uid }}", gid: "{{ catena_container_gid }}", mode: "0700" }
+      - { path: "{{ catena_admin_host_ssh_dir }}/id_ed25519", type: file, uid: "{{ catena_container_uid }}", gid: "{{ catena_container_gid }}", mode: "0600" }
+      - { path: "{{ catena_admin_host_ssh_dir }}/id_ed25519.pub", type: file, uid: "{{ catena_container_uid }}", gid: "{{ catena_container_gid }}", mode: "0600" }
+      - { path: "{{ catena_admin_host_ssh_dir }}/known_hosts", type: file, uid: "{{ catena_container_uid }}", gid: "{{ catena_container_gid }}", mode: "0644" }
+      - { path: "{{ catena_admin_host_ssh_dir }}/config", type: file, uid: "{{ catena_container_uid }}", gid: "{{ catena_container_gid }}", mode: "0644" }
+      - { path: "{{ catena_admin_stats_dir }}", type: directory, owner: root, group: root, mode: "0755" }
+      - { path: "{{ catena_admin_state_dir }}", type: directory, uid: "{{ catena_container_uid }}", gid: "{{ catena_container_gid }}", mode: "0700" }
+      - { path: "{{ catena_export_dir }}", type: directory, owner: root, gid: "{{ catena_export_dir_group }}", mode: "{{ catena_export_dir_mode }}" }
+      - { path: /etc/ssh/sshd_config.d/31-catena-migrate.conf, type: file, owner: root, group: root, mode: "0644" }
+
+# --- The host key the panel trusts ---------------------------------------
+- name: "validate/catena_admin_host: read known_hosts and the ssh client config"
+  ansible.builtin.slurp:
+    src: "{{ catena_admin_host_ssh_dir }}/{{ item }}"
+  register: _cah_ssh_files
+  loop: [known_hosts, config]
+
+- name: "validate/catena_admin_host: known_hosts holds the host key under the alias the panel dials"
+  ansible.builtin.assert:
+    that:
+      - _known_hosts | length > 0
+      - _known_hosts | reject('match', '^host\.docker\.internal ssh-ed25519 ') | list | length == 0
+    fail_msg: >-
+      {{ catena_admin_host_ssh_dir }}/known_hosts must hold at least one line
+      and every line must start with `host.docker.internal ssh-ed25519 `, the
+      name the panel's container connects to. An empty file or another name
+      means every panel action dies on host key verification. Lines found:
+      {{ _known_hosts }}.
+  vars:
+    _known_hosts: >-
+      {{ (_cah_ssh_files.results[0].content | b64decode).splitlines()
+         | map('trim') | reject('equalto', '') | list }}
+
+- name: "validate/catena_admin_host: the ssh client config verifies the host key"
+  ansible.builtin.assert:
+    that:
+      - (_cah_ssh_files.results[1].content | b64decode) is search('(?m)^\s*StrictHostKeyChecking yes\s*$')
+    fail_msg: >-
+      {{ catena_admin_host_ssh_dir }}/config must hold `StrictHostKeyChecking
+      yes`. Without it the panel's dispatch would accept any host key at that
+      address.
+
+# --- What the migration account is allowed to do --------------------------
+# What sshd resolves for the account, not the drop-in's text: a drop-in sshd
+# does not read, or a keyword an earlier file already set, passes a text check
+# and leaves the account open. sshd -T prints lowercase keywords, one
+# `keyword value` per line.
+- name: "validate/catena_admin_host: sshd's rules for the migration account"
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/sshd
+      - -T
+      - -C
+      - "user={{ catena_migrate_user }},host=localhost,addr=127.0.0.1"
+  register: _cah_migrate_sshd
+  changed_when: false
+
+- name: "validate/catena_admin_host: the migration account can only run the lane's pipe"
+  ansible.builtin.assert:
+    that:
+      - _missing | length == 0
+    fail_msg: >-
+      sshd does not resolve these rules for {{ catena_migrate_user }}:
+      {{ _missing }}. The account must read only the open window's key file,
+      run only the pipe to the migration lane's socket, and get no tty,
+      forwarding, tunnel or user rc, or a key for it opens more than the
+      migration.
+  vars:
+    _wanted:
+      - "authorizedkeysfile {{ catena_migrate_grant_file }}"
+      - "forcecommand {{ catena_migrate_connect }}"
+      - "authorizedkeyscommand none"
+      - "permittty no"
+      - "allowtcpforwarding no"
+      - "allowstreamlocalforwarding no"
+      - "allowagentforwarding no"
+      - "x11forwarding no"
+      - "permittunnel no"
+      - "permituserrc no"
+    _missing: "{{ _wanted | difference(_cah_migrate_sshd.stdout_lines) }}"
