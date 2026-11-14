@@ -17,6 +17,10 @@ This role owns what belongs to the host: the fragment directory, the
 converge when the payload it follows has no reconciler, because that host
 would publish its restricted ports unguarded.
 
+`tasks/validate.yml` checks the fragment directory (root:root 0755) and the
+docker drop-in, and, when the payload is expected, that the reconciler unit is
+installed and its timer is enabled and active.
+
 ## Where its variables live
 
 `public_ports_fragment_dir` is in `playbooks/group_vars/all/main.yml`, not

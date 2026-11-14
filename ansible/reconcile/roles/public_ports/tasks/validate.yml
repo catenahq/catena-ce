@@ -1,0 +1,85 @@
+---
+# Validation tasks for reconcile/roles/public_ports, run by
+# playbooks/validate.yml via include_role: tasks_from: validate.
+
+# Root alone declares a port: a fragment another account could write would let
+# it open a port the firewall closes.
+- name: "validate/public_ports: the fragment dir and the docker drop-in"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: "{{ public_ports_fragment_dir }}", type: directory, owner: root, group: root, mode: "0755" }
+      - { path: /etc/systemd/system/docker.service.d/30-catena-public-ports.conf, type: file, owner: root, group: root, mode: "0644" }
+
+- name: "validate/public_ports: read the docker drop-in"
+  ansible.builtin.slurp:
+    src: /etc/systemd/system/docker.service.d/30-catena-public-ports.conf
+  register: _pp_val_dropin
+
+- name: "validate/public_ports: docker start re-applies the rules"
+  ansible.builtin.assert:
+    that:
+      - "'systemctl start catena-public-ports.service' in (_pp_val_dropin.content | b64decode)"
+    fail_msg: >-
+      The docker.service drop-in does not start catena-public-ports.service.
+      Docker recreates DOCKER-USER empty on every start, so after a restart or
+      a reboot every restricted docker-published port is open.
+
+# The reconciler ships in the payload, so whether it is expected here is the
+# shared predicate's answer.
+- name: "validate/public_ports: is the reconciler expected here"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - /etc/systemd/system/catena-public-ports.service
+
+- name: "validate/public_ports: pin the reconciler decision"
+  ansible.builtin.set_fact:
+    _pp_val_expected: "{{ catena_payload_expected | bool }}"
+    _pp_val_present: "{{ catena_payload_missing | length == 0 }}"
+
+- name: "validate/public_ports: the reconciler is missing"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/catena-public-ports.service is not on this host. The
+      payload that installed here has no public-port reconciler, so no declared
+      port is applied and every restricted docker-published port is open.
+  when:
+    - _pp_val_expected | bool
+    - not (_pp_val_present | bool)
+
+- name: "validate/public_ports: reconciler not staged yet -- timer checks deferred"
+  ansible.builtin.debug:
+    msg: >-
+      /etc/systemd/system/catena-public-ports.service is not on this host and
+      this deployment does not install the payload from the converge
+      (CATENA_PAYLOAD_INSTALL=false). It arrives with the payload install, and
+      the converge that follows enables its timer.
+  when:
+    - not (_pp_val_expected | bool)
+    - not (_pp_val_present | bool)
+
+- name: "validate/public_ports: the timer's state"
+  ansible.builtin.command: "systemctl {{ item }} catena-public-ports.timer"  # noqa: command-instead-of-module
+  register: _pp_val_timer
+  loop: [is-enabled, is-active]
+  changed_when: false
+  failed_when: false
+  when: _pp_val_present | bool
+
+- name: "validate/public_ports: the reconciler's timer is enabled and active"
+  ansible.builtin.assert:
+    that:
+      - "(item.stdout | trim) == {'is-enabled': 'enabled', 'is-active': 'active'}[item.item]"
+    fail_msg: >-
+      catena-public-ports.timer {{ item.item }} answers
+      {{ item.stdout | trim | default('nothing', true) }}. Nothing re-applies the
+      declared ports between converges.
+  loop: "{{ _pp_val_timer.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: _pp_val_present | bool

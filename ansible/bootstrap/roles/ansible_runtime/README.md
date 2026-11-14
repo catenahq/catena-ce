@@ -25,8 +25,12 @@ run a converge that nobody audited.
 
 ## The version is checked twice
 
-Here, after installing, because a venv whose `pip` succeeded and whose
-`ansible-playbook` cannot start is a failure this role can see. And again in
+In `tasks/validate.yml`, which `tasks/main.yml` includes after installing and
+`playbooks/validate.yml` runs again, because a venv whose `pip` succeeded and
+whose `ansible-playbook` cannot start is a failure this role can see. And in
 `playbooks/reconcile.yml`, because the host that runs a reconcile a year from
 now is running whatever it was given then -- `ansible_runtime_spec` is what to
 install, `ansible_runtime_minimum` is what may run.
+
+`tasks/validate.yml` also asserts the venv and its `bin` are root-owned and
+0755, so nothing but root can change the ansible-core a root reconcile runs.

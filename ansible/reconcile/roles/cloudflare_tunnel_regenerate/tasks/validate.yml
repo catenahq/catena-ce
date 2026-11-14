@@ -1,0 +1,60 @@
+---
+# Validation tasks for reconcile/roles/cloudflare_tunnel_regenerate.
+#
+# What a rotation closes is the tunnel it replaced: it lists this host's tunnels
+# by name before it deletes, so a rotation leaves the host one tunnel. This asks
+# the Cloudflare API the same question the role asks, through the same task
+# files, and reads the answer without deleting anything.
+
+- name: "validate/cloudflare_tunnel_regenerate: read the store"
+  ansible.builtin.include_tasks: _read_store.yml
+
+- name: "validate/cloudflare_tunnel_regenerate: no token or zone in the store -- tunnel lookup deferred"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping the Cloudflare tunnel lookup -- the tunnel is deferred
+      ({{ 'no Cloudflare token in the on-box store yet'
+          if (_cf_regen_api_token | length) == 0
+          else 'no domain in the on-box store yet' }}).
+  when: (_cf_regen_api_token | length) == 0 or (_cf_regen_zone | length) == 0
+
+- name: "validate/cloudflare_tunnel_regenerate: list the tunnels named for this host"
+  ansible.builtin.include_tasks: _list_tunnels.yml
+  when:
+    - (_cf_regen_api_token | length) > 0
+    - (_cf_regen_zone | length) > 0
+
+# The fail_msg names the ids and creation dates the list returned, never the
+# token or the call's headers.
+- name: "validate/cloudflare_tunnel_regenerate: at most one live tunnel carries this host's name"
+  ansible.builtin.assert:
+    that:
+      - _cf_regen_list.json.result | length <= 1
+    fail_msg: >-
+      Cloudflare holds {{ _cf_regen_list.json.result | length }} live tunnels
+      named {{ cloudflared_tunnel_name }}; a rotation leaves one:
+      {% for t in _cf_regen_list.json.result %}{{ t.id }} (created {{ t.created_at | default('?') }}){{ '; ' if not loop.last else '.' }}{% endfor %}
+  run_once: true
+  delegate_to: localhost
+  become: false
+  when:
+    - (_cf_regen_api_token | length) > 0
+    - (_cf_regen_zone | length) > 0
+
+# cloudflare_tunnel's validate runs first and sets _cf_edge_up; a play without it
+# keeps the check on.
+- name: "validate/cloudflare_tunnel_regenerate: exactly one live tunnel while the edge is up"
+  ansible.builtin.assert:
+    that:
+      - _cf_regen_list.json.result | length == 1
+    fail_msg: >-
+      The edge is up but Cloudflare holds {{ _cf_regen_list.json.result | length }}
+      live tunnels named {{ cloudflared_tunnel_name }}; expected exactly one:
+      {% for t in _cf_regen_list.json.result %}{{ t.id }} (created {{ t.created_at | default('?') }}){{ '; ' if not loop.last else '.' }}{% endfor %}
+  run_once: true
+  delegate_to: localhost
+  become: false
+  when:
+    - (_cf_regen_api_token | length) > 0
+    - (_cf_regen_zone | length) > 0
+    - _cf_edge_up | default(true) | bool

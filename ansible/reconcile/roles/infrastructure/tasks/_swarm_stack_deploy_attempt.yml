@@ -1,9 +1,10 @@
 ---
 # One deploy attempt for a swarm stack. Caller (swarm_stack.yml) wraps this
 # in a loop with `when: not _swarm_deploy_done`. On success it sets that
-# fact true; on a registry-transient failure (quay.io / docker.io / ghcr.io
-# 5xx during image pull) it leaves it false so the next iteration retries.
-# On a non-transient failure it fails the play immediately.
+# fact true; on a transient failure (playbooks/filter_plugins/
+# swarm_deploy_retry.py says which) it leaves it false so the next iteration
+# retries. On any other failure it fails the play immediately, with the
+# per-task state.
 #
 # Self-reconciling by construction: `docker stack deploy` is a converge, not
 # a create. A retry after a partial deploy updates the services that exist
@@ -19,7 +20,9 @@
 # lets it return, so the attempt is bounded by `timeout`. Without a bound the
 # retry envelope below is unreachable: the loop that classifies pull failures
 # as transient and retries them cannot start attempt 2 while attempt 1 is
-# still waiting on the pull that is failing.
+# still waiting on the pull that is failing. A timeout with no pull in the
+# per-task state is not retried: a crash loop or an unplaceable task waits the
+# same way on every attempt.
 #
 # Caller must have set:
 #   svc_name, swarm_stack_dir
@@ -89,8 +92,9 @@
     # -- a task ID, not a reason. The reason lives in that task's Error field
     # and nowhere else. Classifying on the deploy's own output alone therefore
     # cannot see it, and a textbook transient
-    # ("failed to set up container networking: Address already in use", already
-    # in the pattern list below AND with a reclaim step written for it) would
+    # ("failed to set up container networking: Address already in use", in the
+    # transient list of playbooks/filter_plugins/swarm_deploy_retry.py AND
+    # with a reclaim step below) would
     # fail the play instead of retrying, while the very next task on the same
     # service comes up Running.
     #
@@ -153,34 +157,17 @@
       until: "'pending=0' in (_swarm_converged_probe.stdout | default(''))"
       when: (_swarm_deploy.stderr | default('')) is search('update paused')
 
-    # The registry/daemon transient classes -- a transient during image pull
-    # taints the deploy; retrying re-pulls cleanly. Matched against stdout AND
-    # stderr AND the per-task errors above: `docker stack deploy --detach=false`
-    # reports some per-task errors on stdout in its progress stream, CLI-level
-    # failures on stderr, and a paused update's cause on neither.
-    #
-    # rc=124 is `timeout` killing the attempt, and it is transient BY
-    # CONSTRUCTION rather than by pattern: the deploy blocks until every task
-    # converges, so hitting the bound means a task was still trying. The text
-    # is the wrong thing to read there -- a killed progress stream carries
-    # whatever it had printed, which on a stalled pull is nothing.
-    #
-    # A swarm manager that misses its own deadline answers in one of two
-    # forms: "context deadline exceeded", or the gRPC status
-    # "code = DeadlineExceeded" (seen on a manager still reconciling the tasks
-    # a snapshot restore brought back). "update out of sequence" follows
-    # either: the timed-out update still commits once the manager catches up,
-    # so the retry sends a stale spec version. The attempt after it re-reads
-    # the version and succeeds.
+    # Transient or not, from the deploy's stdout and stderr, the per-task
+    # state above and the convergence probe: playbooks/filter_plugins/
+    # swarm_deploy_retry.py holds the rules. A timeout (rc 124) counts only
+    # while the per-task state shows an image pull that has not finished.
     - name: "Swarm: detect transient in deploy output ({{ svc_name }})"
       ansible.builtin.set_fact:
         _swarm_deploy_transient: >-
-          {{ (_swarm_deploy.rc | default(1)) == 124
-             or ('pending=0' in (_swarm_converged_probe.stdout | default('')))
-             or ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
-              ~ (_swarm_diag_taskps.stdout | default(''))) is regex(
-               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|code = DeadlineExceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use|update out of sequence)'
-             ) }}
+          {{ _swarm_deploy.rc | default(1) | swarm_deploy_transient(
+               (_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default('')),
+               _swarm_diag_taskps.stdout | default(''),
+               converged=('pending=0' in (_swarm_converged_probe.stdout | default('')))) }}
 
     # "Address already in use" is a transient we can RETRY but never one a
     # bare retry can clear: an ungraceful interrupt (operator Ctrl-C
@@ -227,19 +214,26 @@
 
     - name: "Swarm: report transient, will retry ({{ svc_name }})"
       ansible.builtin.debug:
-        msg: >-
+        msg: |
           Swarm[{{ svc_name }}]: attempt {{ _swarm_deploy_attempt_n }}
           failed on a transient{{ ' (leaked overlay endpoint reclaimed)'
             if (_swarm_deploy_addr_conflict | default(false) | bool) else '' }};
           retrying.
+
+          Per-task state:
+          {{ _swarm_diag_taskps.stdout | default('(none)') }}
       when: _swarm_deploy_transient | bool
 
     - name: "Swarm: fail hard on non-transient deploy error ({{ svc_name }})"
       ansible.builtin.fail:
         msg: |
           Swarm stack deploy for {{ svc_name }} failed on attempt
-          {{ _swarm_deploy_attempt_n }} and the output did not match a known
-          transient pattern; not retrying.
+          {{ _swarm_deploy_attempt_n }}; not retrying.
+          {{ ('It timed out after ' ~ swarm_stack_deploy_timeout ~ ' s with no image'
+              ~ ' pull in progress or failing; the per-task state says why the'
+              ~ ' tasks did not converge.')
+             if (_swarm_deploy.rc | default(1)) == 124
+             else 'The output did not match a known transient pattern.' }}
 
           rc: {{ _swarm_deploy.rc | default('n/a') }}
           stdout: {{ _swarm_deploy.stdout | default('(none)') }}

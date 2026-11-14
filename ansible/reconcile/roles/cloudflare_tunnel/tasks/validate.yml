@@ -1,0 +1,88 @@
+---
+# Validation tasks for reconcile/roles/cloudflare_tunnel.
+
+# set_fact here because main.yml's fact is not in scope during a standalone
+# validate run.
+- name: "validate/cloudflare_tunnel: resolve CF token presence"
+  ansible.builtin.set_fact:
+    # The cloudflared swarm service only exists once a Cloudflare token has been
+    # saved (catena-admin > Settings) and the tunnel converged. With no token
+    # the tunnel is DEFERRED, so skip the cloudflared-service asserts rather than
+    # failing on an absent service. The token is published as a fact by
+    # playbooks/validate.yml's load_onbox_config pre_task.
+    _cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
+
+# A token does not bring the tunnel up on its own: the converge defers it when
+# the tunnel engine was staged out of band and has not landed yet (tasks/main.yml).
+# Same helper, same decision, asked from a play that does not run main.yml.
+- name: "validate/cloudflare_tunnel: is the tunnel engine expected here"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ cloudflared_sync_bin }}"
+
+# The verdict the later validations read: reconcile/roles/oauth2_proxy,
+# reconcile/roles/cloudflare_tunnel_regenerate and playbooks/validate.yml's
+# access checks.
+- name: "validate/cloudflare_tunnel: resolve whether the edge should be up"
+  ansible.builtin.set_fact:
+    _cf_edge_up: >-
+      {{ (_cf_token_present | bool)
+         and not (catena_public_surface_deferred | default(false) | bool)
+         and (catena_payload_missing | length == 0
+              or catena_payload_expected | bool) }}
+
+- name: "validate/cloudflare_tunnel: cloudflared tunnel deferred"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping the cloudflared swarm-service asserts -- the tunnel is deferred
+      ({{ 'no Cloudflare token in the on-box store yet'
+          if not (_cf_token_present | bool)
+          else 'no domain is set yet'
+          if (catena_public_surface_deferred | default(false) | bool)
+          else 'the tunnel engine is not on the host yet' }}).
+  when: not (_cf_edge_up | bool)
+
+# Polled, not sampled. Swarm replaces a task whose node went away -- after a
+# restart or a restore that re-pins the swarm -- and the replacement takes
+# minutes to come up, so one read can land in that gap on a healthy tunnel. A
+# tunnel that is really down is still 0/1 when the bound runs out.
+- name: "validate/cloudflare_tunnel: cloudflared 1/1 replica"
+  ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
+  register: _cf_replicas
+  failed_when: false
+  changed_when: false
+  retries: 48
+  delay: 5
+  until: _cf_replicas.stdout_lines | default([]) | select('match', '^cloudflared\\|1/1') | list | length > 0
+  when: _cf_edge_up | bool
+
+- name: "validate/cloudflare_tunnel: cloudflared replicas healthy"
+  ansible.builtin.assert:
+    that:
+      - _cf_replicas.rc == 0
+      - _cf_replicas.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
+    fail_msg: "cloudflared swarm service not 1/1: {{ _cf_replicas.stdout }}"
+  when: _cf_edge_up | bool
+
+# The tunnel only dials out: Cloudflare's edge never connects in, so the
+# service has no reason to publish a host port. The service spec is the thing
+# to read (reconcile/roles/traefik/tasks/validate.yml reads it the same way).
+- name: "validate/cloudflare_tunnel: published ports"
+  ansible.builtin.command: >-
+    docker service inspect cloudflared
+    --format '{% raw %}{{json .Spec.EndpointSpec.Ports}}{% endraw %}'
+  register: _cf_ports
+  failed_when: false
+  changed_when: false
+  when: _cf_edge_up | bool
+
+- name: "validate/cloudflare_tunnel: cloudflared publishes no port"
+  ansible.builtin.assert:
+    that:
+      - _cf_ports.rc == 0
+      - (_cf_ports.stdout | trim) in ['[]', 'null']
+    fail_msg: "cloudflared publishes host ports: {{ _cf_ports.stdout | trim }}"
+  when: _cf_edge_up | bool

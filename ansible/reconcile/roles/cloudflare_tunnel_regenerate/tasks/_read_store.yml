@@ -1,0 +1,63 @@
+---
+# Reads what the Cloudflare calls need from the on-box store: the API token, the
+# zone and the name of this host's tunnel. Included by tasks/main.yml and
+# tasks/validate.yml, so both ask the store the same way.
+#
+# Read the store on the host (0600 root); the rotate play has no
+# load_onbox_config pre_task, so slurp + parse directly.
+- name: "CF regen: stat the on-box config store"
+  ansible.builtin.stat:
+    path: "{{ catena_onbox_config_path | default('/etc/catena/config.json') }}"
+  register: _cf_regen_store_stat
+
+- name: "CF regen: read the on-box config store"
+  ansible.builtin.slurp:
+    src: "{{ catena_onbox_config_path | default('/etc/catena/config.json') }}"
+  register: _cf_regen_store
+  when: _cf_regen_store_stat.stat.exists | default(false)
+  no_log: true
+
+# A fact rather than a task-scoped var: every CF API call authenticates with it,
+# and the re-create at the end reads the same key out of the same file from
+# inside the engine.
+- name: "CF regen: take the API token from the store"
+  ansible.builtin.set_fact:
+    _cf_regen_api_token: >-
+      {{ ((_cf_regen_store.content | default('') | b64decode | from_json).secrets
+          | default({})).get('cloudflare_api_token', '')
+         if (_cf_regen_store_stat.stat.exists | default(false))
+         else '' }}
+  no_log: true
+
+# The zone comes from the store this role already slurped, not from the
+# inventory: the same source the loader would have published, one file, one
+# answer.
+- name: "CF regen: take the zone from the store"
+  ansible.builtin.set_fact:
+    _cf_regen_zone: >-
+      {{ ((_cf_regen_store.content | default('') | b64decode | from_json).config
+          | default({})).get('CLOUDFLARE_ZONE', '')
+         if (_cf_regen_store_stat.stat.exists | default(false))
+         else '' }}
+  no_log: true
+
+# The tunnel this host owns is named the way catena-cloudflared-sync names it:
+# the box's own hostname, with the store's prefix in front. Read the hostname
+# from the host rather than from inventory_hostname -- the engine calls
+# os.Hostname(), and a play that guessed differently would rotate a tunnel that
+# does not exist and leave the real one alone.
+- name: "CF regen: read this host's own name"
+  ansible.builtin.command:
+    cmd: hostname
+  register: _cf_regen_hostname
+  changed_when: false
+
+- name: "CF regen: name the tunnel the way the engine does"
+  ansible.builtin.set_fact:
+    cloudflared_tunnel_name: >-
+      {{ (((_cf_regen_store.content | default('') | b64decode | from_json).config
+           | default({})).get('CLOUDFLARED_TUNNEL_NAME_PREFIX', '')
+          if (_cf_regen_store_stat.stat.exists | default(false))
+          else '')
+         ~ (_cf_regen_hostname.stdout | trim) }}
+  no_log: true

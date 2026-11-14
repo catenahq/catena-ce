@@ -819,3 +819,169 @@ def test_unreadable_input_is_a_verdict_not_a_crash(monkeypatch, capsys):
     assert dp.main() == 0
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is False and out["wrote"] == []
+
+
+# --- the read-only check -------------------------------------------------------------
+
+ROLE = ANSIBLE / "reconcile" / "roles" / "dispatch_path"
+
+
+def verified(host, cfg: dict | None = None) -> dict:
+    return dp.verify(cfg or config(), fresh_host(host))
+
+
+def test_verify_after_a_switch_is_ok_and_writes_nothing(host):
+    on_generation(host, config())
+    before = tree(host.root)
+    result = verified(host)
+    assert result == {"ok": True, "changed": False, "generation": dp.generation(config()),
+                      "wrote": [], "summary": result["summary"]}
+    assert tree(host.root) == before
+    assert not list(host.fake.at(dp.PROOF_KEY_PARENT).iterdir())
+    assert [s["kind"] for s in host.fake.seen] == ["panel", "panel"]
+
+
+def _next_rule(host, gen):
+    host.fake.at(dp.SUDOERS_NEXT).write_text("x")
+
+
+def _next_accept(host, gen):
+    host.fake.at(dp.ACCEPTENV_NEXT).write_text("x")
+
+
+def _second_generation(host, gen):
+    host.fake.at(f"{dp.GENERATIONS}/0123456789ab").mkdir()
+
+
+def _proof_dir(host, gen):
+    (host.fake.at(dp.PROOF_KEY_PARENT) / "catena-dispatch-proof.left").mkdir()
+
+
+def _link_elsewhere(host, gen):
+    host.fake.at(LINK).unlink()
+    host.fake.at(LINK).symlink_to("/usr/local/lib/elsewhere")
+
+
+def _line_on_another_generation(host, gen):
+    keys = host.fake.at(KEYS)
+    keys.write_text(keys.read_text().replace(gen, "0123456789ab"))
+
+
+def _line_on_the_installs_path(host, gen):
+    host.fake.at(KEYS).write_text(LEGACY_LINE + "\n")
+
+
+def _second_key_line(host, gen):
+    keys = host.fake.at(KEYS)
+    keys.write_text(keys.read_text() + "ssh-ed25519 OTHERBLOB other\n")
+
+
+def _extra_file(host, gen):
+    (host.fake.at(f"{dp.GENERATIONS}/{gen}") / "extra").write_text("x")
+
+
+def _sudo_rule_changed(host, gen):
+    host.fake.at(dp.SUDOERS).unlink()
+    host.fake.at(dp.SUDOERS).write_text(LEGACY_SUDOERS)
+
+
+def _acceptenv_changed(host, gen):
+    host.fake.at(dp.ACCEPTENV).write_text(LEGACY_ACCEPTENV)
+
+
+@pytest.mark.parametrize("damage, said", [
+    (_next_rule, f"{dp.SUDOERS_NEXT} is left"),
+    (_next_accept, f"{dp.ACCEPTENV_NEXT} is left"),
+    (_second_generation, "generation directories are"),
+    (_proof_dir, "proof key directory is left"),
+    (_link_elsewhere, "is not a link to generation"),
+    (_line_on_another_generation, "the panel's key line runs generation 0123456789ab"),
+    (_line_on_the_installs_path, "the path an install wrote"),
+    (_second_key_line, "holds more than the panel's line"),
+    (_extra_file, "not exactly this tree's two executables"),
+    (_sudo_rule_changed, f"{dp.SUDOERS} does not hold"),
+    (_acceptenv_changed, f"{dp.ACCEPTENV} does not hold"),
+])
+def test_verify_refuses_what_is_open_or_not_this_generation(host, damage, said):
+    gen = on_generation(host, config())
+    damage(host, gen)
+    before = tree(host.root)
+    result = verified(host)
+    assert not result["ok"] and said in result["summary"], result
+    assert result["changed"] is False and result["wrote"] == []
+    assert tree(host.root) == before
+    assert host.fake.seen == [], "the proof ran on a state already wrong"
+
+
+def test_verify_refuses_a_failed_proof(host):
+    on_generation(host, config())
+    host.fake.interfere = lambda fake, kind, request: _done(1, stderr="the path fails")
+    result = verified(host)
+    assert not result["ok"] and "the proof dispatch exited 1" in result["summary"], result
+    assert result["wrote"] == []
+
+
+def test_verify_refuses_an_entry_that_lets_a_payload_through(host):
+    on_generation(host, config())
+    host.fake.interfere = lambda fake, kind, request: (
+        _done(1, stderr="unknown action") if " " in request else None)
+    result = verified(host)
+    assert not result["ok"] and "not refused by the entry before sudo" in result["summary"]
+
+
+def test_verify_refuses_a_missing_panel_key_and_a_bad_passthrough(host):
+    on_generation(host, config())
+    assert "passthrough name" in verified(host, config(passthrough=["lower"]))["summary"]
+    host.fake.at(f"{KEYDIR}/id_ed25519.pub").unlink()
+    result = verified(host)
+    assert not result["ok"] and "id_ed25519.pub is missing" in result["summary"]
+
+
+def test_a_host_never_switched_fails_the_check_without_writing(host):
+    legacy(host)
+    before = tree(host.root)
+    result = verified(host)
+    assert not result["ok"] and "the path an install wrote" in result["summary"]
+    assert tree(host.root) == before
+
+
+def test_main_with_verify_routes_to_verify(monkeypatch, capsys):
+    import io
+    import json
+    seen = []
+    monkeypatch.setattr(dp, "verify", lambda cfg, host: seen.append("verify") or {"ok": True})
+    monkeypatch.setattr(dp, "switch", lambda cfg, host: seen.append("switch") or {"ok": True})
+    for argv in (["dispatch_path.py", "--verify"], ["dispatch_path.py"]):
+        monkeypatch.setattr(sys, "argv", argv)
+        monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+        assert dp.main() == 0
+        assert json.loads(capsys.readouterr().out) == {"ok": True}
+    assert seen == ["verify", "switch"]
+
+
+def _role_tasks(name: str) -> list[dict]:
+    return walk_tasks(yaml.safe_load((ROLE / "tasks" / name).read_text(encoding="utf-8")))
+
+
+def _helper_argv(name: str) -> list[str]:
+    """The argv `name` hands the one task file that runs the helper."""
+    runs = [t for t in _role_tasks(name)
+            if t.get("ansible.builtin.include_tasks") == "_run_helper.yml"]
+    assert len(runs) == 1, name
+    argv = runs[0]["vars"]["_dispatch_path_argv"]
+    assert re.search(r"dispatch[_-]path\.py", " ".join(argv)), argv
+    return argv
+
+
+def test_validate_runs_the_helper_with_verify_on_the_input_the_switch_sends():
+    assert _helper_argv("validate.yml")[-1] == "--verify"
+    assert "--verify" not in _helper_argv("main.yml")
+    [run] = [t["ansible.builtin.command"] for t in _role_tasks("_run_helper.yml")
+             if "ansible.builtin.command" in t]
+    assert run["stdin"] == "{{ dispatch_path_input | to_json }}"
+    defaults = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text(encoding="utf-8"))
+    assert set(defaults["dispatch_path_input"]) == {
+        "runner_user", "runner_home", "panel_key_dir", "link", "passthrough", "entry",
+        "dispatcher"}
+    assert all(t["name"].startswith("validate/dispatch_path: ")
+               for t in _role_tasks("validate.yml"))

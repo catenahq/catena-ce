@@ -1,11 +1,9 @@
-<!-- AUTOGEN by `audit --write-public-specs` from the test bench's
-     scenario headers. Do not hand-edit; the maintainers' CI
-     regenerates and fails on any drift
-     (`audit --check-public-specs`). -->
+<!-- AUTOGEN from the test bench's scenario headers, regenerated at
+     each release. Do not hand-edit. -->
 
 # Test scenarios
 
-The 196 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 195 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -75,9 +73,8 @@ The 196 scenarios the maintainers' test bench carries, and the behaviour each on
 | `docker_engine_upgrade_round_trip` | The container engine moves to the version the panel image pins, and goes back to the one it ran when the new one does not come up. |
 | `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service and the synced files back at the state that backup captured, including a file deleted after the backup. |
 | `ee_attest` | A signed monthly compliance attestation is produced from a host's own evidence and verifies against the published key. |
-| `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
 | `ee_ce_regression` | Community actions keep working on a host that has been licensed for Pro. |
-| `ee_compliance_panel` | The compliance panel of a Catena Business server lists every control of the registry in English and in French, shows each framework's controls alone, fills what the server measures from its own reports, and keeps the organization's attestations, controls, review timings and evidence files in a hash-chained record that a panel redeploy leaves in place, the backup covers and the export carries. |
+| `ee_compliance_panel` | The compliance panel of a Catena Business server lists every control of the registry in English and in French, shows each framework's controls alone and those of several frameworks picked together, downloads that view as a PDF, fills what the server measures from its own reports, and keeps the organization's attestations, controls, review timings and evidence files in a hash-chained record that a panel redeploy leaves in place, the backup covers and the export carries. |
 | `ee_daily_cycle` | The maintenance engine drives a full run on a licensed host, step by step, to completion. |
 | `ee_entitlement_partial` | A Catena Pro key unlocks the Pro panels and nothing of Business, and the actions behind the Business panels are absent rather than merely hidden. |
 | `ee_identity_probe` | The identity posture probe reports how single sign-on is configured on a host and changes verdict when that configuration changes. |
@@ -94,7 +91,7 @@ The 196 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_b4_locked_pack_rotation` | Backup data held under an object-lock retention policy survives an attempt to prune it away. |
 | `fi_b6_healthchecks_down` | An unreachable monitoring endpoint is reported instead of the failure going unnoticed. |
 | `fi_c1_docker_daemon_hang` | A frozen container daemon makes the converge fail within a bounded time rather than hanging indefinitely. |
-| `fi_c4_registry_pull_timeout` | Heavy packet loss on the host outbound network makes the converge fail fast at its first external step. |
+| `fi_c4_registry_pull_timeout` | An install whose release registry cannot be reached fails fast at its first external step, with a message naming the timeout. |
 | `fi_c6_cloudflared_flapping` | Re-converging the public tunnel updates its configuration without restarting a healthy connector. |
 | `fi_c7_coturn_cert_expired` | A call-relay certificate that is due is renewed by the scheduled renewal job, and the relay serves the renewed certificate on its TLS port. |
 | `fi_c8_app_init_loop` | An application whose environment has been corrupted fails visibly, with diagnostics that name it and carry its error. |
@@ -177,7 +174,7 @@ The 196 scenarios the maintainers' test bench carries, and the behaviour each on
 | `reboot_required_notified` | A host that needs a reboot reports it and waits for a person rather than restarting itself. |
 | `rebuild_backs_up_after_restore` | A server rebuilt from its backup keeps backing up: after the restore it holds the repository's password, not the one the new machine made for itself. |
 | `reconcile_is_a_noop` | The operator's converge and the host's own converge produce the same host: after either one, the other changes nothing, and a second converge in a row restarts nothing. |
-| `reconcile_repairs_host_upkeep` | A host that converges itself puts back the upkeep it owns: unattended upgrades, the journal's storage, the mail-agent mask, the swarm's settings and the configuration its scheduled lanes read. |
+| `reconcile_repairs_host_upkeep` | A host that converges itself puts back the upkeep it owns: unattended upgrades, the journal's storage, the mail-agent mask, the hold on the container engine, the swarm's settings and the configuration its scheduled lanes read. |
 | `recover_secrets_from_running_host` | A client whose installation inputs are lost rebuilds a usable credential set by reading the configuration store off the running host. |
 | `recovery_landing_page_bilingual_parity` | The recovery page a client lands on presents the same content in both supported languages. |
 | `recovery_readme_manual_restore` | A client rebuilds their data from a snapshot using only ordinary tools and the instructions shipped beside it. |

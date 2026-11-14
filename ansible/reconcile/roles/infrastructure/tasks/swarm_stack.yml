@@ -85,11 +85,18 @@
 
 - name: "Swarm: fail if all retries exhausted on registry transients ({{ svc_name }})"
   ansible.builtin.fail:
-    msg: >-
+    msg: |
       Swarm stack deploy for {{ svc_name }} failed all
       {{ infrastructure_deploy_max_attempts | default(3) }} attempts on
-      registry transients. Reproduce with:
-      docker stack deploy --detach=false -c
+      transients. The last attempt:
+
+      rc: {{ _swarm_deploy.rc | default('n/a') }}
+      stderr: {{ _swarm_deploy.stderr | default('(none)') }}
+
+      Per-task state:
+      {{ _swarm_diag_taskps.stdout | default('(none)') }}
+
+      Reproduce with: docker stack deploy --detach=false -c
       {{ swarm_stack_dir }}/{{ svc_name }}.yml {{ svc_name }}
   when: not _swarm_deploy_done
 

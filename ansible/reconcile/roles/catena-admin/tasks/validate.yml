@@ -1,0 +1,101 @@
+---
+# Validation tasks for reconcile/roles/catena-admin, run by
+# playbooks/validate.yml via include_role: tasks_from: validate.
+
+# --- the host lanes' configuration (lanes.yml) -------------------------
+# The update lane's settings stay root's: nobody else reads them.
+- name: "validate/catena-admin: the lanes' configuration files"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: "{{ catena_daily_env_path }}", type: file, owner: root, group: root, mode: "0644" }
+      - { path: "{{ catena_stack_update_env_path }}", type: file, owner: root, group: root, mode: "0600" }
+      - { path: "{{ catena_managed_services_path }}", type: file, owner: root, group: root, mode: "0644" }
+      - { path: "{{ public_ports_fragment_dir }}/catena-admin.json", type: file, owner: root, group: root, mode: "0644" }
+
+- name: "validate/catena-admin: read the managed-services list and the UI port fragment"
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  register: _ca_val_json
+  loop:
+    - "{{ catena_managed_services_path }}"
+    - "{{ public_ports_fragment_dir }}/catena-admin.json"
+
+- name: "validate/catena-admin: both files parse as JSON"
+  block:
+    - name: "validate/catena-admin: parse the managed-services list and the UI port fragment"
+      ansible.builtin.set_fact:
+        _ca_val_managed: "{{ _ca_val_json.results[0].content | b64decode | from_json }}"
+        _ca_val_ports: "{{ _ca_val_json.results[1].content | b64decode | from_json }}"
+  rescue:
+    - name: "validate/catena-admin: a file the converge renders is not JSON"
+      ansible.builtin.fail:
+        msg: >-
+          {{ catena_managed_services_path }} or
+          {{ public_ports_fragment_dir }}/catena-admin.json does not parse as
+          JSON. The update lane reads the first to know what it may bump, and
+          the public-port reconciler skips the second, which leaves the
+          panel's native-login port unguarded.
+
+# The native-login port answers this host only: its login is the recovery
+# admin password over plain HTTP.
+- name: "validate/catena-admin: the native-login port answers this host only"
+  ansible.builtin.assert:
+    that:
+      - _ca_val_ports is sequence
+      - _ca_val_ports is not string
+      - _ca_val_ports is not mapping
+      - _ca_val_ports | selectattr('port', 'equalto', catena_admin_ui_port | int) | list | length > 0
+      - >-
+        _ca_val_ports | selectattr('port', 'equalto', catena_admin_ui_port | int)
+        | rejectattr('scope', 'equalto', 'loopback') | list | length == 0
+    fail_msg: >-
+      {{ public_ports_fragment_dir }}/catena-admin.json holds
+      {{ _ca_val_ports }}: it must declare port {{ catena_admin_ui_port }}, and
+      only with scope loopback. Otherwise the plain-HTTP native login answers
+      beyond this host.
+
+# --- the catalog (catalog.yml) ------------------------------------------
+# The dispatcher sources drop-ins from the overlay dir as root, so nothing but
+# root may write there.
+- name: "validate/catena-admin: the catalog files and the dispatch overlay dir"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: "{{ catena_admin_actions_yml_path }}", type: file, owner: root, group: root, mode: "0644" }
+      - { path: "{{ catena_admin_actions_extra_yml_path }}", type: file, owner: root, group: root, mode: "0644" }
+      - { path: "{{ catena_admin_extra_tiles_path }}", type: file, owner: root, group: root, mode: "0644" }
+      - { path: "{{ catena_admin_allowed_actions_path }}", type: file, owner: root, group: root, mode: "0644" }
+      - { path: "{{ catena_admin_dispatch_actions_path }}", type: file, owner: root, group: root, mode: "0644" }
+      - { path: "{{ catena_admin_actions_overlay_dir }}", type: directory, owner: root, group: root, mode: "0755" }
+
+# --- the service (deploy.yml) -------------------------------------------
+# Polled, not sampled: 1/1 needs the image's own healthcheck to pass, which
+# takes a while after a create or an update.
+- name: "validate/catena-admin: swarm service replicas"
+  ansible.builtin.command: >-
+    docker service ls --filter name={{ catena_admin_service_name }}
+    --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
+  register: _ca_val_service
+  failed_when: false
+  changed_when: false
+  retries: 24
+  delay: 5
+  until: >-
+    _ca_val_service.stdout_lines | default([])
+    | select('match', '^' ~ catena_admin_service_name ~ '\\|1/1') | list | length > 0
+  when: catena_admin_deploy_from_converge | bool
+
+- name: "validate/catena-admin: the panel service is 1/1"
+  ansible.builtin.assert:
+    that:
+      - _ca_val_service.rc == 0
+      - >-
+        _ca_val_service.stdout_lines
+        | select('match', '^' ~ catena_admin_service_name ~ '\\|1/1') | list | length > 0
+    fail_msg: "{{ catena_admin_service_name }} swarm service not 1/1: {{ _ca_val_service.stdout }}"
+  when: catena_admin_deploy_from_converge | bool

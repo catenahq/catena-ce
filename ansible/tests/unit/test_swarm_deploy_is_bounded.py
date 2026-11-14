@@ -1,4 +1,4 @@
-"""A swarm stack deploy is bounded, and hitting the bound retries.
+"""A swarm stack deploy is bounded, and hitting the bound during a pull retries.
 
 `docker stack deploy --detach=false` blocks until every task converges. A task
 that CANNOT converge -- an image the daemon is unable to pull -- never lets it
@@ -7,8 +7,9 @@ around it, whose classifier lists pull failures as transient, never reaches
 attempt 2.
 
 Two rules, because one without the other is still broken: the attempt carries a
-`timeout`, and rc=124 counts as transient. A bound that fails hard would turn
-one slow pull into a failed converge, which is worse than the hang it replaced.
+`timeout`, and rc=124 is retried while a pull is in progress or failing
+(test_swarm_deploy_retry.py). A bound that failed hard would turn one slow pull
+into a failed converge, which is worse than the hang it replaced.
 
 Run: uv run pytest tests/unit/test_swarm_deploy_is_bounded.py
 """
@@ -79,49 +80,3 @@ def test_the_bound_is_declared_once_as_a_default() -> None:
             f"{task.get('name')!r} hardcodes its own bound instead of using "
             f"swarm_stack_deploy_timeout"
         )
-
-
-def test_hitting_the_bound_is_treated_as_transient() -> None:
-    """A bound that failed hard would turn one slow pull into a failed
-    converge. rc=124 is transient by construction, not by pattern: the deploy
-    only blocks while a task is still trying, and a killed progress stream
-    carries no text to match on."""
-    classifier = next(
-        t for t in _tasks(ATTEMPT)
-        if "_swarm_deploy_transient" in str(t.get("ansible.builtin.set_fact", ""))
-    )
-    expr = str(t_expr := classifier["ansible.builtin.set_fact"]["_swarm_deploy_transient"])
-    assert "124" in expr, (
-        "the transient classifier does not recognise rc=124, so a bounded "
-        f"attempt fails the play instead of retrying: {t_expr!r}"
-    )
-
-
-def test_a_late_commit_after_a_deadline_is_transient() -> None:
-    """A DeadlineExceeded update still commits once the swarm manager catches
-    up, so the retry after it carries a stale version and is refused; the next
-    attempt re-reads the version."""
-    classifier = next(
-        t for t in _tasks(ATTEMPT)
-        if "_swarm_deploy_transient" in str(t.get("ansible.builtin.set_fact", ""))
-    )
-    expr = str(classifier["ansible.builtin.set_fact"]["_swarm_deploy_transient"])
-    pattern = re.search(r"regex\(\s*'([^']+)'", expr).group(1)
-    seen = ("failed to update service keycloak_server: Error response from "
-            "daemon: rpc error: code = Unknown desc = update out of sequence")
-    assert re.search(pattern, seen), pattern
-
-
-def test_a_grpc_deadline_is_transient() -> None:
-    """The manager's own deadline in its gRPC form, as a swarm still replacing
-    the tasks a restore brought back reports it."""
-    classifier = next(
-        t for t in _tasks(ATTEMPT)
-        if "_swarm_deploy_transient" in str(t.get("ansible.builtin.set_fact", ""))
-    )
-    expr = str(classifier["ansible.builtin.set_fact"]["_swarm_deploy_transient"])
-    pattern = re.search(r"regex\(\s*'([^']+)'", expr).group(1)
-    seen = ("failed to update service gatus_app: Error response from daemon: "
-            "rpc error: code = DeadlineExceeded desc = stream terminated by "
-            "RST_STREAM with error code: CANCEL")
-    assert re.search(pattern, seen), pattern

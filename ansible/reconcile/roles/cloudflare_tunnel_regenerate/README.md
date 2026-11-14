@@ -64,6 +64,13 @@ another. Listing by name first means a re-run replaces this host's tunnel
 rather than accumulating tunnels. The handoff's own reconciles (DNS, ingress,
 service) are idempotent and no-op when already correct.
 
+## Validation
+
+`tasks/validate.yml` lists this host's tunnels by name through the same
+Cloudflare calls (`tasks/_read_store.yml`, `tasks/_list_tunnels.yml`) and
+asserts at most one is live, and exactly one while the edge is up. It lists
+only; nothing is deleted.
+
 ## Related
 
 - Entry point: `playbooks/rotate-tunnel.yml`.

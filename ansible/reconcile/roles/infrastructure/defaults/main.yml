@@ -229,6 +229,8 @@ dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
 # recovery built for exactly this: the loop cannot reach attempt 2 while
 # attempt 1 is still waiting. 600s is far above a warm deploy (seconds) and
 # a cold pull of the largest image through the bench registry mirror, and
-# far below the runner's own timeout, so a hang surfaces as a retryable
-# rc=124 instead of consuming the whole stage.
+# far below the runner's own timeout, so a hang surfaces as rc=124 instead of
+# consuming the whole stage. rc=124 is retried only while a pull is in
+# progress or failing (playbooks/filter_plugins/swarm_deploy_retry.py); any
+# other task that cannot converge fails at the first bound.
 swarm_stack_deploy_timeout: 600

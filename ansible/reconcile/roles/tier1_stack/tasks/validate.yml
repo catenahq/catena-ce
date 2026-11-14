@@ -1,0 +1,41 @@
+---
+# Validation tasks for reconcile/roles/tier1_stack, run by playbooks/validate.yml
+# via include_role: tasks_from: validate.
+
+# The file names every swarm secret the control plane mounts, and nothing on
+# this host needs it but root.
+- name: "validate/tier1_stack: the stack dir and the rendered control-plane file"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: "{{ tier1_stack_dir }}", type: directory, owner: root, group: root, mode: "0750" }
+      - { path: "{{ tier1_stack_path }}", type: file, owner: root, group: root, mode: "0640" }
+
+- name: "validate/tier1_stack: load the rendered file with the compose loader"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - stack
+      - config
+      - --compose-file
+      - "{{ tier1_stack_path }}"
+  register: _t1_val_config
+  changed_when: false
+  failed_when: false
+
+- name: "validate/tier1_stack: the file loads and holds every control-plane service"
+  ansible.builtin.assert:
+    that:
+      - _t1_val_config.rc == 0
+      - >-
+        tier1_stack_required
+        | difference((_t1_val_config.stdout | from_yaml).services | default({}) | list)
+        | length == 0
+    fail_msg: >-
+      docker stack config {{ tier1_stack_path }} exited {{ _t1_val_config.rc }}
+      ({{ _t1_val_config.stderr | default('') | trim }}), or its services lack
+      one of {{ tier1_stack_required | join(', ') }}. The file is the oracle
+      the control plane is checked against, so a file that does not load
+      describes nothing.

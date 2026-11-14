@@ -15,7 +15,9 @@
 # same way; exit 5 means the app's file was changed by hand and uses a right only
 # the catalog's file has, so it gets no value and no new tag, and a service of it
 # that is gone is deployed again with the files it holds. None of them fails the
-# converge, and the engine's own lines are printed as they are.
+# converge, and the engine's own lines are printed as they are. The request's run
+# is CATENA_INFRA_RUN, which a release update sets: the engine files each move of
+# the app under it, so a rollback of the release reverts the app.
 #
 # Output: _default_app_running, true while swarm holds the app's service with
 # at least one wanted replica.
@@ -29,7 +31,8 @@
     argv: ["{{ catena_apps_bin }}", defaults, -held, -stdin]
     stdin: >-
       {{ {'app': default_app.app, 'tag': default_app.tag,
-          'stack': default_app.stack, 'env': default_app_env} | to_json }}
+          'stack': default_app.stack, 'env': default_app_env,
+          'run': lookup('env', 'CATENA_INFRA_RUN')} | to_json }}
   register: _default_app
   changed_when: false
   failed_when: false

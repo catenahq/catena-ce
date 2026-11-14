@@ -1,0 +1,82 @@
+---
+# Validation tasks for reconcile/roles/payload, run by playbooks/validate.yml
+# via include_role: tasks_from: validate.
+
+- name: "validate/payload: the engines are staged out of band"
+  ansible.builtin.debug:
+    msg: >-
+      CATENA_PAYLOAD_INSTALL=false: whatever put /usr/local/bin/catena-* on this
+      host owns them, so the installed-image marker {{ catena_payload_marker }}
+      is not checked.
+  when: not (catena_payload_install | bool)
+
+- name: "validate/payload: read the installed-image marker and the image's ID"
+  when: catena_payload_install | bool
+  block:
+    - name: "validate/payload: read the installed-image marker"
+      ansible.builtin.slurp:
+        src: "{{ catena_payload_marker }}"
+      register: _payload_val_marker
+      failed_when: false
+
+    - name: "validate/payload: resolve the ID of the image this tree runs"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - image
+          - inspect
+          - "--format={{ '{{ .Id }}' }}"
+          - "{{ catena_admin_image }}"
+      register: _payload_val_image_id
+      changed_when: false
+      failed_when: false
+
+    - name: "validate/payload: the engines came from the image this tree runs"
+      ansible.builtin.assert:
+        that:
+          - _payload_val_image_id.rc == 0
+          - _payload_val_marker.content is defined
+          - (_payload_val_marker.content | b64decode | trim) == (_payload_val_image_id.stdout | trim)
+        fail_msg: >-
+          {{ catena_payload_marker }} holds
+          {{ (_payload_val_marker.content | default('') | b64decode | trim) | default('nothing', true) }}
+          and docker answers {{ _payload_val_image_id.stdout | default('') | trim | default('nothing', true) }}
+          for {{ catena_admin_image }}. The engines on this host are not from
+          the image this tree runs, so they and the panel can disagree about
+          the config schema.
+
+# The stage directory is where root runs the installer from; it exists only
+# while an install left it.
+- name: "validate/payload: stat the stage directory"
+  ansible.builtin.stat:
+    path: "{{ catena_payload_stage_dir }}"
+  register: _payload_val_stage
+
+- name: "validate/payload: the stage directory is root's alone"
+  ansible.builtin.assert:
+    that:
+      - _payload_val_stage.stat.isdir
+      - _payload_val_stage.stat.pw_name == 'root'
+      - _payload_val_stage.stat.gr_name == 'root'
+      - _payload_val_stage.stat.mode == '0700'
+    fail_msg: >-
+      {{ catena_payload_stage_dir }} is not a root:root directory with mode 0700
+      (owner={{ _payload_val_stage.stat.pw_name | default('n/a') }},
+      group={{ _payload_val_stage.stat.gr_name | default('n/a') }},
+      mode={{ _payload_val_stage.stat.mode | default('n/a') }}). Root installs
+      into /usr/local/bin from this tree, so whoever can write it chooses what
+      root runs.
+  when: _payload_val_stage.stat.exists
+
+- name: "validate/payload: stat the templates catalog cache"
+  ansible.builtin.stat:
+    path: /var/lib/catena/templates-catalog.json
+  register: _payload_val_catalog
+
+- name: "validate/payload: the templates catalog cache is gone"
+  ansible.builtin.assert:
+    that:
+      - not _payload_val_catalog.stat.exists
+    fail_msg: >-
+      /var/lib/catena/templates-catalog.json is on this host. No engine writes
+      it, so it is a stale copy of a catalog nothing reads.

@@ -51,6 +51,7 @@ import argparse
 import base64
 import contextlib
 import fcntl
+import hmac
 import json
 import os
 import re
@@ -303,16 +304,18 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset(
 # whole non-secret `config` (panel_view). The panel is the most exposed
 # component on the host, and a credential it never reads is one a compromised
 # panel cannot take: the master realm's automation client, Keycloak's database
-# password and the console break-glass password stay on the host. A settings write merges into the whole file (dump), so a key
-# outside this set survives every write the panel makes.
+# password and the console break-glass password stay on the host, and so does
+# the master realm admin's password: the panel's native sign-in sends the typed
+# password to the host, whose `sign-in` op answers only whether it matched. A
+# settings write merges into the whole file (dump), so a key outside this set
+# survives every write the panel makes.
 #   - each client-supplied secret the Settings page offers (a knob with a
 #     `panel`): the page reports which are set, and the tailnet and backup
 #     checks send the stored ones;
-#   - backup_restic_password: the disaster-recovery keyset the page reveals;
-#   - admin_password: the panel's native sign-in.
+#   - backup_restic_password: the disaster-recovery keyset the page reveals.
 PANEL_SECRETS: frozenset[str] = frozenset(
     entry["key"] for entry in _KNOBS["secrets"] if "panel" in entry
-) | {"backup_restic_password", "admin_password"}
+) | {"backup_restic_password"}
 
 # The repositories a client application may be added from, and their tokens.
 # Both are top-level store blocks owned by catena-admin's catena-apps, like
@@ -492,6 +495,15 @@ def panel_view(store: dict) -> dict:
                     if k in PANEL_SECRETS},
         "config": dict(store.get("config") or {}),
     }
+
+
+def admin_password_matches(store: dict, submitted: object) -> bool:
+    """Whether `submitted` is the stored admin password. False while no
+    password is stored. Compared as UTF-8 bytes in constant time."""
+    stored = (store.get("secrets") or {}).get("admin_password")
+    if not isinstance(stored, str) or not stored or not isinstance(submitted, str):
+        return False
+    return hmac.compare_digest(stored.encode("utf-8"), submitted.encode("utf-8"))
 
 
 # --- store I/O --------------------------------------------------------------
@@ -842,12 +854,15 @@ def main(argv: list[str] | None = None) -> int:
                          "without touching the store.")
     ap.add_argument("--dispatch-stdin", action="store_true",
                     help="serve the catena-admin settings API: read a JSON "
-                         "request {op: read|write, secrets, config} from "
+                         "request {op: read|write|sign-in, secrets, config, "
+                         "password} from "
                          "stdin. read -> print the panel's view of the store "
                          "(the config and PANEL_SECRETS); write -> apply the "
                          "external creds/config "
                          '(overwrite, no mint) and print {"ok": true}, '
-                         "rejecting internal-secret keys.")
+                         "rejecting internal-secret keys; sign-in -> "
+                         '{"ok": bool}, whether password is the stored '
+                         "admin password; nothing else printed.")
     args = ap.parse_args(argv)
 
     # A pure query, answered before any store I/O: the converge loader asks
@@ -882,6 +897,12 @@ def main(argv: list[str] | None = None) -> int:
         op = req.get("op")
         if op == "read":
             print(json.dumps(panel_view(load(args.path))))
+            return 0
+        if op == "sign-in":
+            if not isinstance(req.get("password"), str):
+                raise SystemExit("--dispatch-stdin: sign-in expects a password string")
+            ok = admin_password_matches(load(args.path), req["password"])
+            print(json.dumps({"ok": ok}))
             return 0
         if op == "write":
             with store_lock():

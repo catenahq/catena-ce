@@ -21,3 +21,16 @@ catena_admin_dispatch_env_passthrough:
   - CATENA_BACKUP_CANDIDATE_REPO
   - CATENA_BACKUP_CANDIDATE_ACCESS_KEY
   - CATENA_BACKUP_CANDIDATE_SECRET_KEY
+
+# What helpers/dispatch_path.py takes on stdin, for the switch (tasks/main.yml)
+# and its check (tasks/validate.yml): the runner account, the panel's key
+# directory, the dispatcher's stable path, the passthrough names and the two
+# scripts' text. None of it is secret.
+dispatch_path_input:
+  runner_user: "{{ catena_admin_runner_user }}"
+  runner_home: "{{ catena_admin_runner_home }}"
+  panel_key_dir: "{{ catena_admin_host_ssh_dir }}"
+  link: "{{ catena_admin_dispatcher_path }}"
+  passthrough: "{{ catena_admin_dispatch_env_passthrough }}"
+  entry: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../scripts/catena-dispatch-entry.sh') }}"
+  dispatcher: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../scripts/catena-admin-runner.sh') }}"

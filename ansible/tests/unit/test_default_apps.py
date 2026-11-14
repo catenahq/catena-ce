@@ -192,6 +192,8 @@ def test_the_verb_runs_held_with_its_request_on_stdin():
     stdin = task["ansible.builtin.command"]["stdin"]
     for key in ("app", "tag", "stack", "env"):
         assert f"'{key}':" in stdin
+    assert "'run': lookup('env', 'CATENA_INFRA_RUN')" in stdin, \
+        "a release update's run files the move, so its rollback reverts the app"
     assert "preset" not in stdin
     assert task["no_log"] is True, "the env holds secrets"
 

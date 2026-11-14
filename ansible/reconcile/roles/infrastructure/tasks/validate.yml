@@ -1,38 +1,6 @@
 ---
 # Validation tasks for reconcile/roles/infrastructure.
 
-# set_fact here because main.yml's fact is not in scope during a standalone
-# validate run.
-- name: "validate/infrastructure: resolve CF token presence"
-  ansible.builtin.set_fact:
-    # The cloudflared swarm service only exists once a Cloudflare token has been
-    # saved (catena-admin > Settings) and the tunnel converged. With no token
-    # the tunnel is DEFERRED, so skip the cloudflared-service asserts rather than
-    # failing on an absent service. The token is published as a fact by
-    # playbooks/validate.yml's load_onbox_config pre_task.
-    _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
-
-# A token does not bring the tunnel up on its own: the converge defers it when
-# the tunnel engine was staged out of band and has not landed yet
-# (reconcile/roles/cloudflare_tunnel). Same helper, same decision, asked from a
-# play that does not load that role -- hence the path's fallback, which is that
-# role's default.
-- name: "validate/infrastructure: is the tunnel engine expected here"
-  ansible.builtin.include_role:
-    name: common
-    tasks_from: _payload_expected
-  vars:
-    _payload_paths:
-      - "{{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }}"
-
-- name: "validate/infrastructure: resolve whether the edge should be up"
-  ansible.builtin.set_fact:
-    _infra_edge_up: >-
-      {{ (_infra_cf_token_present | bool)
-         and not (catena_public_surface_deferred | default(false) | bool)
-         and (catena_payload_missing | length == 0
-              or catena_payload_expected | bool) }}
-
 # The fixtures here do not all arrive at the same time. The export dir and
 # Traefik's dynamic dir are written by THIS role;
 # catena-dashboard-sync and gatus-sync are lane scripts in the catena-admin
@@ -152,39 +120,6 @@
     that:
       - _infra_net.rc == 0
     fail_msg: "docker network inspect catena-network rc={{ _infra_net.rc }}"
-
-- name: "validate/infrastructure: cloudflared tunnel deferred"
-  ansible.builtin.debug:
-    msg: >-
-      Skipping the cloudflared swarm-service asserts -- the tunnel is deferred
-      ({{ 'no Cloudflare token in the on-box store yet'
-          if not (_infra_cf_token_present | bool)
-          else 'no domain is set yet'
-          if (catena_public_surface_deferred | default(false) | bool)
-          else 'the tunnel engine is not on the host yet' }}).
-  when: not (_infra_edge_up | bool)
-
-# Polled, not sampled. Swarm replaces a task whose node went away -- after a
-# restart or a restore that re-pins the swarm -- and the replacement takes
-# minutes to come up, so one read can land in that gap on a healthy tunnel. A
-# tunnel that is really down is still 0/1 when the bound runs out.
-- name: "validate/infrastructure: cloudflared 1/1 replica"
-  ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
-  register: _infra_cf
-  failed_when: false
-  changed_when: false
-  retries: 48
-  delay: 5
-  until: _infra_cf.stdout_lines | default([]) | select('match', '^cloudflared\\|1/1') | list | length > 0
-  when: _infra_edge_up | bool
-
-- name: "validate/infrastructure: cloudflared replicas healthy"
-  ansible.builtin.assert:
-    that:
-      - _infra_cf.rc == 0
-      - _infra_cf.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
-    fail_msg: "cloudflared swarm service not 1/1: {{ _infra_cf.stdout }}"
-  when: _infra_edge_up | bool
 
 - name: "validate/infrastructure: host binds no port 80 or 443 (architecture invariant)"
   ansible.builtin.shell: |

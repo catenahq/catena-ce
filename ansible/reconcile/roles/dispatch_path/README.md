@@ -38,6 +38,16 @@ this tree's two executables (root-owned, mode 0755, no links, nothing else).
 Otherwise it is reinstalled and the panel's key proves it before the link moves
 or any other generation is removed.
 
+## What the validation proves
+
+`tasks/validate.yml` runs the helper with `--verify` on the same input
+(`defaults/main.yml`, `dispatch_path_input`) and writes nothing. It passes only
+when the panel key's line runs this tree's generation and is the only line in
+`authorized_keys`, that generation's
+directory is intact, the link, sudo rule and `AcceptEnv` rule are its own, the
+panel's key proves the path, and nothing the switch closes is left: no `-next`
+file, no other generation, no proof key directory.
+
 ## What it refuses
 
 - A passthrough name that is not `X_FORWARDED_<WORD>` or `CATENA_<WORDS>` in

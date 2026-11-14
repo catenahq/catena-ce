@@ -1,0 +1,33 @@
+---
+# Runs helpers/dispatch_path.py on dispatch_path_input (defaults/main.yml) with
+# the argv in _dispatch_path_argv, and fails with the helper's summary unless
+# its verdict is ok. Included by tasks/main.yml (the switch) and
+# tasks/validate.yml (--verify, which writes nothing), each naming its tasks
+# with _dispatch_path_label. Leaves the verdict in catena_dispatch_path.
+
+- name: "{{ _dispatch_path_label }}: run the helper"
+  ansible.builtin.command:
+    argv: "{{ _dispatch_path_argv }}"
+    stdin: "{{ dispatch_path_input | to_json }}"
+  register: _dispatch_path_run
+  changed_when: false
+  failed_when: false
+
+# Two tasks rather than a ternary, for the reason the Lockdown's check gives:
+# from_json on the empty stdout of a crashed helper would fail the play with a
+# parse error instead of the helper's own stderr.
+- name: "{{ _dispatch_path_label }}: read the verdict"
+  ansible.builtin.set_fact:
+    catena_dispatch_path: "{{ _dispatch_path_run.stdout | from_json }}"
+  when: (_dispatch_path_run.stdout | default('') | trim | length) > 0
+
+- name: "{{ _dispatch_path_label }}: the panel dispatches through this tree's generation"
+  ansible.builtin.assert:
+    that:
+      - catena_dispatch_path is defined
+      - catena_dispatch_path.ok | bool
+    fail_msg: >-
+      {{ catena_dispatch_path.summary
+         if catena_dispatch_path is defined
+         else (_dispatch_path_run.stderr | default('the helper printed nothing') | trim) }}
+    quiet: true

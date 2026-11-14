@@ -1,0 +1,53 @@
+---
+# Lists the live tunnels named for this host through the Cloudflare API, with
+# the token (_cf_regen_api_token) and zone (_cf_regen_zone) tasks/_read_store.yml
+# read. Included by tasks/main.yml (which deletes what the list returns) and
+# tasks/validate.yml (which asserts how many there are). Leaves the answer in
+# _cf_regen_list.
+
+# Resolved fresh every run rather than stored, on the Zone:DNS:Edit scope the
+# token already needs. Which account a zone belongs to is the API's answer to
+# give, and a copy of it in the store would be one more thing to keep true.
+- name: "CF regen: resolve Cloudflare account id from the zone"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones?name={{ _cf_regen_zone }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _cf_regen_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _cf_regen_zone_lookup
+  run_once: true
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: "CF regen: assert the zone is visible to the supplied token"
+  ansible.builtin.assert:
+    that:
+      - _cf_regen_zone_lookup.json.result | length == 1
+    fail_msg: >-
+      Zone '{{ _cf_regen_zone }}' not found (or token lacks access). The
+      stored Cloudflare token needs Zone:DNS:Edit scope on this zone. Update it
+      in catena-admin > Settings, then run this again.
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: "CF regen: bind the resolved Cloudflare account id"
+  ansible.builtin.set_fact:
+    _cf_regen_account_id: "{{ _cf_regen_zone_lookup.json.result[0].account.id }}"
+
+- name: "CF regen: list existing tunnels matching this host"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel?name={{ cloudflared_tunnel_name }}&is_deleted=false"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _cf_regen_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _cf_regen_list
+  run_once: true
+  delegate_to: localhost
+  become: false
+  no_log: true

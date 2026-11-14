@@ -30,15 +30,15 @@
 #
 #   converge   reconcile/roles/cloudflare_tunnel ran earlier and pinned
 #              _cf_sync_present.
-#   validate   playbooks/validate.yml runs reconcile/roles/infrastructure's
-#              validate first, which resolves _infra_edge_up (token AND engine).
+#   validate   playbooks/validate.yml runs reconcile/roles/cloudflare_tunnel's
+#              validate first, which resolves _cf_edge_up (token AND engine).
 #
 # Neither defined (a play with neither role) keeps the validation on.
 - name: "validate/oauth2-proxy: resolve whether the edge should be up"
   ansible.builtin.set_fact:
     _oauth2_edge_up: >-
       {{ (cloudflare_api_token | default('')) | length > 0
-         and (_cf_sync_present | default(_infra_edge_up | default(true)) | bool)
+         and (_cf_sync_present | default(_cf_edge_up | default(true)) | bool)
          and not (catena_public_surface_deferred | default(false) | bool) }}
 
 - name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation"
