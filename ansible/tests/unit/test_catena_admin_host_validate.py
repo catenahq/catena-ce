@@ -60,6 +60,11 @@ def test_known_hosts_is_keyed_on_the_alias_and_never_empty():
     assert "^host.docker.internal ssh-ed25519 " in that.replace("\\.", ".")
 
 
+def test_known_hosts_comment_lines_are_not_key_lines():
+    lines = _task("known_hosts holds the host key")["vars"]["_known_hosts"]
+    assert "reject('match', '#')" in lines
+
+
 def test_the_client_config_must_verify_host_keys():
     assert "StrictHostKeyChecking yes" in _that("the ssh client config verifies")
 

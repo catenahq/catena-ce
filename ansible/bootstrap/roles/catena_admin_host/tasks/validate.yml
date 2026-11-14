@@ -96,15 +96,16 @@
       - _known_hosts | length > 0
       - _known_hosts | reject('match', '^host\.docker\.internal ssh-ed25519 ') | list | length == 0
     fail_msg: >-
-      {{ catena_admin_host_ssh_dir }}/known_hosts must hold at least one line
-      and every line must start with `host.docker.internal ssh-ed25519 `, the
+      {{ catena_admin_host_ssh_dir }}/known_hosts must hold at least one key
+      line and every key line must start with `host.docker.internal ssh-ed25519 `, the
       name the panel's container connects to. An empty file or another name
       means every panel action dies on host key verification. Lines found:
       {{ _known_hosts }}.
   vars:
+    # Comment lines are known_hosts syntax the SSH client skips.
     _known_hosts: >-
       {{ (_cah_ssh_files.results[0].content | b64decode).splitlines()
-         | map('trim') | reject('equalto', '') | list }}
+         | map('trim') | reject('equalto', '') | reject('match', '#') | list }}
 
 - name: "validate/catena_admin_host: the ssh client config verifies the host key"
   ansible.builtin.assert:
