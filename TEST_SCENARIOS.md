@@ -1,7 +1,5 @@
-<!-- AUTOGEN by `audit --write-public-specs` from the test bench's
-     scenario headers. Do not hand-edit; the maintainers' CI
-     regenerates and fails on any drift
-     (`audit --check-public-specs`). -->
+<!-- AUTOGEN from the test bench's scenario headers, regenerated at
+     each release. Do not hand-edit. -->
 
 # Test scenarios
 
