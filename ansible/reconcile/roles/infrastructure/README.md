@@ -15,10 +15,11 @@ whole-server restore reads the file to leave their stacks running, and the
 Apps page reads it to open each app at its address.
 `tasks/default_app.yml` adds one with `catena-apps defaults -held -stdin` and
 prints the engine's lines as they are; a tag that cannot be fetched (exit 3)
-and exit 4 are printed, not failures. The request is `{app, tag, stack, env}`:
+and exit 4 are printed, not failures. The request is `{app, tag, stack, env, run}`:
 `env` holds the values this role owns (the contract's `env_core_writes`: the
 addresses, mail, the hub's sign-in header, its trusted subnet and realm), in
-keys the app's block does not declare. The names, ports, volumes and keys core
+keys the app's block does not declare; `run` is `CATENA_INFRA_RUN`, under which
+the engine files each move of the app (see Data copies). The names, ports, volumes and keys core
 depends on are in contracts `default-apps/wiring.json`, which the unit tests
 read. The address label of each app is its `SUBDOMAIN` setting, which
 `playbooks/tasks/default_app_subdomains.yml` reads from the app's folder.
@@ -82,8 +83,9 @@ refusal fails the converge before the deploy. Keycloak declares its database in
 `catena-ce/ansible/reconcile/roles/keycloak/templates/keycloak.compose.yml.j2`;
 Gatus, Healthchecks and Beszel declare their volumes in their catalog blocks,
 and the update engine copies them as it does for any app.
-A release update names the run the copies are filed under (`CATENA_INFRA_RUN`)
-and puts them back when it rolls back.
+A release update names the run the copies and the default apps' moves are
+filed under (`CATENA_INFRA_RUN`); when it rolls back it puts the copies back
+and reverts each default app it moved, with the copies the update engine kept.
 
 ## Catalog app wiring
 
