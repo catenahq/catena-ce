@@ -11,6 +11,3 @@ The line is declared in `../../boundary.yml` and enforced by
 `../../tests/unit/test_converge_boundary.py`. The invariant that keeps
 the two sides apart: a reconcile may not modify anything that would
 remove the ability to run a reconcile.
-
-Each role has its own `README.md`, and the leading comment of its
-`tasks/main.yml` says what it does in one line.
