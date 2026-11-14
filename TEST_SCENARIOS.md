@@ -91,7 +91,7 @@ The 195 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_b4_locked_pack_rotation` | Backup data held under an object-lock retention policy survives an attempt to prune it away. |
 | `fi_b6_healthchecks_down` | An unreachable monitoring endpoint is reported instead of the failure going unnoticed. |
 | `fi_c1_docker_daemon_hang` | A frozen container daemon makes the converge fail within a bounded time rather than hanging indefinitely. |
-| `fi_c4_registry_pull_timeout` | Heavy packet loss on the host outbound network makes the converge fail fast at its first external step. |
+| `fi_c4_registry_pull_timeout` | An install whose release registry cannot be reached fails fast at its first external step, with a message naming the timeout. |
 | `fi_c6_cloudflared_flapping` | Re-converging the public tunnel updates its configuration without restarting a healthy connector. |
 | `fi_c7_coturn_cert_expired` | A call-relay certificate that is due is renewed by the scheduled renewal job, and the relay serves the renewed certificate on its TLS port. |
 | `fi_c8_app_init_loop` | An application whose environment has been corrupted fails visibly, with diagnostics that name it and carry its error. |
