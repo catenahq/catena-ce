@@ -575,12 +575,13 @@ def _dispatch(oc, path, request, monkeypatch, capsys) -> dict:
 
 def test_the_panels_read_carries_no_master_realm_credential(oc, tmp_path, monkeypatch, capsys):
     """The automation client signs in to the master realm with its admin role
-    and no second factor, and Keycloak's database password reaches the same
-    realm underneath it."""
+    and no second factor, Keycloak's database password reaches the same realm
+    underneath it, and the admin's password signs in to it."""
     p = tmp_path / "config.json"
     p.write_text(json.dumps(_every_key_stored(oc)))
     got = _dispatch(oc, p, {"op": "read"}, monkeypatch, capsys)
-    for key in ("keycloak_automation_client_secret", "keycloak_db_password"):
+    for key in ("keycloak_automation_client_secret", "keycloak_db_password",
+                "admin_password"):
         assert key not in got["secrets"], f"the panel's read hands it {key}"
 
 
@@ -592,13 +593,83 @@ def test_the_panels_read_holds_the_secrets_it_uses_and_no_others(oc, tmp_path, m
     assert set(got) == {"secrets", "config"}
     assert set(got["secrets"]) == oc.PANEL_SECRETS
     assert got["config"] == stored["config"]
-    # The value the panel signs in with and the disaster-recovery keyset it
-    # reveals, beside every Settings field.
-    for key in ("admin_password", "backup_restic_password", "cloudflare_api_token"):
+    # The disaster-recovery keyset the panel reveals, beside every Settings
+    # field.
+    for key in ("backup_restic_password", "cloudflare_api_token"):
         assert got["secrets"][key] == f"value-of-{key}"
-    for key in ("console_recovery_password",
+    for key in ("admin_password", "console_recovery_password",
                 "catena_admin_session_key", "catena_marketplace_token"):
         assert key not in got["secrets"]
+
+
+def _sign_in(oc, path, password, monkeypatch, capsys) -> dict:
+    return _dispatch(oc, path, {"op": "sign-in", "password": password}, monkeypatch, capsys)
+
+
+def test_the_sign_in_check_answers_whether_the_password_is_the_admins(oc, tmp_path, monkeypatch, capsys):
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {"admin_password": "pw-1"}, "config": {}}, p)
+    assert _sign_in(oc, p, "pw-1", monkeypatch, capsys) == {"ok": True}
+    for wrong in ("pw-2", "pw-1 ", ""):
+        assert _sign_in(oc, p, wrong, monkeypatch, capsys) == {"ok": False}
+    oc.dump({"secrets": {"admin_password": "pä-ssé-1"}, "config": {}}, p)
+    assert _sign_in(oc, p, "pä-ssé-1", monkeypatch, capsys) == {"ok": True}
+    assert _sign_in(oc, p, "pa-sse-1", monkeypatch, capsys) == {"ok": False}
+
+
+def test_the_sign_in_check_matches_nothing_while_no_password_is_stored(oc, tmp_path, monkeypatch, capsys):
+    p = tmp_path / "config.json"
+    stores = [None,
+              {"secrets": {"admin_password": ""}, "config": {}},
+              {"secrets": {"admin_password": 12345}, "config": {}},
+              {"secrets": {}, "config": {}}]
+    for store in stores:
+        if store is not None:
+            p.write_text(json.dumps(store))
+        for typed in ("", "12345", "anything"):
+            assert _sign_in(oc, p, typed, monkeypatch, capsys) == {"ok": False}
+
+
+def test_the_sign_in_check_prints_no_secret(oc, tmp_path, monkeypatch, capsys):
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {"admin_password": "stored-pw-xyz"}, "config": {}}, p)
+    for typed in ("stored-pw-xyz", "typed-pw-abc"):
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"op": "sign-in", "password": typed})))
+        assert oc.main(["--path", str(p), "--dispatch-stdin"]) == 0
+        out, err = capsys.readouterr()
+        assert json.loads(out) in ({"ok": True}, {"ok": False})
+        assert out.strip() in ('{"ok": true}', '{"ok": false}')
+        assert err == ""
+        for secret in ("stored-pw-xyz", "typed-pw-abc"):
+            assert secret not in out + err
+
+
+def test_the_sign_in_check_takes_no_lock_and_writes_nothing(oc, tmp_path, monkeypatch, capsys, store_lock_path):
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {"admin_password": "pw-1"}, "config": {}}, p)
+    before = p.read_bytes()
+    other = _hold(store_lock_path)
+    try:
+        assert _sign_in(oc, p, "pw-1", monkeypatch, capsys) == {"ok": True}
+    finally:
+        os.close(other)
+    assert p.read_bytes() == before
+
+
+def test_the_sign_in_check_refuses_a_request_without_a_password_string(oc, tmp_path, monkeypatch, capsys):
+    import io
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {"admin_password": "pw-1"}, "config": {}}, p)
+    for request in ({"op": "sign-in"}, {"op": "sign-in", "password": None},
+                    {"op": "sign-in", "password": 123}):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
+        with pytest.raises(SystemExit) as stopped:
+            oc.main(["--path", str(p), "--dispatch-stdin"])
+        message = str(stopped.value.code)
+        assert "password string" in message
+        assert "pw-1" not in message and "123" not in message
+        assert capsys.readouterr().out == ""
 
 
 def test_the_panels_read_carries_neither_the_app_repositories_nor_their_tokens(oc, tmp_path, monkeypatch, capsys):

@@ -33,7 +33,8 @@ to a literal two-character backslash-n on some Ansible versions):
                             literal '\\n' and a trailing newline,
                             ready to drop into copy:content=
 
-Comment lines (`#...`) and empty lines pass through verbatim.
+Comment lines (`#...`) and empty lines pass through verbatim, except with
+`replace=True`, which drops them.
 """
 
 from __future__ import annotations
@@ -41,12 +42,12 @@ from __future__ import annotations
 
 def keyscan_alias_lines(lines, alias, replace=False):
     """Rewrite the first whitespace-separated field (the scanned host) of
-    each non-comment ssh-keyscan line. Comment and blank lines pass through
-    unchanged. Returns a list of rewritten lines.
+    each non-comment ssh-keyscan line. Returns a list of rewritten lines.
 
     `replace=False` (default): PREFIX `alias,` onto the scanned host, so the
     entry lists both names as aliases of the key
-    (``alias,HOST keytype keydata``).
+    (``alias,HOST keytype keydata``). Comment and blank lines pass through
+    unchanged.
 
     `replace=True`: REPLACE the scanned host with `alias` entirely, dropping
     the scanned address (``alias keytype keydata``). The catena-admin known_
@@ -57,7 +58,9 @@ def keyscan_alias_lines(lines, alias, replace=False):
     after a cross-host restore). Including it makes the `copy` task report
     `changed` on every re-converge; dropping it makes the entry idempotent
     (alias is constant, keydata is the stable host key) with zero functional
-    loss."""
+    loss. Comment and blank lines are dropped too: ssh-keyscan's
+    `# HOST:22 SSH-2.0-<server version>` banner moves with every sshd upgrade,
+    and the file then holds key lines only."""
     if lines is None:
         return []
     if isinstance(lines, str):
@@ -70,7 +73,8 @@ def keyscan_alias_lines(lines, alias, replace=False):
         line = raw.rstrip("\n")
         stripped = line.lstrip()
         if not stripped or stripped.startswith("#"):
-            out.append(line)
+            if not replace:
+                out.append(line)
             continue
         head, sep, rest = line.partition(" ")
         if not sep:

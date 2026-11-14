@@ -136,7 +136,5 @@ keyset. Full classification: [SECRETS.md](SECRETS.md).
 | [inventory/](inventory/) | Inventories in a checkout, untracked |
 | [tests/](tests/) | Unit tests |
 
-Each has its own `README.md`. The `helpers/`, `scripts/`, `playbooks/`,
-`bootstrap/roles/` and `reconcile/roles/` indexes are generated from the
-headers of the files they list, so a file that lands without a header
-shows up in its index as a hole.
+Each has its own `README.md`, and so does each role. The leading comment
+of a role's `tasks/main.yml` says what it does in one line.

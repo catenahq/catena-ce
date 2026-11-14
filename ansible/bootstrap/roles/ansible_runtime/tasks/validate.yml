@@ -1,0 +1,41 @@
+---
+# Validation tasks for bootstrap/roles/ansible_runtime. main.yml includes this
+# file right after installing, and playbooks/validate.yml runs it through
+# include_role: tasks_from: validate, so the version check exists once.
+
+# Prove it runs before anything depends on it. A venv whose pip succeeded and
+# whose ansible-playbook cannot start is a failure this role can see and the
+# converge engine cannot: by then it is a transient systemd unit on a host
+# nobody is watching.
+- name: "validate/ansible_runtime: the interpreter answers"
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_runtime_dir }}/bin/ansible-playbook"
+      - --version
+  register: _ansible_runtime_version
+  changed_when: false
+
+- name: "validate/ansible_runtime: it is new enough for the reconcile to accept"
+  ansible.builtin.assert:
+    that:
+      - _ansible_runtime_version.stdout is search('core ' ~ ansible_runtime_minimum)
+        or (_ansible_runtime_version.stdout
+            | regex_search('core ([0-9]+\\.[0-9]+)', '\\1') | first
+            is version(ansible_runtime_minimum, '>='))
+    fail_msg: >-
+      {{ ansible_runtime_dir }} installed an ansible-core below
+      {{ ansible_runtime_minimum }}, which playbooks/reconcile.yml refuses.
+      Installed: {{ _ansible_runtime_version.stdout_lines | first | default('nothing') }}.
+      The host would take the engines and then decline to run them, which is a
+      worse state than not having installed it at all.
+
+# Root runs the interpreter in this venv on every reconcile, so a venv or a bin
+# directory anyone else can write is a way to run code as root.
+- name: "validate/ansible_runtime: only root can change the venv a root reconcile runs"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: "{{ ansible_runtime_dir }}", type: directory, owner: root, group: root, mode: "0755" }
+      - { path: "{{ ansible_runtime_dir }}/bin", type: directory, owner: root, group: root, mode: "0755" }

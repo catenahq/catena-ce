@@ -1,5 +1,5 @@
-"""Unit tests for the keyscan_alias filter used by reconcile/roles/catena-admin/
-tasks/host.yml to build the admin container's known_hosts.
+"""Unit tests for the keyscan_alias filter used by bootstrap/roles/catena_admin_host/
+tasks/main.yml to build the admin container's known_hosts.
 
 The container's SSH runner only ever connects to host.docker.internal, so
 the role uses replace=True to emit "host.docker.internal keytype keydata"
@@ -63,15 +63,27 @@ def test_replace_supports_tab_separator():
     assert out == ["alias.example\tssh-rsa\tAAAA"]
 
 
-def test_preserves_comment_lines_in_replace_mode():
+def test_replace_drops_comment_and_blank_lines():
+    # ssh-keyscan prints a `# HOST:22 SSH-2.0-<server version>` banner; the
+    # version moves with every sshd upgrade, so replace mode keeps key lines only.
+    lines = [
+        "# 127.0.0.1:22 SSH-2.0-OpenSSH_10.0p2 Debian-7+deb13u4",
+        "",
+        "127.0.0.1 ssh-ed25519 AAAAKEY",
+    ]
+    out = keyscan_alias_lines(lines, "host.docker.internal", replace=True)
+    assert out == ["host.docker.internal ssh-ed25519 AAAAKEY"]
+
+
+def test_prefix_mode_preserves_comment_lines():
     lines = [
         "# 100.64.0.10:22 SSH-2.0-OpenSSH_9.2p1",
         "100.64.0.10 ssh-ed25519 AAAAKEY",
     ]
-    out = keyscan_alias_lines(lines, "host.docker.internal", replace=True)
+    out = keyscan_alias_lines(lines, "host.docker.internal")
     assert out == [
         "# 100.64.0.10:22 SSH-2.0-OpenSSH_9.2p1",
-        "host.docker.internal ssh-ed25519 AAAAKEY",
+        "host.docker.internal,100.64.0.10 ssh-ed25519 AAAAKEY",
     ]
 
 
@@ -97,10 +109,7 @@ def test_string_form_trailing_newline_replace():
         "host.docker.internal",
         replace=True,
     )
-    assert out == (
-        "# 100.64.0.10:22 SSH-2.0-OpenSSH_9.2p1\n"
-        "host.docker.internal ssh-ed25519 AAAAKEY\n"
-    )
+    assert out == "host.docker.internal ssh-ed25519 AAAAKEY\n"
 
 
 def test_filter_module_registers_under_expected_names():

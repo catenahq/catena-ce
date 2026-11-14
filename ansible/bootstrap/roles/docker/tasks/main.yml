@@ -171,14 +171,6 @@
     update_cache: true
   when: not _docker_bin.stat.exists
 
-# Held, so an operator converge's dist-upgrade and unattended-upgrades leave
-# the engine to catena-engine-upgrade.
-- name: Hold the container engine packages
-  ansible.builtin.dpkg_selections:
-    name: "{{ item }}"
-    selection: hold
-  loop: "{{ catena_held_engine_packages }}"
-
 - name: Ensure docker.service is enabled and running
   ansible.builtin.command:
     # Bounded for the same reason as the `restart docker` handler: `--now` on

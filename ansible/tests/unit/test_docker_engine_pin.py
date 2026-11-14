@@ -1,11 +1,8 @@
 """The container engine is pinned, held, and moved only by the engine upgrade.
 
-An operator converge runs `apt upgrade: dist` (bootstrap/roles/common), which
-moved Docker to whatever shipped that day with no health check behind it, and
-a host that converges itself never moved it at all. The engine is now a pin:
-a first install gets it, apt holds it, and catena-admin's catena-engine-upgrade
-reads the same two keys out of the panel image's tree to move an installed
-host, checking the host came back.
+A first install gets the pinned engine, apt holds it on every converge, and
+catena-admin's catena-engine-upgrade reads the same two keys out of the panel
+image's tree to move an installed host, checking the host came back.
 
 Run: uv run pytest tests/unit/test_docker_engine_pin.py
 """
@@ -60,13 +57,31 @@ def test_an_installed_engine_is_left_where_it_is():
     assert "' ok installed' not in" in install["when"]
 
 
-def test_the_engine_is_held_after_every_install_path():
-    names = [t.get("name") for t in _tasks()]
-    hold = _task("Hold the container engine packages")
+def test_every_converge_holds_the_engine():
+    hm = ANSIBLE / "reconcile" / "roles" / "host_maintenance"
+    hold = next(
+        t for t in yaml.safe_load((hm / "tasks" / "main.yml").read_text())
+        if t.get("name") == "Host: hold the container engine packages")
     assert hold["ansible.builtin.dpkg_selections"]["selection"] == "hold"
     assert hold["loop"] == "{{ catena_held_engine_packages }}"
-    assert names.index("Hold the container engine packages") > names.index(
-        "Reinstall docker packages cleanly after purge")
+    assert all("ansible.builtin.dpkg_selections" not in t for t in _tasks())
+    boundary = yaml.safe_load((ANSIBLE / "boundary.yml").read_text())
+    assert "host_maintenance" in boundary["reconcile_roles"]
+    converge = yaml.safe_load((ANSIBLE / "playbooks" / "converge.yml").read_text())
+    roles = [
+        r["role"] if isinstance(r, dict) else r
+        for play in converge for r in play.get("roles", [])]
+    assert roles.index("host_maintenance") > roles.index("docker")
+
+
+def test_the_hold_is_checked_where_it_is_set():
+    hm = ANSIBLE / "reconcile" / "roles" / "host_maintenance"
+    check = next(
+        t for t in yaml.safe_load((hm / "tasks" / "validate.yml").read_text())
+        if t.get("name") ==
+        "validate/host_maintenance: the container engine packages are held")
+    assert check["loop"] == "{{ catena_held_engine_packages }}"
+    assert "showhold" not in (ROLE / "tasks" / "validate.yml").read_text()
 
 
 def test_the_held_list_is_the_engine_trio_and_uninstall_releases_it():

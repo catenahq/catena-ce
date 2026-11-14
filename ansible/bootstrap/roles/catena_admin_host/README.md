@@ -34,6 +34,12 @@ with, and nothing on the host can prove a replacement before it is in use.
 The migration account's rules are here for the same reason: nothing can prove
 them from the host without an open migration window.
 
+`tasks/validate.yml`, run by `playbooks/validate.yml`, checks read-only that both
+accounts exist with their shell and home and a `*` shadow password (not
+locked), the owner and mode of every path above, `known_hosts` keyed on
+`host.docker.internal`, `StrictHostKeyChecking yes` in the client config, and
+what `sshd -T -C user=<migration account>` resolves for the migration account.
+
 ## Where its variables live
 
 Here: everything read only by `tasks/main.yml` or one of its templates.

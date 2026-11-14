@@ -18,9 +18,14 @@ Run: uv run pytest tests/unit/test_swarm_addr_conflict_reclaim.py
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "playbooks" / "filter_plugins"))
+
+from swarm_deploy_retry import swarm_deploy_transient  # noqa: E402
 
 ROLE = (
     Path(__file__).resolve().parents[3]
@@ -53,9 +58,8 @@ def _find(path: Path, name_fragment: str) -> dict:
 def test_address_conflict_still_classified_transient():
     # The loop must keep retrying after a reclaim, so the string stays in
     # the transient set -- the reclaim is what makes the retry able to win.
-    task = _find(ATTEMPT, "detect transient in deploy output")
-    expr = task["ansible.builtin.set_fact"]["_swarm_deploy_transient"]
-    assert "Address already in use" in expr
+    seen = "failed to set up container networking: Address already in use"
+    assert swarm_deploy_transient(1, seen, "")
 
 
 def test_addr_conflict_detected_separately():
