@@ -8,7 +8,7 @@ dependencies = [
     # The range bootstrap/roles/ansible_runtime installs on the server, so the
     # tests and syntax checks read the tree with the ansible-core it runs on.
     # tests/unit/test_ansible_runtime_pin.py holds the two together.
-    "ansible-core>=2.20,<2.22",
+    "ansible-core>=2.22,<2.23",
 ]
 
 [tool.uv]
