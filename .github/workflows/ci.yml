@@ -32,7 +32,7 @@ jobs:
     # Reuses the result of an earlier run on the same tree; every job below
     # needs it.
     name: same tree (ci)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       actions: read
@@ -52,7 +52,7 @@ jobs:
     name: Installer and tree unit tests
     needs: same-tree
     if: needs.same-tree.outputs.run != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -89,7 +89,7 @@ jobs:
     name: Entry point and wheel
     needs: same-tree
     if: needs.same-tree.outputs.run != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -113,7 +113,7 @@ jobs:
     name: Keycloak extension
     needs: same-tree
     if: needs.same-tree.outputs.run != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container:
       image: maven:3.10.0-eclipse-temurin-21@sha256:9673eef9ed503146591667ffb92eaaa22f1b8899ed60d9df0df4da3f3a1214a6
     defaults:
@@ -157,7 +157,7 @@ jobs:
     name: Ansible syntax-check
     needs: same-tree
     if: needs.same-tree.outputs.run != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -182,7 +182,7 @@ jobs:
     name: Duplication (jscpd)
     needs: same-tree
     if: needs.same-tree.outputs.run != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -203,7 +203,7 @@ jobs:
     name: Duplicate sentences
     needs: same-tree
     if: needs.same-tree.outputs.run != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -219,7 +219,7 @@ jobs:
     name: Comment prose
     needs: same-tree
     if: needs.same-tree.outputs.run != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
