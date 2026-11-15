@@ -18,7 +18,7 @@
       "reason": "sample"
     },
     "ansible/tests/unit/test_swarm_naming.py": {
-      "names": ["nextcloud"],
+      "names": ["gatus", "nextcloud"],
       "reason": "sample"
     },
     "ansible/tests/unit/test_the_tree_needs_no_collections.py": {
