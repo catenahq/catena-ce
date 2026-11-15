@@ -17,7 +17,7 @@ ansible_runtime_dir: /opt/catena/ansible
 # validated by the bench rather than two that drift.
 #
 # tests/unit/test_ansible_runtime_pin.py holds the two to each other.
-ansible_runtime_spec: "ansible-core>=2.20,<2.22"
+ansible_runtime_spec: "ansible-core>=2.20,<2.23"
 
 # What playbooks/reconcile.yml refuses below. Stated as a version rather than
 # derived from the spec above: the spec is what to INSTALL, this is what a host
