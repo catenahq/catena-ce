@@ -46,7 +46,7 @@ class Unreachable(RemoteError):
 
 
 class Overrun(RemoteError):
-    """A command ran past the bound it was given."""
+    """A command is still running after the time bound it has."""
 
 
 class AuthRefused(RemoteError):
