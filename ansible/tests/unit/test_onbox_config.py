@@ -598,7 +598,7 @@ def test_the_panels_read_holds_the_secrets_it_uses_and_no_others(oc, tmp_path, m
     for key in ("backup_restic_password", "cloudflare_api_token"):
         assert got["secrets"][key] == f"value-of-{key}"
     for key in ("admin_password", "console_recovery_password",
-                "catena_admin_session_key", "catena_marketplace_token"):
+                "catena_admin_session_key", "catena_keycloak_forward_token"):
         assert key not in got["secrets"]
 
 

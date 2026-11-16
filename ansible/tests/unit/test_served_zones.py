@@ -155,7 +155,7 @@ def _sync_env(zone: str, secondaries: list[str], secrets: dict | None = None) ->
         "oauth2_proxy_client_secret": "client-secret",
         "oauth2_proxy_cookie_secret": "primary-cookie-secret",
         "catena_admin_ui_port": "9010",
-        "catena_marketplace_token": "market-token",
+        "catena_keycloak_forward_token": "market-token",
         "catena_secondary_zones": secondaries,
         **(secrets or {}),
     })
@@ -262,10 +262,10 @@ def test_dashboard_sync_reaches_keycloak_through_the_panel_on_loopback(case):
     assert _env_value(rendered, "KEYCLOAK_TOKEN_URL") == (
         f"{base}/realms/vps/protocol/openid-connect/token")
     assert _env_value(rendered, "KEYCLOAK_CLIENTS_API") == f"{base}/admin/realms/vps/clients"
-    assert _env_value(rendered, "CATENA_MARKETPLACE_TOKEN") == "market-token"
+    assert _env_value(rendered, "CATENA_KEYCLOAK_FORWARD_TOKEN") == "market-token"
 
 
-def test_the_marketplace_token_is_in_no_url():
+def test_the_keycloak_forward_token_is_in_no_url():
     """dashboard-sync prints a failed call's URL to its journal, which the
     converge log and the panel's Sync all output copy. The token rides its own
     line, which the lane sends as a request header (catena-admin
@@ -273,14 +273,14 @@ def test_the_marketplace_token_is_in_no_url():
     rendered = _sync_env(PRIMARY, [])
     carrying = [ln.split("=", 1)[0] for ln in rendered.splitlines()
                 if "market-token" in ln and not ln.startswith("#")]
-    assert carrying == ["CATENA_MARKETPLACE_TOKEN"]
+    assert carrying == ["CATENA_KEYCLOAK_FORWARD_TOKEN"]
 
 
-def test_no_marketplace_token_renders_an_empty_token():
+def test_no_keycloak_forward_token_renders_an_empty_token():
     """A host whose converge has not minted the token yet renders it empty,
     which the panel's forward refuses."""
-    rendered = _sync_env(PRIMARY, [], {"catena_marketplace_token": ""})
-    assert _env_value(rendered, "CATENA_MARKETPLACE_TOKEN") == ""
+    rendered = _sync_env(PRIMARY, [], {"catena_keycloak_forward_token": ""})
+    assert _env_value(rendered, "CATENA_KEYCLOAK_FORWARD_TOKEN") == ""
 
 
 def test_the_env_names_no_managed_env_url():
