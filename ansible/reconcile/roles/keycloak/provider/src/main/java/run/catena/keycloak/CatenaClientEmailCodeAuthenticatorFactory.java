@@ -35,6 +35,8 @@ public class CatenaClientEmailCodeAuthenticatorFactory implements AuthenticatorF
 
     private KeycloakSessionFactory sessionFactory;
     private ThreadPoolExecutor executor;
+    private final CatenaClientEmailCodeAuthenticator.AddressLimiter limiter =
+            new CatenaClientEmailCodeAuthenticator.AddressLimiter();
 
     @Override
     public String getId() {
@@ -43,7 +45,7 @@ public class CatenaClientEmailCodeAuthenticatorFactory implements AuthenticatorF
 
     @Override
     public Authenticator create(KeycloakSession session) {
-        return new CatenaClientEmailCodeAuthenticator(this::submit, System::currentTimeMillis);
+        return new CatenaClientEmailCodeAuthenticator(this::submit, System::currentTimeMillis, limiter);
     }
 
     @Override
