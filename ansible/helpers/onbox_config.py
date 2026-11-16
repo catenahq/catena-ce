@@ -213,7 +213,7 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # The token the host's dashboard-sync lane sends in a header to the panel's
     # Keycloak forward on the host's loopback, and the only proof the forward
     # accepts that a call came from the lane.
-    "catena_marketplace_token": mint_url_safe,
+    "catena_keycloak_forward_token": mint_url_safe,
     # SSO service credentials.
     "keycloak_db_password": mint_strong_password,
     # The master realm's automation client (reconcile/roles/keycloak): every
