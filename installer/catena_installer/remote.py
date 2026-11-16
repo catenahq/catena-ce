@@ -45,6 +45,10 @@ class Unreachable(RemoteError):
     """Nothing answers SSH at the address."""
 
 
+class Overrun(RemoteError):
+    """A command is still running after the time bound it has."""
+
+
 class AuthRefused(RemoteError):
     """The server answered and refused the login."""
 
@@ -176,15 +180,20 @@ class Session:
     def __init__(self, transport: paramiko.Transport, user: str, host: str):
         self.transport, self.user, self.host = transport, user, host
 
-    def run(self, command: str, on_line: Callable[[str], None]) -> int:
+    def run(self, command: str, on_line: Callable[[str], None],
+            bound: float | None = None) -> int:
         """Run `command` through the login shell, passing each line it prints
-        (stdout and stderr together) to `on_line`; return its exit status."""
+        (stdout and stderr together) to `on_line`; return its exit status.
+        A command still running `bound` seconds after it started, however
+        slowly its output drains, is abandoned with Overrun."""
+        deadline = None if bound is None else time.monotonic() + bound
         chan = self.transport.open_session()
         chan.set_combine_stderr(True)
         chan.settimeout(POLL)
         chan.exec_command(command)
         pending = b""
         while True:
+            self._require_in_time(chan, deadline)
             try:
                 data = chan.recv(65536)
             except socket.timeout:
@@ -200,8 +209,15 @@ class Session:
             on_line(pending.decode("utf-8", "replace").rstrip("\r"))
         while not chan.exit_status_ready():
             self._require_alive()
+            self._require_in_time(chan, deadline)
             time.sleep(POLL)
         return chan.recv_exit_status()
+
+    @staticmethod
+    def _require_in_time(chan, deadline: float | None) -> None:
+        if deadline is not None and time.monotonic() > deadline:
+            chan.close()
+            raise Overrun("the command ran past its time bound")
 
     def _require_alive(self) -> None:
         """A silent channel is only waited on while the connection lives; the

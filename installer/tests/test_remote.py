@@ -236,6 +236,7 @@ class _SilentChannel:
     def settimeout(self, timeout): pass
     def exec_command(self, command): pass
     def exit_status_ready(self): return False
+    def close(self): pass
 
     def recv(self, n):
         raise socket.timeout()
@@ -260,6 +261,13 @@ def test_a_command_on_a_dead_connection_is_a_remote_error(monkeypatch):
     session = remote.Session(_DyingTransport(2), "ops", "203.0.113.10")
     with pytest.raises(remote.RemoteError, match="connection to 203.0.113.10 was lost"):
         session.run("anything", lambda line: None)
+
+
+def test_a_command_past_its_bound_is_abandoned(monkeypatch):
+    monkeypatch.setattr(remote, "POLL", 0.01)
+    session = remote.Session(_DyingTransport(10**6), "ops", "203.0.113.10")
+    with pytest.raises(remote.Overrun):
+        session.run("anything", lambda line: None, bound=0.05)
 
 
 def test_a_missing_exit_status_on_a_dead_connection_is_a_remote_error(monkeypatch):
