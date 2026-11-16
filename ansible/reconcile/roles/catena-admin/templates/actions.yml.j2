@@ -197,13 +197,14 @@ actions:
       sync_fresh() {
         unit=$1; shift
         while [ "$(systemctl is-active "$unit")" = activating ]; do sleep 1; done
+        since=$(date '+%Y-%m-%d %H:%M:%S')
         "$@" systemctl start --wait "$unit"
         rc=$?
         id=$(systemctl show -p InvocationID --value "$unit")
         if [ -n "$id" ]; then
           journalctl "_SYSTEMD_INVOCATION_ID=$id" --no-pager -n 80 > "$LOGDIR/$unit" 2>&1
         else
-          journalctl -u "$unit" --no-pager -n 20 > "$LOGDIR/$unit" 2>&1
+          journalctl -u "$unit" --since "$since" --no-pager -n 80 > "$LOGDIR/$unit" 2>&1
         fi
         return $rc
       }
