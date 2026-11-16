@@ -83,7 +83,7 @@
   ansible.builtin.set_fact:
     _infra_sync_units: >-
       {{ ['catena-dashboard-sync.timer', 'catena-app-events.service',
-          'gatus-sync.timer', 'catena-version-check.timer']
+          'gatus-sync.timer']
          if (_infra_payload_expected | bool) else [] }}
 
 - name: "validate/infrastructure: sync units are active + enabled"

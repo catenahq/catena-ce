@@ -2,10 +2,10 @@
 # Per-host wiring for gatus-sync, the Gatus monitor-config regenerator.
 #
 # The scripts (catena-gatus-sync and catena-version-check) and their units
-# (gatus-sync.service/.timer, catena-version-check.service/.timer) ship in the
+# (gatus-sync.service/.timer, catena-version-check.service) ship in the
 # catena-admin payload, which reconcile/roles/payload extracts earlier in the
 # play. What stays here is the env file both read, whose values are this
-# host's, and enabling the timers. dashboard-sync also starts gatus-sync
+# host's, and enabling the gatus-sync timer. dashboard-sync also starts gatus-sync
 # whenever the app intent changes.
 #
 # The script regenerates ONLY {{ gatus_host_config_dir }}/50-catena-apps.yaml
@@ -30,7 +30,6 @@
       - "{{ gatus_sync_script_path }}"
       - "{{ version_check_script_path }}"
       - /etc/systemd/system/gatus-sync.timer
-      - /etc/systemd/system/catena-version-check.timer
 
 - name: "gatus-sync: the sync is missing from a converge that installs it"
   ansible.builtin.fail:
@@ -65,8 +64,15 @@
     daemon_reload: true
   loop:
     - gatus-sync.timer
-    - catena-version-check.timer
   when: _gatus_sync_present | bool
+
+# The panel refreshes the version report when a page opens, so no timer runs it.
+# A server set up before that still has the timer enabled.
+- name: "gatus-sync: no version-check timer (disable one left from before)"
+  ansible.builtin.command: systemctl disable --now catena-version-check.timer  # noqa: command-instead-of-module
+  register: _version_timer_off
+  changed_when: _version_timer_off.rc == 0 and 'Removed' in _version_timer_off.stderr
+  failed_when: false
 
 - name: "gatus-sync: run once now (populate 50-catena-apps.yaml)"
   ansible.builtin.systemd:
