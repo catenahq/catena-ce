@@ -38,6 +38,7 @@ stdlib only (runs on the minimal host python); no PyYAML.
 from __future__ import annotations
 
 import base64
+import fcntl
 import json
 import os
 import subprocess
@@ -48,6 +49,7 @@ from pathlib import Path
 STORE_PATH = "/etc/catena/config.json"
 PASS_FILE = "/etc/catena/restic.pass"
 HELD_FILE = "/var/lib/catena/backup-held.json"
+STORE_LOCK = "/run/catena-store.lock"
 
 
 def _load_store(path: str) -> dict:
@@ -100,22 +102,29 @@ def _opens(env: dict, password: str) -> bool:
     return _cat_config(env, password) == 0
 
 
-def _save_store(store: dict, store_path: str) -> None:
-    """Write the two sections back, keeping every other top-level key the
-    file holds (schedules, image pins, offsite copies): other writers own
-    those."""
-    p = Path(store_path)
-    doc = json.loads(p.read_text()) if p.exists() else {}
-    doc["secrets"] = store["secrets"]
-    doc["config"] = store["config"]
-    tmp = store_path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+def _save_password(password: str, store_path: str) -> None:
+    """Set backup_restic_password in the store. Under the store lock the file
+    is read again and only that one key changes, so a write another writer
+    made since this run loaded the store stands."""
+    lock = os.environ.get("CATENA_STORE_LOCK") or STORE_LOCK
+    lock_fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
-        os.write(fd, json.dumps(doc, indent=2, sort_keys=True).encode())
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        p = Path(store_path)
+        doc = json.loads(p.read_text()) if p.exists() else {}
+        secrets = dict(doc.get("secrets") or {})
+        secrets["backup_restic_password"] = password
+        doc["secrets"] = secrets
+        tmp = store_path + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, json.dumps(doc, indent=2, sort_keys=True).encode())
+        finally:
+            os.close(fd)
+        os.replace(tmp, store_path)
+        os.chmod(store_path, 0o600)
     finally:
-        os.close(fd)
-    os.replace(tmp, store_path)
-    os.chmod(store_path, 0o600)
+        os.close(lock_fd)
 
 
 def _held(path: str) -> dict | None:
@@ -182,8 +191,7 @@ def cmd_generate(store: dict, store_path: str, replace: bool = False,
         if rc != _NO_REPOSITORY:
             return {"ok": False, "error": f"could not read the repository "
                     f"(restic exit {rc}); check its address and keys"}
-    store["secrets"]["backup_restic_password"] = password
-    _save_store(store, store_path)
+    _save_password(password, store_path)
     if replace:
         Path(pass_file).write_text(password + "\n")
         os.chmod(pass_file, 0o600)
@@ -352,8 +360,7 @@ def _set_password(store: dict, new_password: str, store_path: str,
 
     # Persist the new password: the on-box store (rides the backup) + the
     # runtime pass file the backup service reads.
-    store["secrets"]["backup_restic_password"] = new_password
-    _save_store(store, store_path)
+    _save_password(new_password, store_path)
     Path(pass_file).write_text(new_password + "\n")
     os.chmod(pass_file, 0o600)
     return {"ok": True}
