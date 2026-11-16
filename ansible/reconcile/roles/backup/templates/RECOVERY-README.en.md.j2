@@ -54,8 +54,18 @@ volumes. The folder is named after the application and holds its compose
 file (`docker-compose.yml`) and its settings (`.env`). Its volumes are
 named after it too (`<app-name>_<name>`).
 
+List the snapshots and find one that holds the application. The newest one
+does not hold an application removed since:
+
 ```
-restic restore latest --target /recovered \
+restic snapshots
+restic ls <snapshot-id> {{ storage_mount_point }}/docker/volumes/<volume-name>
+```
+
+Restore from that snapshot (`latest` only when it is the one):
+
+```
+restic restore <snapshot-id> --target /recovered \
     --include '{{ storage_mount_point }}/compose/<app-name>' \
     --include '{{ storage_mount_point }}/docker/volumes/<volume-name>'
 ```

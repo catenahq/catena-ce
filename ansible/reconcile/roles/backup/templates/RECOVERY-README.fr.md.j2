@@ -57,8 +57,18 @@ volumes de données. Le dossier porte le nom de l'application et contient son
 fichier compose (`docker-compose.yml`) et ses paramètres (`.env`). Ses volumes
 portent aussi son nom (`<nom-de-l-application>_<nom>`).
 
+Listez les instantanés et trouvez-en un qui contient l'application. Le plus
+récent ne contient pas une application supprimée depuis :
+
 ```
-restic restore latest --target /recovered \
+restic snapshots
+restic ls <id-snapshot> {{ storage_mount_point }}/docker/volumes/<nom-du-volume>
+```
+
+Restaurez depuis cet instantané (`latest` seulement si c'est lui) :
+
+```
+restic restore <id-snapshot> --target /recovered \
     --include '{{ storage_mount_point }}/compose/<nom-de-l-application>' \
     --include '{{ storage_mount_point }}/docker/volumes/<nom-du-volume>'
 ```
