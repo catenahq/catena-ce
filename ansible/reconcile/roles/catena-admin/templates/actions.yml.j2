@@ -115,7 +115,18 @@ actions:
     category: Ops
     icon: "refresh"
     timeout: 30
-    shell: "docker service update --force cloudflared"
+    # Runs under the host lock so it never restarts the tunnel in the middle
+    # of a backup or an update. While another job holds the lock, host-lock
+    # answers 75 at once and the press says the server is busy.
+    shell: |
+      set +e
+      /usr/local/bin/catena-recovery host-lock -w 0 -- docker service update --force cloudflared
+      rc=$?
+      if [ "$rc" -eq 75 ]; then
+        echo "The server is busy with another job, such as a backup or an update, so cloudflared was not restarted; try again in a moment."
+        echo "Le serveur est occupé par une autre tâche, comme une sauvegarde ou une mise à jour : cloudflared n'a pas été redémarré ; réessayez dans un instant."
+      fi
+      exit $rc
 
   - name: disk-usage
     title: "Disk breakdown"
