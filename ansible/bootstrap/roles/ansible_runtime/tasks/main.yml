@@ -54,6 +54,21 @@
   changed_when: >-
     'Successfully installed' in (_ansible_runtime_pip.stdout | default(''))
 
+# Only the profile_tasks callback uses it; no task names the collection. Galaxy
+# prints "Installing" only when it installs something.
+- name: "ansible runtime: install {{ ansible_runtime_posix_spec }}"
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_runtime_dir }}/bin/ansible-galaxy"
+      - collection
+      - install
+      - "{{ ansible_runtime_posix_spec }}"
+      - -p
+      - "{{ ansible_runtime_collections_dir }}"
+  register: _ansible_runtime_posix
+  changed_when: >-
+    'Installing' in (_ansible_runtime_posix.stdout | default(''))
+
 # The interpreter answers and is new enough: tasks/validate.yml, which
 # playbooks/validate.yml runs too.
 - name: "ansible runtime: prove the venv runs"
