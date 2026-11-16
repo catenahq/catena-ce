@@ -29,3 +29,17 @@ def test_the_include_carries_the_refresh_tag(playbook):
                    if (t.get("ansible.builtin.include_tasks") or {}).get("file")
                    == "tasks/converge_tail.yml")
     assert "version_check" in include["tags"], playbook
+
+
+def test_the_infrastructure_role_enables_no_version_timer_and_disables_one():
+    role = PLAYBOOKS.parent / "reconcile" / "roles" / "infrastructure"
+    tasks = [t for f in sorted((role / "tasks").glob("*.yml"))
+             for t in yaml.safe_load(f.read_text(encoding="utf-8")) or []]
+    enabled = [t for t in tasks if "ansible.builtin.systemd_service" in t
+               and any("timer" in str(x) for x in t.get("loop", []))]
+    assert enabled and all("version-check" not in str(t["loop"]) for t in enabled)
+    off = [t for t in tasks
+           if "catena-version-check.timer" in str(t.get("ansible.builtin.command", ""))]
+    assert len(off) == 1 and "disable --now" in off[0]["ansible.builtin.command"]
+    validate = (role / "tasks" / "validate.yml").read_text(encoding="utf-8")
+    assert "catena-version-check.timer" not in validate
