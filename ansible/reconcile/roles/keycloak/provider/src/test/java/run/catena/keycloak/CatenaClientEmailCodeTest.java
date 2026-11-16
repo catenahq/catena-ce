@@ -70,7 +70,7 @@ class CatenaClientEmailCodeTest {
     private final CatenaClientEmailCodeAuthenticatorFactory factory = new CatenaClientEmailCodeAuthenticatorFactory();
     private final Jobs jobs = new Jobs();
     private long clock = T0;
-    private final CatenaClientEmailCodeAuthenticator step =
+    private CatenaClientEmailCodeAuthenticator step =
             new CatenaClientEmailCodeAuthenticator(jobs, () -> clock);
 
     private static final class Fixture {
@@ -212,6 +212,7 @@ class CatenaClientEmailCodeTest {
         List<String> shown = null;
         for (Kind kind : Kind.values()) {
             Fixture f = new Fixture(kind);
+            step = new CatenaClientEmailCodeAuthenticator(jobs, () -> clock);
             step.authenticate(f.context);
             verify(f.context).challenge(f.page);
             verify(f.context, never()).setUser(any());
@@ -231,6 +232,7 @@ class CatenaClientEmailCodeTest {
         List<String> shownForm = null;
         for (Kind kind : Kind.values()) {
             Fixture f = new Fixture(kind);
+            step = new CatenaClientEmailCodeAuthenticator(jobs, () -> clock);
             jobs.submitted.clear();
             address(f);
             assertEquals(1, jobs.submitted.size(), kind.name());
@@ -289,6 +291,7 @@ class CatenaClientEmailCodeTest {
     void theJobMailsTheCodeToAnEligibleClientOnly() {
         for (Kind kind : Kind.values()) {
             Fixture f = new Fixture(kind);
+            step = new CatenaClientEmailCodeAuthenticator(jobs, () -> clock);
             List<Object[]> mailed = new ArrayList<>();
             CatenaClientEmailCodeAuthenticator.deliver(f.session, "realm-id", "client-internal", ADDRESS, "123456",
                     (s, user, code) -> {
@@ -344,6 +347,7 @@ class CatenaClientEmailCodeTest {
         List<String> shown = null;
         for (Kind kind : Kind.values()) {
             Fixture f = new Fixture(kind);
+            step = new CatenaClientEmailCodeAuthenticator(jobs, () -> clock);
             address(f);
             f.post("code", sentCode().equals("000000") ? "111111" : "000000");
             step.action(f.context);
@@ -363,6 +367,7 @@ class CatenaClientEmailCodeTest {
                 continue;
             }
             Fixture f = new Fixture(kind);
+            step = new CatenaClientEmailCodeAuthenticator(jobs, () -> clock);
             address(f);
             f.post("code", sentCode());
             step.action(f.context);
@@ -512,10 +517,36 @@ class CatenaClientEmailCodeTest {
     }
 
     @Test
+    void anAddressGetsTenCodesAnHourAcrossSignInsWhateverAccountHoldsIt() {
+        for (Kind kind : new Kind[] {Kind.CLIENT, Kind.UNKNOWN}) {
+            CatenaClientEmailCodeAuthenticator.AddressLimiter limiter = new CatenaClientEmailCodeAuthenticator.AddressLimiter();
+            step = new CatenaClientEmailCodeAuthenticator(jobs, () -> clock, limiter);
+            jobs.submitted.clear();
+            clock = T0;
+            for (int signIn = 0; signIn < 10; signIn++) {
+                address(new Fixture(kind));
+                clock += 31_000;
+            }
+            assertEquals(10, jobs.submitted.size(), kind.name());
+
+            Fixture refused = new Fixture(kind);
+            address(refused);
+            assertEquals(10, jobs.submitted.size(), kind.name());
+            verify(refused.form).setError("catena-email-code-limit");
+            verify(refused.context, never()).failureChallenge(any(), any());
+
+            clock = T0 + 3_600_000 + 31_000;
+            address(new Fixture(kind));
+            assertEquals(11, jobs.submitted.size(), kind.name());
+        }
+    }
+
+    @Test
     void theLimitsReadTheSignInOnlyAndAreEqualForEveryKind() {
         List<String> shown = null;
         for (Kind kind : Kind.values()) {
             Fixture f = new Fixture(kind);
+            step = new CatenaClientEmailCodeAuthenticator(jobs, () -> clock);
             address(f);
             f.post("resend", "");
             clock = T0 + 29_000;
