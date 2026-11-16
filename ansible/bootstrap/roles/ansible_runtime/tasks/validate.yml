@@ -29,6 +29,19 @@
       The host would take the engines and then decline to run them, which is a
       worse state than not having installed it at all.
 
+- name: "validate/ansible_runtime: the profile_tasks callback resolves"
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_runtime_dir }}/bin/ansible-doc"
+      - -t
+      - callback
+      - -l
+  environment:
+    ANSIBLE_COLLECTIONS_PATH: "{{ ansible_runtime_collections_dir }}"
+  register: _ansible_runtime_callbacks
+  changed_when: false
+  failed_when: "'profile_tasks' not in _ansible_runtime_callbacks.stdout"
+
 # Root runs the interpreter in this venv on every reconcile, so a venv or a bin
 # directory anyone else can write is a way to run code as root.
 - name: "validate/ansible_runtime: only root can change the venv a root reconcile runs"
