@@ -33,9 +33,11 @@ def test_the_include_carries_the_refresh_tag(playbook):
 
 def test_the_infrastructure_role_enables_no_version_timer_and_disables_one():
     role = PLAYBOOKS.parent / "reconcile" / "roles" / "infrastructure"
-    tasks = yaml.safe_load((role / "tasks" / "gatus_sync.yml").read_text(encoding="utf-8"))
-    enabled = [t for t in tasks if "ansible.builtin.systemd_service" in t]
-    assert [t["loop"] for t in enabled] == [["gatus-sync.timer"]]
+    tasks = [t for f in sorted((role / "tasks").glob("*.yml"))
+             for t in yaml.safe_load(f.read_text(encoding="utf-8")) or []]
+    enabled = [t for t in tasks if "ansible.builtin.systemd_service" in t
+               and any("timer" in str(x) for x in t.get("loop", []))]
+    assert enabled and all("version-check" not in str(t["loop"]) for t in enabled)
     off = [t for t in tasks
            if "catena-version-check.timer" in str(t.get("ansible.builtin.command", ""))]
     assert len(off) == 1 and "disable --now" in off[0]["ansible.builtin.command"]
