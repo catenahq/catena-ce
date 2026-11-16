@@ -26,6 +26,11 @@ def rk():
     return mod
 
 
+@pytest.fixture(autouse=True)
+def _store_lock(tmp_path, monkeypatch):
+    monkeypatch.setenv("CATENA_STORE_LOCK", str(tmp_path / "catena-store.lock"))
+
+
 def _store(tmp_path, **secrets):
     p = tmp_path / "config.json"
     p.write_text(json.dumps({
@@ -48,6 +53,28 @@ def _fake_restic(tmp_path, rc=0):
     )
     (binp / "restic").chmod(0o755)
     return binp, log
+
+
+def test_rotate_keeps_a_store_write_made_during_the_rotation(rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="old-pw")
+    binp, _ = _fake_restic(tmp_path, rc=0)
+    # The restic stub is another writer: it adds a secret and a config key
+    # to the store while `restic key passwd` runs.
+    (binp / "restic").write_text(
+        "#!/bin/sh\n"
+        f'python3 - <<EOF\nimport json\np="{store}"\nd=json.load(open(p))\n'
+        'd["secrets"]["other_secret"]="kept"\nd["config"]["OTHER"]="kept"\n'
+        'json.dump(d,open(p,"w"))\nEOF\n'
+    )
+    monkeypatch.setenv("PATH", f"{binp}:{os.environ['PATH']}")
+    monkeypatch.setenv("CATENA_CONFIG_STORE", str(store))
+    monkeypatch.setenv("CATENA_RESTIC_PASS_FILE", str(tmp_path / "restic.pass"))
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"op":"rotate","new_password":"new-pw"}'))
+    assert rk.main() == 0
+    doc = json.loads(store.read_text())
+    assert doc["secrets"]["backup_restic_password"] == "new-pw"
+    assert doc["secrets"]["other_secret"] == "kept"
+    assert doc["config"]["OTHER"] == "kept"
 
 
 def test_validate_ok_when_restic_opens(rk, tmp_path, monkeypatch, capsys):
