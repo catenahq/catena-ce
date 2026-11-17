@@ -147,6 +147,9 @@ FAKE_DOCKER = textwrap.dedent('''\
         state["down"] -= 1
         print("keycloak_server.1.abc")
         done()
+    if args[:2] == ["service", "ps"]:
+        print("keycloak_server.1.abc")
+        done()
     assert args[0] == "exec", args
     i = 1
     env = {}
@@ -243,7 +246,9 @@ def _script(task: dict, **extra) -> str:
         "admin_email": ADMIN, "_kc_recorded_admin_email": "",
         "keycloak_automation_token_lifespan_s": LIFESPAN, **extra,
     }
-    return _template(task["ansible.builtin.shell"], variables)
+    script = _template(task["ansible.builtin.shell"], variables)
+    return script.replace("/usr/local/bin/catena-container",
+                          "bash " + str(ANSIBLE / "scripts" / "catena-container.sh"))
 
 
 def _run(tmp_path: Path, task: dict, realm: dict, stdin: str, **extra):
@@ -506,7 +511,7 @@ def test_every_other_master_realm_session_is_the_shared_sign_in():
 
 def test_the_shared_sign_in_reruns_its_lookup_and_can_be_left_to_the_caller():
     task = _named(TASKS / "_master_login.yml", "signs in to the master realm")
-    assert "docker ps" in task["ansible.builtin.shell"]
+    assert "catena-container" in task["ansible.builtin.shell"]
     assert task["until"] == "_kc_master_login.rc == 0"
     export = _named(TASKS / "realm_export.yml", "kcadm login to master")
     assert export["vars"] == {"kc_master_login_optional": True}
