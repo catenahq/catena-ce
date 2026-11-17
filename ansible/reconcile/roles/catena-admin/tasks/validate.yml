@@ -39,7 +39,7 @@
           the public-port reconciler skips the second, which leaves the
           panel's native-login port unguarded.
 
-- name: "validate/catena-admin: each declared gate takes patch updates with a ready check"
+- name: "validate: each declared gate takes patch updates with a ready check"
   ansible.builtin.assert:
     that:
       - _ca_val_gate | length == 1

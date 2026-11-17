@@ -283,8 +283,8 @@ def test_the_exclusions_are_written_down():
     an oversight and gets 'fixed' by adding a service that must not be there --
     the panel, which cannot roll itself with a plain service update."""
     header = MANIFEST.read_text().split("#}")[0]
-    for name in ("catena-admin",):
-        assert name in header, f"{name} is absent from the manifest silently"
+    name = MANIFEST.parent.parent.name
+    assert name in header, f"{name} is absent from the manifest silently"
 
 
 def test_each_declared_gate_has_a_patch_spec(manifest):
@@ -344,6 +344,7 @@ def test_validate_refuses_missing_duplicate_or_unsafe_gate_specs(manifest):
     assert holds(task, key, _ca_val_gate=[spec], **ctx)
     assert not holds(task, key, _ca_val_gate=[], **ctx)
     assert not holds(task, key, _ca_val_gate=[spec, spec], **ctx)
-    for field, value in (("policy", "major"), ("ready", []), ("swarm_service", "absent"),
+    for field, value in (("kind", "client"), ("policy", "major"), ("ready", []),
+                         ("ready", ["true"]), ("swarm_service", "absent"),
                          ("upstream", {"source": "quay", "repo": "wrong/repo"})):
         assert not holds(task, key, _ca_val_gate=[{**spec, field: value}], **ctx)

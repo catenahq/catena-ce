@@ -65,7 +65,7 @@
     oauth2-proxy      its local sign-in start endpoint answers a redirect to
                       an absolute sign-in address. The declared instances come
                       from oauth2_proxy_apps; the per-host client gates are
-                      discovered by catena-admin payload/engines/stackupdate/gateproxy.go.
+                      discovered by the update engine from the running services.
 
   `ready_secrets` maps an environment name of the check to the name of a value
   in /etc/catena/config.json's secrets. The lane passes it as `docker exec -e
