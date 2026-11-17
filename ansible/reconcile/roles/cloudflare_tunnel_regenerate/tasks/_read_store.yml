@@ -41,6 +41,23 @@
          else '' }}
   no_log: true
 
+- name: "CF regen: read per-zone tokens and configured extra domains"
+  ansible.builtin.set_fact:
+    _cf_regen_zone_tokens: "{{ _cf_regen_config.get('secrets', {}).get('cloudflare_api_tokens', {}) }}"
+    _cf_regen_extra_zones: "{{ _cf_regen_config.get('config', {}).get('CLOUDFLARE_ZONES', [])[1:] | map(attribute='zone') | list }}"
+  vars:
+    _cf_regen_config: "{{ (_cf_regen_store.content | b64decode | from_json) if (_cf_regen_store_stat.stat.exists | default(false)) else {} }}"
+  no_log: true
+
+# Index zero may still name the outgoing primary when Apply starts.
+- name: "CF regen: keep outgoing domains' tokens for account cleanup"
+  ansible.builtin.set_fact:
+    _cf_regen_retired_tokens: >-
+      {{ _cf_regen_zone_tokens | dict2items
+         | rejectattr('key', 'in', [_cf_regen_zone] + _cf_regen_extra_zones)
+         | items2dict }}
+  no_log: true
+
 # The tunnel this host owns is named the way catena-cloudflared-sync names it:
 # the box's own hostname, with the store's prefix in front. Read the hostname
 # from the host rather than from inventory_hostname -- the engine calls

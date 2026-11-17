@@ -31,6 +31,9 @@ no `load_onbox_config` pre-task.
 
 - `cloudflare_api_token` -- needs Zone:DNS:Edit + Account:Cloudflare Tunnel:Edit.
   The role refuses before deleting anything when the store holds none.
+- `cloudflare_api_tokens` -- per-zone credentials retained for outgoing domains.
+  Each outgoing zone resolves its own account and deletes this host's named
+  tunnels there with its own token. Configured extra domains keep their tokens.
 - `CLOUDFLARE_ZONE` -- the Cloudflare account id is not a separate input; it is
   resolved from the zone through the API on the same token.
 - `CLOUDFLARED_TUNNEL_NAME_PREFIX` -- the tunnel name is composed the way
@@ -52,7 +55,8 @@ token would revoke the tunnel and fail to replace it.
   delete is retried for about half a minute, then the run stops naming the
   tunnel and the HTTP status, before anything new is made.
 - Creates a new tunnel and re-points the `*.<zone>` wildcard CNAME at it, via
-  the `cloudflare_tunnel` handoff.
+  the `cloudflare_tunnel` handoff. That handoff also retires outgoing wildcards
+  and drops their tokens once retirement is settled.
 - Rolls the cloudflared swarm service onto the new `TUNNEL_TOKEN`, so the new
   credential takes effect without a converge. The credential lives in the
   service spec; nothing is written to disk.
@@ -68,8 +72,9 @@ service) are idempotent and no-op when already correct.
 
 `tasks/validate.yml` lists this host's tunnels by name through the same
 Cloudflare calls (`tasks/_read_store.yml`, `tasks/_list_tunnels.yml`) and
-asserts at most one is live, and exactly one while the edge is up. It lists
-only; nothing is deleted.
+asserts at most one is live, and exactly one while the edge is up. Outgoing
+domains with retained tokens are checked for host tunnels in other accounts.
+It lists only; nothing is deleted.
 
 ## Related
 
