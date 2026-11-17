@@ -202,7 +202,7 @@ beszel_gate_network: "catena-beszelgate"
 # stacks from here before any role runs.
 default_apps_repository: "https://github.com/catenahq/catena-templates"
 default_apps:
-  - { app: gatus, tag: "gatus/5.38.0-2", stack: catena-gatus }
+  - { app: gatus, tag: "gatus/5.38.0-3", stack: catena-gatus }
   - { app: healthchecks, tag: "healthchecks/5.0.3-2", stack: catena-healthchecks }
   - { app: beszel, tag: "beszel/0.21.2-1", stack: catena-beszel }
 # One folder per catalog application, which catena-apps writes.
