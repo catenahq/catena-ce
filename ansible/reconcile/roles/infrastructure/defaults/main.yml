@@ -38,8 +38,7 @@ default_app_addresses: >-
 # catena-dashboard-sync and gatus-sync (with catena-version-check) ship in the
 # panel image, whose payload owns their paths
 # (tests/unit/test_no_lane_is_half_owned.py).
-infrastructure_managed_paths:
-  - /usr/local/bin/catena-container
+infrastructure_managed_paths: []
 
 # --- Swarm stack-deploy helper --------------------------------------------
 # Poll window for stack-deploy completion. Keycloak with the phasetwo

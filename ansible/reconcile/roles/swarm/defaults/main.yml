@@ -37,6 +37,7 @@ swarm_network_nudge_timeout: 60
 # Executing-prefix paths this role writes, for
 # playbooks/tasks/prune_withdrawn_files.yml.
 swarm_managed_paths:
+  - /usr/local/bin/catena-container
   - /usr/local/bin/catena-network-nudge
   - /etc/systemd/system/catena-network-nudge.service
   - /etc/systemd/system/docker.service.d/10-catena-network-nudge.conf
