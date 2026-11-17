@@ -18,6 +18,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -281,5 +283,68 @@ def test_the_exclusions_are_written_down():
     an oversight and gets 'fixed' by adding a service that must not be there --
     the panel, which cannot roll itself with a plain service update."""
     header = MANIFEST.read_text().split("#}")[0]
-    for name in ("catena-admin", "oauth2-proxy"):
-        assert name in header, f"{name} is absent from the manifest silently"
+    name = MANIFEST.parent.parent.name
+    assert name in header, f"{name} is absent from the manifest silently"
+
+
+def test_each_declared_gate_has_a_patch_spec(manifest):
+    v = _role_vars()
+    gates = [s for s in manifest if s.get("compose_name") == v["oauth2_proxy_compose_name"]]
+    assert {s["name"] for s in gates} == {
+        f"{v['oauth2_proxy_compose_name']}_oauth2-proxy-{app['slug']}"
+        for app in v["oauth2_proxy_apps"]
+    }
+    for spec in gates:
+        assert spec["swarm_service"] == spec["name"]
+        assert spec["policy"] == "patch"
+        assert spec["upstream"]["source"] == "quay"
+        assert spec["upstream"]["repo"] == "oauth2-proxy/oauth2-proxy"
+        pattern = spec["upstream"]["tag_pattern"]
+        assert re.fullmatch(pattern, v["oauth2_proxy_image_tag"])
+        for tag in ("v7.15.7-alpine", "v8.0.0-alpine"):
+            assert re.fullmatch(pattern, tag)
+        for tag in ("latest", "v7.15.7", "v7.15.7-amd64", "v7.15.7-alpine-extra"):
+            assert not re.fullmatch(pattern, tag)
+        assert spec["ready"][:2] == ["sh", "-c"]
+        assert f"nc -w 5 127.0.0.1 {v['oauth2_proxy_internal_port']}" in spec["ready"][2]
+    header = MANIFEST.read_text().split("#}", 1)[0]
+    exclusions = header.split("The services this manifest leaves out", 1)[1]
+    assert "oauth2-proxy" not in exclusions
+
+
+@pytest.mark.parametrize("reply,ok", [
+    ("HTTP/1.1 302 Found\r\nLocation: https://auth.example/auth\r\n\r\n", True),
+    ("HTTP/1.1 500 Internal Server Error\r\n\r\n", False),
+    ("HTTP/1.1 302 Found\r\nLocation: /elsewhere\r\n\r\n", False),
+    ("", False),
+])
+def test_gate_ready_requires_a_sign_in_redirect(manifest, tmp_path, monkeypatch, reply, ok):
+    sh = shutil.which("sh")
+    if not sh:
+        pytest.skip("sh unavailable")
+    nc = tmp_path / "nc"
+    nc.write_text("#!/bin/sh\nwhile IFS= read -r line; do :; done\nprintf '%s' \"$GATE_REPLY\"\n")
+    nc.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("GATE_REPLY", reply)
+    spec = next(s for s in manifest if s.get("compose_name") == _role_vars()["oauth2_proxy_compose_name"])
+    result = subprocess.run([sh, *spec["ready"][1:]], capture_output=True, timeout=5)
+    assert (result.returncode == 0) is ok
+
+
+def test_validate_refuses_missing_duplicate_or_unsafe_gate_specs(manifest):
+    from ansible_jinja import holds
+
+    tasks = yaml.safe_load((MANIFEST.parent.parent / "tasks" / "validate.yml").read_text())
+    task = next(t for t in tasks if "each declared gate" in t.get("name", ""))
+    v = _role_vars()
+    spec = next(s for s in manifest if s.get("compose_name") == v["oauth2_proxy_compose_name"])
+    ctx = {"_ca_val_gate_name": spec["name"], "oauth2_proxy_compose_name": v["oauth2_proxy_compose_name"]}
+    key = "ansible.builtin.assert"
+    assert holds(task, key, _ca_val_gate=[spec], **ctx)
+    assert not holds(task, key, _ca_val_gate=[], **ctx)
+    assert not holds(task, key, _ca_val_gate=[spec, spec], **ctx)
+    for field, value in (("kind", "client"), ("policy", "major"), ("ready", []),
+                         ("ready", ["true"]), ("swarm_service", "absent"),
+                         ("upstream", {"source": "quay", "repo": "wrong/repo"})):
+        assert not holds(task, key, _ca_val_gate=[{**spec, field: value}], **ctx)
