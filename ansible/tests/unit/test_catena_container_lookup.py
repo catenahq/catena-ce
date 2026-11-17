@@ -27,12 +27,30 @@ def _run(tmp_path: Path, docker_body: str, *args: str) -> subprocess.CompletedPr
                           capture_output=True, text=True, check=False)
 
 
-def test_it_asks_for_the_swarm_service_and_prints_the_first_container(tmp_path: Path) -> None:
-    out = _run(tmp_path, "printf 'nc_app.1.a\\nnc_app.2.b\\n'", "catena-nextcloud", "app")
-    assert (out.returncode, out.stdout) == (0, "nc_app.1.a\n")
+def test_it_selects_the_desired_task_over_an_orphan(tmp_path: Path) -> None:
+    out = _run(tmp_path, """if [ "$1" = ps ]; then
+  printf 'nc_app.1.orphan\\nnc_app.1.live\\n'
+else
+  printf 'nc_app.1.live\\n'
+fi""", "catena-nextcloud", "app")
+    assert (out.returncode, out.stdout) == (0, "nc_app.1.live\n")
     argv = (tmp_path / "argv").read_text().splitlines()
-    assert "label=com.docker.swarm.service.name=catena-nextcloud_app" in argv
-    assert "status=running" in argv
+    assert "catena-nextcloud_app" in argv
+    assert "desired-state=running" in argv
+    assert "--no-trunc" in argv
+
+
+def test_failed_service_query_is_not_absent(tmp_path: Path) -> None:
+    out = _run(tmp_path, 'if [ "$1" = ps ]; then printf "orphan\\n"; else exit 1; fi',
+               "--service", "catena-postgres")
+    assert out.returncode == 2
+    assert "docker service ps failed" in out.stderr
+
+
+def test_only_orphan_is_absent(tmp_path: Path) -> None:
+    out = _run(tmp_path, 'if [ "$1" = ps ]; then printf "orphan\\n"; else printf "live\\n"; fi',
+               "--service", "catena-postgres")
+    assert (out.returncode, out.stdout.strip()) == (0, "")
 
 
 def test_not_running_prints_nothing(tmp_path: Path) -> None:

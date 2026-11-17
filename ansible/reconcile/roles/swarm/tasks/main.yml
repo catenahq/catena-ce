@@ -5,6 +5,15 @@
 # create-if-absent, so a converge against a host already in this state changes
 # nothing.
 
+- name: "swarm: install the shared container lookup"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/catena-container.sh"
+    dest: /usr/local/bin/catena-container
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [always]
+
 # Every task below needs a manager. Asserted rather than assumed, so a host
 # whose swarm is gone fails here, naming the cause, rather than at the first
 # `docker node` call with a message about something else.

@@ -19,7 +19,7 @@
     set -o pipefail
     IFS= read -r KC_CLI_CLIENT_SECRET
     export KC_CLI_CLIENT_SECRET
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
+    ct=$(/usr/local/bin/catena-container {{ keycloak_compose_name | quote }} {{ keycloak_server_service | quote }}) || exit $?
     [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
     docker exec -e KC_CLI_CLIENT_SECRET "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
       --server "http://localhost:{{ keycloak_internal_port }}" \

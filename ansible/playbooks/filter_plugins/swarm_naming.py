@@ -22,14 +22,8 @@ A compose-form name (`<stack>-<service>-<index>`, hyphens throughout) does
 not match, and must not: such a container is not a swarm task, and no task
 here operates on it.
 
-Usage in shell-pipe form:
-
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \\
-      | grep -E '{{ "gatus" | swarm_container_regex("app") }}' \\
-      | head -n1
-
-The filter returns the anchored regex (^...$). Callers wrap it in their own
-pipeline + decide how to handle no-match (fail loudly, silent skip, etc.).
+The filter returns an anchored regex (^...$). To locate a running desired
+task, use catena-ce/ansible/scripts/catena-container.sh.
 
 End-to-end coverage:
     catena-ce ansible/tests/unit/test_swarm_naming.py

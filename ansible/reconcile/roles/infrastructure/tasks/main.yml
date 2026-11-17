@@ -90,18 +90,6 @@
   no_log: true
   tags: [healthchecks]
 
-# The container lookup every script and task below finds an application's
-# containers with (catena-container <app> <service>), so it lands before the
-# first of them.
-- name: "Install the container lookup the scripts and tasks share"
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/catena-container.sh"
-    dest: /usr/local/bin/catena-container
-    owner: root
-    group: root
-    mode: "0755"
-  tags: [always]
-
 # The host issues the certificates of the catalog applications (catena-apps,
 # from their needs), so a local ACME server of the test bench has to resolve and
 # be trusted here. Blank values on a client install make this a no-op.

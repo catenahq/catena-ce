@@ -118,6 +118,17 @@ def _logical_lines(text: str) -> list[tuple[int, str]]:
     return out
 
 
+def test_no_task_picks_the_first_docker_ps_result():
+    offenders = []
+    for path in _sources():
+        if path.suffix not in (".yml", ".yaml"):
+            continue
+        for number, command in _logical_lines(path.read_text()):
+            if re.search(r"\bdocker\s+ps\b.*\|.*\bhead\s+-n\s*1\b", command):
+                offenders.append(f"{path.relative_to(ANSIBLE)}:{number}")
+    assert not offenders, "Use catena-container instead:\n" + "\n".join(offenders)
+
+
 # A regex quantifier over an alphanumeric class -- `[0-9a-z]{6,}` and friends.
 # This is what a pattern looks like when it is trying to match the RANDOM part
 # of a name rather than a name.

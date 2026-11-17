@@ -20,8 +20,7 @@
   ansible.builtin.shell:
     cmd: |
       set -o pipefail
-      ctr="$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-        | grep -E '^{{ catena_postgres_service_name }}\.' | head -n1)"
+      ctr="$(/usr/local/bin/catena-container --service {{ catena_postgres_service_name | quote }})" || exit $?
       test -n "$ctr" && docker exec "$ctr" pg_isready -U {{ catena_postgres_superuser }}
     executable: /bin/bash
   register: _pg_val_ready

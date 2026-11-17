@@ -32,6 +32,7 @@
     tasks_from: _assert_path_perms
   vars:
     _assert_paths:
+      - { path: /usr/local/bin/catena-container, type: file, owner: root, group: root, mode: "0755" }
       - { path: /usr/local/bin/catena-network-nudge, type: file, owner: root, group: root, mode: "0755" }
       - { path: /etc/systemd/system/catena-network-nudge.service, type: file }
       - { path: /etc/systemd/system/docker.service.d/10-catena-network-nudge.conf, type: file }

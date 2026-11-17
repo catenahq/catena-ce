@@ -181,9 +181,7 @@
     - name: "validate/oauth2-proxy: find running per-app containers"
       ansible.builtin.shell: |
         set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _app.slug) }}' \
-          | head -n1
+        /usr/local/bin/catena-container {{ oauth2_proxy_compose_name | quote }} {{ ('oauth2-proxy-' ~ _app.slug) | quote }}
       args:
         executable: /bin/bash
       register: _oauth2_app_container
@@ -234,9 +232,7 @@
       # however healthy the app becomes.
       ansible.builtin.shell: |
         set -o pipefail
-        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _app.slug) }}' \
-          | head -n1)
+        ct=$(/usr/local/bin/catena-container {{ oauth2_proxy_compose_name | quote }} {{ ('oauth2-proxy-' ~ _app.slug) | quote }}) || exit $?
         [ -n "$ct" ] || { echo "no running oauth2-proxy container for {{ _app.slug }} right now" >&2; exit 1; }
         docker exec "$ct" wget -qO- "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
       args:
@@ -263,9 +259,7 @@
     - name: "validate/oauth2-proxy: dump per-app container logs (last 100 lines)"
       ansible.builtin.shell: |
         set -o pipefail
-        ct=$(docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _ctr.slug) }}' \
-          | head -n1)
+        ct=$(/usr/local/bin/catena-container {{ oauth2_proxy_compose_name | quote }} {{ ('oauth2-proxy-' ~ _ctr.slug) | quote }}) || exit $?
         [ -n "$ct" ] || { echo "no oauth2-proxy container for {{ _ctr.slug }}"; exit 0; }
         docker logs --tail 100 "$ct"
       args:

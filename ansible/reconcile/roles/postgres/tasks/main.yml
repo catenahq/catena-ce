@@ -91,8 +91,7 @@
   ansible.builtin.shell:
     cmd: |
       set -o pipefail
-      ctr="$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-        | grep -E '^{{ catena_postgres_service_name }}\.' | head -n1)"
+      ctr="$(/usr/local/bin/catena-container --service {{ catena_postgres_service_name | quote }})" || exit $?
       if [ -z "$ctr" ]; then echo "no {{ catena_postgres_service_name }} task yet" >&2; exit 1; fi
       docker exec "$ctr" pg_isready -U {{ catena_postgres_superuser }}
     executable: /bin/bash

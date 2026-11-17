@@ -121,9 +121,7 @@
     - name: "Keycloak: find running server container"
       ansible.builtin.shell: |
         set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ "keycloak" | swarm_container_regex("server") }}' \
-          | head -n1 || true
+        /usr/local/bin/catena-container keycloak server
       args:
         executable: /bin/bash
       register: _keycloak_server_ct

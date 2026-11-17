@@ -89,7 +89,7 @@ def test_keycloak_health_probe_resolves_its_own_container() -> None:
         if t.get("name", "").endswith("in-container /health/ready")
     )
     text = _command_text(probe)
-    assert "docker ps" in text, (
+    assert "catena-container" in text, (
         "the probe must look the container up itself on every attempt"
     )
     assert not _CAPTURED_NAME.search(text), text

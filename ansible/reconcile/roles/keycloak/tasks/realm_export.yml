@@ -36,9 +36,7 @@
 - name: "Keycloak realm export: find running server container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
-      | head -n1 || true
+    /usr/local/bin/catena-container {{ keycloak_compose_name | quote }} {{ keycloak_server_service | quote }}
   args:
     executable: /bin/bash
   register: _kc_export_server_ct

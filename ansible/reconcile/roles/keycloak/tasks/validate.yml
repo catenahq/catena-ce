@@ -25,9 +25,7 @@
 - name: "validate/keycloak: find running server container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
-      | head -n1
+    /usr/local/bin/catena-container {{ keycloak_compose_name | quote }} {{ keycloak_server_service | quote }}
   args:
     executable: /bin/bash
   register: _keycloak_server_container
@@ -82,7 +80,7 @@
         msg: |
           Keycloak server container did not appear after 60 retries
           (~240s). The stack deploy returned but no container
-          matches '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}'.
+          is a desired task of {{ keycloak_compose_name }}_{{ keycloak_server_service }}.
 
           docker ps -a (filter name=keycloak):
           {{ _kc_diag_ps.stdout | default('(empty)') }}
@@ -126,9 +124,7 @@
   # while the replacement task serves /health/ready within seconds.
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
-      | head -n1)
+    ct=$(/usr/local/bin/catena-container {{ keycloak_compose_name | quote }} {{ keycloak_server_service | quote }}) || exit $?
     if [ -z "$ct" ]; then
       echo "no running keycloak container right now" >&2
       exit 1
@@ -178,9 +174,7 @@
     - name: "validate/keycloak: docker inspect (restart count + last state)"
       ansible.builtin.shell: |
         set -o pipefail
-        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
-          | head -n1)
+        ct=$(/usr/local/bin/catena-container {{ keycloak_compose_name | quote }} {{ keycloak_server_service | quote }}) || exit $?
         [ -n "$ct" ] || { echo "(no running keycloak container)"; exit 0; }
         docker inspect --format '{{ "{{" }}.RestartCount{{ "}}" }} restarts; state={{ "{{" }}.State.Status{{ "}}" }}; exitcode={{ "{{" }}.State.ExitCode{{ "}}" }}; oom={{ "{{" }}.State.OOMKilled{{ "}}" }}; error={{ "{{" }}.State.Error{{ "}}" }}' "$ct"
       args:
@@ -192,9 +186,7 @@
     - name: "validate/keycloak: docker logs --tail 200 (capture crash output)"
       ansible.builtin.shell: |
         set -o pipefail
-        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
-          | head -n1)
+        ct=$(/usr/local/bin/catena-container {{ keycloak_compose_name | quote }} {{ keycloak_server_service | quote }}) || exit $?
         [ -n "$ct" ] || { echo "(no running keycloak container)"; exit 0; }
         docker logs --tail 200 "$ct" 2>&1
       args:

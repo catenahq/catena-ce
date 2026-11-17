@@ -24,9 +24,7 @@
 - name: "Keycloak DB: find catena-postgres swarm task"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '^catena-postgres\..*' \
-      | head -n1
+    /usr/local/bin/catena-container --service catena-postgres
   args:
     executable: /bin/bash
   register: _kc_pg_container
@@ -70,7 +68,7 @@
   # postgres restarting under WAL recovery is the very thing being waited on.
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '^catena-postgres\..*' | head -n1)
+    ct=$(/usr/local/bin/catena-container --service catena-postgres) || exit $?
     [ -n "$ct" ] || { echo "no running catena-postgres container right now" >&2; exit 1; }
     docker exec "$ct" pg_isready -q -U {{ (catena_postgres_superuser | default('postgres')) | quote }}
   args:
