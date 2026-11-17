@@ -100,7 +100,7 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `catena_postgres_password`
 - `catena_admin_session_key`
 - `catena_admin_gate_secret`
-- `catena_marketplace_token`
+- `catena_keycloak_forward_token`
 - `keycloak_db_password`
 - `keycloak_automation_client_secret`, the master realm client the converge signs in with
 - `oauth2_proxy_cookie_secret`, the client apps' gates

@@ -6,10 +6,11 @@
 # this role, and it is the whole of the reason.
 #
 # catena-admin's catena-converge ALSO repairs the venv on the host, before it
-# needs ansible, reading
-# ansible_runtime_spec and ansible_runtime_minimum out of the staged tree --
-# this file's own defaults, travelling in the image. So the pin has one source
-# and an image bump can move the floor on every converging host.
+# needs ansible, reading ansible_runtime_spec, ansible_runtime_minimum and
+# ansible_runtime_posix_spec out of the staged tree -- this file's own
+# defaults, travelling in the image. So the pin has one source, an image bump
+# can move the floor on every converging host, and a host updated from a
+# release that had no collection gets it.
 #
 # The duplication is deliberate. Question one asks whether anything is left
 # that can fix this if it is wrong, and the answer is yes: a root process with
@@ -53,6 +54,21 @@
   register: _ansible_runtime_pip
   changed_when: >-
     'Successfully installed' in (_ansible_runtime_pip.stdout | default(''))
+
+# Only the profile_tasks callback uses it; no task names the collection. Galaxy
+# prints "Installing" only when it installs something.
+- name: "ansible runtime: install {{ ansible_runtime_posix_spec }}"
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_runtime_dir }}/bin/ansible-galaxy"
+      - collection
+      - install
+      - "{{ ansible_runtime_posix_spec }}"
+      - -p
+      - "{{ ansible_runtime_collections_dir }}"
+  register: _ansible_runtime_posix
+  changed_when: >-
+    'Installing' in (_ansible_runtime_posix.stdout | default(''))
 
 # The interpreter answers and is new enough: tasks/validate.yml, which
 # playbooks/validate.yml runs too.

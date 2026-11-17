@@ -19,7 +19,7 @@ permissions:
 jobs:
   publish:
     name: Build + publish catena-installer (PyPI)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: pypi
     permissions:
       actions: read

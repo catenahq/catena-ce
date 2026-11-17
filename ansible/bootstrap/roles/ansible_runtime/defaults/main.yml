@@ -17,7 +17,13 @@ ansible_runtime_dir: /opt/catena/ansible
 # validated by the bench rather than two that drift.
 #
 # tests/unit/test_ansible_runtime_pin.py holds the two to each other.
-ansible_runtime_spec: "ansible-core>=2.20,<2.22"
+ansible_runtime_spec: "ansible-core>=2.20,<2.23"
+
+# The collection that carries the profile_tasks callback (per-task times in the
+# converge log), installed beside the venv. ansible/ansible.cfg names the same
+# directory in collections_path.
+ansible_runtime_collections_dir: "{{ ansible_runtime_dir }}/collections"
+ansible_runtime_posix_spec: "ansible.posix:==2.2.2"
 
 # What playbooks/reconcile.yml refuses below. Stated as a version rather than
 # derived from the spec above: the spec is what to INSTALL, this is what a host

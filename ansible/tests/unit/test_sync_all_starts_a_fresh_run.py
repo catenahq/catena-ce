@@ -128,6 +128,26 @@ def test_the_log_shown_is_the_fresh_runs_journal_alone(tmp_path):
     assert "dashboard-sync=0 gatus-sync=0" in r.stdout
 
 
+def test_an_unloaded_unit_shows_the_journal_since_the_start_not_its_last_lines(tmp_path):
+    """The oneshot is unloaded once its run ends, so InvocationID reads empty;
+    the log is then the unit's journal since the press started it."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "systemctl").write_text("#!/bin/bash\nexit 0\n")
+    (bindir / "journalctl").write_text('#!/bin/bash\necho "journal of $*"\n')
+    (bindir / "catena-recovery").write_text('#!/bin/bash\nshift 6\n"$@"\n')
+    for f in bindir.iterdir():
+        f.chmod(0o755)
+    r = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n" + _shell(bindir / "catena-recovery")],
+        capture_output=True, text=True, timeout=30,
+        env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
+    )
+    assert r.returncode == 0, r.stderr
+    assert "journal of -u catena-dashboard-sync.service --since " in r.stdout
+    assert "-n 20" not in r.stdout
+
+
 def test_a_failed_sync_fails_the_action_and_keeps_its_log(tmp_path):
     bindir = tmp_path / "bin"
     bindir.mkdir()

@@ -62,6 +62,10 @@
                       credentials option is given, and reads the secret from
                       KC_CLI_CLIENT_SECRET when no --secret is; --alias, which
                       only a keystore sign-in uses, is that option.
+    oauth2-proxy      its local sign-in start endpoint answers a redirect to
+                      an absolute sign-in address. The declared instances come
+                      from oauth2_proxy_apps; the per-host client gates are
+                      discovered by the update engine from the running services.
 
   `ready_secrets` maps an environment name of the check to the name of a value
   in /etc/catena/config.json's secrets. The lane passes it as `docker exec -e
@@ -74,10 +78,6 @@
                       the payload has to be reinstalled from the new image in
                       the same operation, or the host runs new engines under an
                       old shell. It has its own lane.
-    oauth2-proxy      One stack with one service per gated app, so the set is
-                      per-host rather than fixed. They share a repository and
-                      therefore one pin, so a converge moves them together
-                      after any one of them is bumped.
 #}
 [
   {
@@ -122,6 +122,21 @@
       "tag_pattern": "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
     }
   },
+{% for app in oauth2_proxy_apps %}
+  {
+    "name": "{{ oauth2_proxy_compose_name }}_oauth2-proxy-{{ app.slug }}",
+    "kind": "infra-swarm",
+    "compose_name": "{{ oauth2_proxy_compose_name }}",
+    "swarm_service": "{{ oauth2_proxy_compose_name }}_oauth2-proxy-{{ app.slug }}",
+    "policy": "patch",
+    "ready": ["sh", "-c", "out=$(printf 'GET /oauth2/start?rd=/ HTTP/1.0\\r\\nHost: gate\\r\\n\\r\\n' | nc -w 5 127.0.0.1 {{ oauth2_proxy_internal_port }}) || exit 1; case \"$out\" in *\" 302 \"*ocation:\\ http*) ;; *) echo \"no sign-in redirect\"; exit 1;; esac"],
+    "upstream": {
+      "source": "quay",
+      "repo": "oauth2-proxy/oauth2-proxy",
+      "tag_pattern": "^v\\d+\\.\\d+\\.\\d+-alpine$"
+    }
+  },
+{% endfor %}
   {
     "name": "cloudflared",
     "kind": "infra-swarm",

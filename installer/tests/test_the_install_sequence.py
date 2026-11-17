@@ -29,7 +29,7 @@ class FakeSession:
         self.server.events.append(("upload", self.user, dict(files)))
         return UPLOAD
 
-    def run(self, command: str, on_line) -> int:
+    def run(self, command: str, on_line, bound=None) -> int:
         self.server.events.append(("run", self.user, command))
         if command.startswith("rm -rf"):
             return 0

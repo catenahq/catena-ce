@@ -89,3 +89,12 @@ def test_the_refusal_happens_before_any_role_runs():
     assert "always" in (checks[0].get("tags") or []), (
         "the version refusal is not tagged `always`, so a --tags run skips it"
     )
+
+
+def test_ansible_cfg_looks_where_the_role_installs_the_collection():
+    """profile_tasks resolves only if ansible.cfg's collections_path is the role's directory."""
+    role = _role()
+    assert role["ansible_runtime_collections_dir"] == "{{ ansible_runtime_dir }}/collections"
+    cfg = (_ANSIBLE / "ansible.cfg").read_text()
+    assert f"collections_path = {role['ansible_runtime_dir']}/collections" in cfg
+    assert "callbacks_enabled = ansible.posix.profile_tasks" in cfg

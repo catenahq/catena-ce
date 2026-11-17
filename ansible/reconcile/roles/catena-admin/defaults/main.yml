@@ -64,9 +64,9 @@ catena_admin_secret_specs:
   # The token the host's dashboard-sync lane sends to the panel's Keycloak
   # forward. A secret rather than an --env for the same reason as the others:
   # an --env value is in the host's process table for the length of the create.
-  - base: catena_admin_marketplace_token
-    target: CATENA_MARKETPLACE_TOKEN
-    value: "{{ catena_marketplace_token | default('') }}"
+  - base: catena_admin_keycloak_forward_token
+    target: CATENA_KEYCLOAK_FORWARD_TOKEN
+    value: "{{ catena_keycloak_forward_token | default('') }}"
 
 # Supplementary group. The recovery export dir is 0750 root:1000 (gid 1000
 # is the shared recovery-downloads group) and the image runs USER nonroot,

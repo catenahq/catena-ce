@@ -2,6 +2,9 @@ package run.catena.keycloak;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayDeque;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.LongSupplier;
@@ -46,6 +49,37 @@ public class CatenaClientEmailCodeAuthenticator implements Authenticator {
         boolean send(KeycloakSession session, UserModel user, String code);
     }
 
+    /**
+     * Counts the codes asked for per address across sign-ins, in memory and bounded. It reads the
+     * typed address only, so the answer is the same whether or not an account holds it.
+     */
+    static final class AddressLimiter {
+        static final int MAX_PER_HOUR = 10;
+        static final long WINDOW_MILLIS = 3_600_000L;
+        static final int MAX_ADDRESSES = 10_000;
+
+        private final Map<String, ArrayDeque<Long>> asked = new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, ArrayDeque<Long>> eldest) {
+                return size() > MAX_ADDRESSES;
+            }
+        };
+
+        /** Records a code for the address and returns true, or returns false when the hour's limit is reached. */
+        synchronized boolean tryAcquire(String realmId, String address, long now) {
+            ArrayDeque<Long> times = asked.computeIfAbsent(realmId + "\n" + address.trim().toLowerCase(Locale.ROOT),
+                    key -> new ArrayDeque<>());
+            while (!times.isEmpty() && now - times.peekFirst() >= WINDOW_MILLIS) {
+                times.pollFirst();
+            }
+            if (times.size() >= MAX_PER_HOUR) {
+                return false;
+            }
+            times.addLast(now);
+            return true;
+        }
+    }
+
     static final String TIER_ADMIN_ROLE = "catena-tier-admin";
     static final String TIER_STAFF_ROLE = "catena-tier-staff";
     static final String MANAGEMENT_CLIENT = "realm-management";
@@ -83,10 +117,16 @@ public class CatenaClientEmailCodeAuthenticator implements Authenticator {
 
     private final Jobs jobs;
     private final LongSupplier clock;
+    private final AddressLimiter limiter;
 
-    CatenaClientEmailCodeAuthenticator(Jobs jobs, LongSupplier clock) {
+    CatenaClientEmailCodeAuthenticator(Jobs jobs, LongSupplier clock, AddressLimiter limiter) {
         this.jobs = jobs;
         this.clock = clock;
+        this.limiter = limiter;
+    }
+
+    CatenaClientEmailCodeAuthenticator(Jobs jobs, LongSupplier clock) {
+        this(jobs, clock, new AddressLimiter());
     }
 
     @Override
@@ -108,12 +148,13 @@ public class CatenaClientEmailCodeAuthenticator implements Authenticator {
         AuthenticationSessionModel session = context.getAuthenticationSession();
         UserModel known = context.getUser();
         if (known != null && !codeIsLive(session)) {
-            Response refused = gate(context);
+            String address = addressOf(known);
+            Response refused = gate(context, address);
             if (refused != null) {
                 context.challenge(refused);
                 return;
             }
-            send(context, addressOf(known));
+            send(context, address);
         }
         context.challenge(page(context, codeIsLive(session) ? STATE_CODE : STATE_ADDRESS, null));
     }
@@ -137,7 +178,7 @@ public class CatenaClientEmailCodeAuthenticator implements Authenticator {
             context.forceChallenge(page(context, STATE_ADDRESS, MESSAGE_ADDRESS_INVALID));
             return;
         }
-        Response refused = gate(context);
+        Response refused = gate(context, address);
         if (refused != null) {
             context.forceChallenge(refused);
             return;
@@ -152,7 +193,7 @@ public class CatenaClientEmailCodeAuthenticator implements Authenticator {
             context.forceChallenge(page(context, STATE_ADDRESS, null));
             return;
         }
-        Response refused = gate(context);
+        Response refused = gate(context, address);
         if (refused != null) {
             context.forceChallenge(refused);
             return;
@@ -209,8 +250,11 @@ public class CatenaClientEmailCodeAuthenticator implements Authenticator {
                 page(context, STATE_CODE, MESSAGE_CODE_INVALID));
     }
 
-    /** The code page with the wait or limit message when a new code is not allowed yet; null when it is. */
-    private Response gate(AuthenticationFlowContext context) {
+    /**
+     * The code page with the wait or limit message when a new code is not allowed yet; null when it
+     * is, and then the code counts against the address's hourly limit.
+     */
+    private Response gate(AuthenticationFlowContext context, String address) {
         AuthenticationSessionModel session = context.getAuthenticationSession();
         if (parse(session.getAuthNote(NOTE_SENDS)) >= MAX_SENDS) {
             return page(context, STATE_CODE, MESSAGE_LIMIT);
@@ -219,6 +263,9 @@ public class CatenaClientEmailCodeAuthenticator implements Authenticator {
         long waitMillis = issuedAt + RESEND_INTERVAL_SECONDS * 1000L - clock.getAsLong();
         if (issuedAt != 0 && waitMillis > 0) {
             return page(context, STATE_CODE, MESSAGE_TOO_SOON, (waitMillis + 999) / 1000);
+        }
+        if (!limiter.tryAcquire(context.getRealm().getId(), address, clock.getAsLong())) {
+            return page(context, STATE_CODE, MESSAGE_LIMIT);
         }
         return null;
     }

@@ -44,6 +44,10 @@ PANEL_USER = "panel"
 # install-host.sh's status for an install whose checks failed.
 VALIDATION_FAILED = 3
 
+# Seconds a leg may run as a whole, its retries included. The accounts leg
+# fetches the release from the registry; the system leg pulls the images.
+LEG_BOUND = {"accounts": 600.0, "system": 900.0, "uninstall": 600.0}
+
 
 class PasswordNeeded(remote.AuthRefused):
     """No key opens the server yet and no provider password was given."""
@@ -236,7 +240,13 @@ def _leg(session: remote.Session, server: Server, opts: Options,
         # Expanded by the server's shell: the session install-host.sh proves.
         command += ' --session "$SSH_CONNECTION"'
     try:
-        return session.run(command, feed)
+        return session.run(command, feed, LEG_BOUND[leg])
+    except remote.Overrun as exc:
+        raise remote.RemoteError(
+            f"leg {leg} did not end within {LEG_BOUND[leg]:.0f} s: the registry "
+            f"({REPOSITORY.split('/')[0]}) or the network to it did not answer "
+            "in time; the leg's output so far is in /var/lib/catena/install/logs "
+            "on the server") from exc
     finally:
         session.run(f"rm -rf {shlex.quote(upload)}", lambda _line: None)
 
