@@ -19,8 +19,8 @@
 
 # The publish is host-mode (swarm cannot bind 127.0.0.1), so the port is a real
 # host bind. scope=loopback denies it on every interface but lo, and bind=docker
-# puts the deny where the DNAT path crosses (reconcile/roles/infrastructure
-# tasks/gatus.yml says why): the hub on this host reaches it, nothing else does.
+# puts the deny on the DOCKER-USER chain, which the DNAT path crosses: the hub
+# on this host reaches it, nothing else does.
 - name: "Alert intake: declare the host-side port (registry fragment, loopback-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/{{ alert_intake_stack }}.json"

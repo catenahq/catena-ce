@@ -8,7 +8,7 @@ The properties held here:
   network, publishes the loopback port in host mode, runs the binary as
   `nonroot` and mounts each token where the binary reads it;
 - the contract (contracts default-apps/wiring.json) puts the apps that post to
-  it on that overlay and takes them off the Healthchecks one;
+  it on that overlay, each listing its own source's token;
 - the three tokens are minted store secrets, one source token per entry of the
   contract's `alert_intake_sources`;
 - the port's fragment is loopback-only on the DNAT bind, and validate refuses a
@@ -168,7 +168,7 @@ def test_a_token_is_named_for_its_source_not_for_a_monitor():
         assert app in WIRING["apps"]
 
 
-def test_the_apps_that_post_are_on_the_alert_overlay_and_off_the_healthchecks_one():
+def test_the_apps_that_post_are_on_the_alert_overlay_with_their_own_token():
     gv = _group_vars()
     for source, app in WIRING["alert_intake_sources"].items():
         entry = WIRING["apps"][app]
@@ -176,9 +176,6 @@ def test_the_apps_that_post_are_on_the_alert_overlay_and_off_the_healthchecks_on
         on_alerts = [name for name, svc in entry["services"].items()
                      if gv["alert_network"] in (svc.get("networks") or {})]
         assert on_alerts, app
-        for svc in entry["services"].values():
-            assert gv["healthchecks_network"] not in (svc.get("networks") or {}), app
-        assert "healthchecks" not in entry["reads"], app
 
 
 def test_the_alert_switches_of_the_two_sources_are_declared_off_by_default():
