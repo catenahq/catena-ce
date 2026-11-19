@@ -26,8 +26,10 @@
 #   1. Read the store: API token, zone, tunnel-name prefix (_read_store.yml).
 #   2. Resolve the zone and the account behind it via the CF API, and list the
 #      tunnels named for this host (_list_tunnels.yml).
-#   3. Delete the existing tunnel for this host (if any).
-#   4. Hand off to reconcile/roles/cloudflare_tunnel, whose engine mints a new
+#   3. Delete the existing tunnel for this host (if any) (_delete_tunnels.yml).
+#   4. For each outgoing domain, resolve its own account with its kept token
+#      and delete this host's tunnels there (_retired_account.yml).
+#   5. Hand off to reconcile/roles/cloudflare_tunnel, whose engine mints a new
 #      tunnel, re-points the wildcard CNAME and rolls cloudflared onto the new
 #      TUNNEL_TOKEN.
 #
@@ -79,13 +81,14 @@
 
 - name: "CF regen: delete this host's tunnels in outgoing accounts"
   ansible.builtin.include_tasks: _retired_account.yml
-  loop: "{{ _cf_regen_retired_tokens | dict2items }}"
+  loop: "{{ _cf_regen_retired_tokens }}"
   loop_control:
     loop_var: _cf_regen_retired
     label: "{{ _cf_regen_retired.key }}"
   vars:
     _cf_regen_zone: "{{ _cf_regen_retired.key }}"
     _cf_regen_api_token: "{{ _cf_regen_retired.value }}"
+    _cf_regen_outgoing: true
   no_log: true
 
 # Hand off to the find-or-create. Nothing is passed: that role dispatches

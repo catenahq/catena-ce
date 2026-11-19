@@ -31,9 +31,13 @@ no `load_onbox_config` pre-task.
 
 - `cloudflare_api_token` -- needs Zone:DNS:Edit + Account:Cloudflare Tunnel:Edit.
   The role refuses before deleting anything when the store holds none.
-- `cloudflare_api_tokens` -- per-zone credentials retained for outgoing domains.
-  Each outgoing zone resolves its own account and deletes this host's named
-  tunnels there with its own token. Configured extra domains keep their tokens.
+- `cloudflare_api_tokens` -- per-zone tokens. A token whose zone is neither
+  `CLOUDFLARE_ZONE` nor a configured extra domain belongs to an outgoing
+  domain: the role resolves that zone's own account with it and deletes this
+  host's tunnels there, so a move to a domain in another Cloudflare account
+  leaves the old account without one. A kept token that no longer sees its
+  zone, or cannot list its account's tunnels, is reported and skipped.
+  Configured extra domains are left alone.
 - `CLOUDFLARE_ZONE` -- the Cloudflare account id is not a separate input; it is
   resolved from the zone through the API on the same token.
 - `CLOUDFLARED_TUNNEL_NAME_PREFIX` -- the tunnel name is composed the way
@@ -72,9 +76,10 @@ service) are idempotent and no-op when already correct.
 
 `tasks/validate.yml` lists this host's tunnels by name through the same
 Cloudflare calls (`tasks/_read_store.yml`, `tasks/_list_tunnels.yml`) and
-asserts at most one is live, and exactly one while the edge is up. Outgoing
-domains with retained tokens are checked for host tunnels in other accounts.
-It lists only; nothing is deleted.
+asserts at most one is live, and exactly one while the edge is up. For each
+outgoing domain whose kept token reaches another account
+(`tasks/_retired_account.yml`), it asserts that account holds none of this
+host's tunnels. It lists only; nothing is deleted.
 
 ## Related
 

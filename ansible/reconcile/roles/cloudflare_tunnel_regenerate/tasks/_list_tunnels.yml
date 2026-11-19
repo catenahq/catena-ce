@@ -1,9 +1,16 @@
 ---
 # Lists the live tunnels named for this host through the Cloudflare API, with
 # the token (_cf_regen_api_token) and zone (_cf_regen_zone) tasks/_read_store.yml
-# read. Included by tasks/main.yml (which deletes what the list returns) and
-# tasks/validate.yml (which asserts how many there are). Leaves the answer in
-# _cf_regen_list.
+# read. Included by tasks/main.yml (which deletes what the list returns),
+# tasks/validate.yml (which asserts how many there are) and
+# tasks/_retired_account.yml (an outgoing domain, _cf_regen_outgoing set).
+# Leaves the answer in _cf_regen_list, and _cf_regen_listed true once it holds
+# one.
+#
+# For the current domain an unreachable zone or account stops the run. For an
+# outgoing domain it is reported and the run goes on: the kept token may have
+# been revoked, its zone deleted, or it may carry only the DNS scope an extra
+# domain needs.
 
 # Resolved fresh every run rather than stored, on the Zone:DNS:Edit scope the
 # token already needs. Which account a zone belongs to is the API's answer to
@@ -17,19 +24,29 @@
     status_code: 200
     return_content: true
   register: _cf_regen_zone_lookup
+  failed_when: >-
+    _cf_regen_zone_lookup.status | default(-1) != 200
+    and not (_cf_regen_outgoing | default(false) | bool)
   run_once: true
   delegate_to: localhost
   become: false
   no_log: true
 
+- name: "CF regen: note whether the token sees the zone"
+  ansible.builtin.set_fact:
+    _cf_regen_zone_found: >-
+      {{ _cf_regen_zone_lookup.status | default(-1) == 200
+         and ((_cf_regen_zone_lookup.json | default({})).result | default([]) | length) == 1 }}
+
 - name: "CF regen: assert the zone is visible to the supplied token"
   ansible.builtin.assert:
     that:
-      - _cf_regen_zone_lookup.json.result | length == 1
+      - _cf_regen_zone_found | bool
     fail_msg: >-
       Zone '{{ _cf_regen_zone }}' not found (or token lacks access). The
       stored Cloudflare token needs Zone:DNS:Edit scope on this zone. Update it
       in catena-admin > Settings, then run this again.
+  when: not (_cf_regen_outgoing | default(false) | bool)
   run_once: true
   delegate_to: localhost
   become: false
@@ -37,6 +54,7 @@
 - name: "CF regen: bind the resolved Cloudflare account id"
   ansible.builtin.set_fact:
     _cf_regen_account_id: "{{ _cf_regen_zone_lookup.json.result[0].account.id }}"
+  when: _cf_regen_zone_found | bool
 
 - name: "CF regen: list existing tunnels matching this host"
   ansible.builtin.uri:
@@ -47,7 +65,24 @@
     status_code: 200
     return_content: true
   register: _cf_regen_list
+  failed_when: >-
+    _cf_regen_list.status | default(-1) != 200
+    and not (_cf_regen_outgoing | default(false) | bool)
+  when: _cf_regen_zone_found | bool
   run_once: true
   delegate_to: localhost
   become: false
   no_log: true
+
+- name: "CF regen: note whether this host's tunnels were listed"
+  ansible.builtin.set_fact:
+    _cf_regen_listed: >-
+      {{ (_cf_regen_zone_found | bool) and _cf_regen_list.status | default(-1) == 200 }}
+
+- name: "CF regen: report an outgoing domain its kept token cannot check"
+  ansible.builtin.debug:
+    msg: >-
+      The kept token for the outgoing domain '{{ _cf_regen_zone }}' cannot list
+      this host's tunnels in that domain's account, so that account is not
+      checked.
+  when: not (_cf_regen_listed | bool)

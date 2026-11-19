@@ -49,13 +49,17 @@
     _cf_regen_config: "{{ (_cf_regen_store.content | b64decode | from_json) if (_cf_regen_store_stat.stat.exists | default(false)) else {} }}"
   no_log: true
 
-# Index zero may still name the outgoing primary when Apply starts.
+# An outgoing domain is a per-zone token whose zone is neither the primary nor
+# a configured extra domain. CLOUDFLARE_ZONES element 0 is the primary of
+# record, so after a domain change it names the domain the client left. The
+# store drops each token once catena-cloudflared-sync has retired its zone.
 - name: "CF regen: keep outgoing domains' tokens for account cleanup"
   ansible.builtin.set_fact:
     _cf_regen_retired_tokens: >-
       {{ _cf_regen_zone_tokens | dict2items
          | rejectattr('key', 'in', [_cf_regen_zone] + _cf_regen_extra_zones)
-         | items2dict }}
+         | selectattr('value')
+         | list }}
   no_log: true
 
 # The tunnel this host owns is named the way catena-cloudflared-sync names it:

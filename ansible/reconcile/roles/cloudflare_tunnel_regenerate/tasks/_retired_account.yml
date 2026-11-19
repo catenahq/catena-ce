@@ -1,18 +1,28 @@
 ---
+# One outgoing domain, with its kept token in _cf_regen_api_token: lists this
+# host's tunnels in that domain's account, then deletes them (tasks/main.yml)
+# or asserts there are none (tasks/validate.yml, _cf_regen_validate_retired).
+# The current account holds the replacement, so the validate leaves it to its
+# own asserts.
 - name: "CF regen: list the outgoing account's host tunnels"
   ansible.builtin.include_tasks: _list_tunnels.yml
 
 - name: "CF regen: delete the outgoing account's host tunnels"
   ansible.builtin.include_tasks: _delete_tunnels.yml
-  when: not (_cf_regen_validate_retired | default(false) | bool)
+  when:
+    - _cf_regen_listed | bool
+    - not (_cf_regen_validate_retired | default(false) | bool)
 
 - name: "validate/cloudflare_tunnel_regenerate: outgoing accounts hold no host tunnel"
   ansible.builtin.assert:
     that:
       - _cf_regen_list.json.result | length == 0
     fail_msg: >-
-      Cloudflare still holds this host's tunnel in the outgoing domain's account.
+      Cloudflare still holds this host's tunnel in the account of the outgoing
+      domain {{ _cf_regen_zone }}:
+      {% for t in _cf_regen_list.json.result %}{{ t.id }} (created {{ t.created_at | default('?') }}){{ '; ' if not loop.last else '.' }}{% endfor %}
       Apply the domain again in catena-admin > Settings.
   when:
     - _cf_regen_validate_retired | default(false) | bool
+    - _cf_regen_listed | bool
     - _cf_regen_account_id != _cf_regen_current_account_id
