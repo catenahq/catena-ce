@@ -31,6 +31,13 @@ no `load_onbox_config` pre-task.
 
 - `cloudflare_api_token` -- needs Zone:DNS:Edit + Account:Cloudflare Tunnel:Edit.
   The role refuses before deleting anything when the store holds none.
+- `cloudflare_api_tokens` -- per-zone tokens. A token whose zone is neither
+  `CLOUDFLARE_ZONE` nor a configured extra domain belongs to an outgoing
+  domain: the role resolves that zone's own account with it and deletes this
+  host's tunnels there, so a move to a domain in another Cloudflare account
+  leaves the old account without one. A kept token that no longer sees its
+  zone, or cannot list its account's tunnels, is reported and skipped.
+  Configured extra domains are left alone.
 - `CLOUDFLARE_ZONE` -- the Cloudflare account id is not a separate input; it is
   resolved from the zone through the API on the same token.
 - `CLOUDFLARED_TUNNEL_NAME_PREFIX` -- the tunnel name is composed the way
@@ -52,7 +59,8 @@ token would revoke the tunnel and fail to replace it.
   delete is retried for about half a minute, then the run stops naming the
   tunnel and the HTTP status, before anything new is made.
 - Creates a new tunnel and re-points the `*.<zone>` wildcard CNAME at it, via
-  the `cloudflare_tunnel` handoff.
+  the `cloudflare_tunnel` handoff. That handoff also retires outgoing wildcards
+  and drops their tokens once retirement is settled.
 - Rolls the cloudflared swarm service onto the new `TUNNEL_TOKEN`, so the new
   credential takes effect without a converge. The credential lives in the
   service spec; nothing is written to disk.
@@ -68,8 +76,10 @@ service) are idempotent and no-op when already correct.
 
 `tasks/validate.yml` lists this host's tunnels by name through the same
 Cloudflare calls (`tasks/_read_store.yml`, `tasks/_list_tunnels.yml`) and
-asserts at most one is live, and exactly one while the edge is up. It lists
-only; nothing is deleted.
+asserts at most one is live, and exactly one while the edge is up. For each
+outgoing domain whose kept token reaches another account
+(`tasks/_retired_account.yml`), it asserts that account holds none of this
+host's tunnels. It lists only; nothing is deleted.
 
 ## Related
 

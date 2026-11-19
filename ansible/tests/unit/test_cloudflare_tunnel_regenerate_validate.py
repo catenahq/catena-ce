@@ -36,8 +36,8 @@ def _asserts(name: str) -> list[dict]:
 
 
 def test_validate_and_main_share_the_store_read_and_the_lookup():
-    assert _includes("validate.yml") == ["_read_store.yml", "_list_tunnels.yml"]
-    assert _includes("main.yml") == ["_read_store.yml", "_list_tunnels.yml"]
+    assert _includes("validate.yml") == ["_read_store.yml", "_list_tunnels.yml", "_retired_account.yml"]
+    assert _includes("main.yml") == ["_read_store.yml", "_list_tunnels.yml", "_delete_tunnels.yml", "_retired_account.yml"]
 
 
 def test_the_api_calls_exist_once_and_the_validate_makes_none_of_its_own():

@@ -26,7 +26,7 @@ import yaml
 
 from ansible_tree import role_dir, task_index
 
-TASKS = role_dir("cloudflare_tunnel_regenerate") / "tasks" / "main.yml"
+TASKS = role_dir("cloudflare_tunnel_regenerate") / "tasks" / "_delete_tunnels.yml"
 DELETE = "delete existing tunnel(s)"
 STOP = "stop when Cloudflare kept an old tunnel"
 TOKEN = "cf-test-api-token-value"
