@@ -52,7 +52,8 @@
 # An outgoing domain is a per-zone token whose zone is neither the primary nor
 # a configured extra domain. CLOUDFLARE_ZONES element 0 is the primary of
 # record, so after a domain change it names the domain the client left. The
-# store drops each token once catena-cloudflared-sync has retired its zone.
+# store keeps each such token until catena-cloudflared-sync takes its zone's
+# wildcard down.
 - name: "CF regen: keep outgoing domains' tokens for account cleanup"
   ansible.builtin.set_fact:
     _cf_regen_retired_tokens: >-
