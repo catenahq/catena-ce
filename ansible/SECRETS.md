@@ -150,7 +150,8 @@ installer sends the `.env` with an install, for that run only.
 **Store, catena-admin Settings only:** the domain (`CLOUDFLARE_ZONE`), the
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
 `HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
-the off-site heartbeat (`OFFSITE_HEARTBEAT_URL`), `IDENTITY_ENFORCE_MFA`, the
+the off-site heartbeat (`OFFSITE_HEARTBEAT_URL`), the alert hub's email list,
+switches and CVE level (`ALERT_*`), `IDENTITY_ENFORCE_MFA`, the
 automatic emergency patch (`CVE_AUTO_PATCH`), and the server's time zone and
 locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They
 have no `.env` line; the installer names a filled one it finds, because
@@ -179,6 +180,9 @@ the backup with the rest of the file:
   client application may be added from (`url`, `trusted`; Catena's catalog
   when absent) and the tokens of the private ones, by address, written by
   catena-admin (`payload/engines/apps`). The panel's read carries neither.
+- `alert_webhooks`: the https addresses the alert hub posts each alert to
+  (`{"urls": [...]}`), written by catena-admin's `catena-alert`. The panel's
+  read never carries it, and a settings write keeps it.
 
 ## What the panel reads
 
