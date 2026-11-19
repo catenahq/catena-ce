@@ -5,8 +5,8 @@ change here reaches a host that converges itself: apt's settings, the host
 resolving its own name, the baseline packages, the hold on the container
 engine, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the NTP
 servers, the host mail agent kept off port 25, the settings the client changes
-in catena-admin > Settings, whether this host needs a reboot, the hourly
-licence check, the error reports to Catena support and the hourly verify hook
+in catena-admin > Settings, whether this host needs a reboot, the alert hub's
+timer, the hourly licence check, the error reports to Catena support and the hourly verify hook
 of each application. It runs right after `payload`.
 
 ## Packages, updates, journal, clock, mail agent
@@ -66,18 +66,18 @@ problem as a backup nobody has verified.
 ## What it does
 
 `catena-reboot-check.timer` runs `catena-reboot-check` at boot and hourly. The
-script and both units ship in the catena-admin payload; this role renders
-`/etc/catena/reboot-check.env` and enables the timer. The probe reads
-`/var/run/reboot-required` and, when `needrestart` is installed, the services
-still running on replaced libraries. It pings the self-hosted Healthchecks
-plane: `/fail` while a reboot is pending, success while it is not. The panel
+script and both units ship in the catena-admin payload; this role enables the
+timer. The probe reads `/var/run/reboot-required` and, when `needrestart` is
+installed, the services still running on replaced libraries. It reports to the
+alert hub (below) while a reboot is pending and again when it is not. The panel
 asks the probe itself (`catena-reboot-check --report`) when a page loads. The
-role removes any `/var/lib/catena/reboot-required.json` left on the host.
+role removes any `/var/lib/catena/reboot-required.json` and any
+`/etc/catena/reboot-check.env` left on the host.
 
-Healthchecks notifies on the transition through its channels, the admin's email
-among them, so a person is told once when the host starts needing a reboot and
-once when it stops. No second alert path exists to configure, or to forget to
-configure.
+The alert hub sends the message on the transition when the administrator has
+turned that alert on in catena-admin > Settings, so a person is told once when
+the host starts needing a reboot. No second alert path exists to configure, or
+to forget to configure.
 
 Services on replaced libraries are reported and do not page: needrestart has
 already restarted the ones it may, and the ones left (the container engine
@@ -87,6 +87,15 @@ among them) wait for the same restart the kernel does.
 
 Reboot. The probe has no path that boots the host, and adding one would move a
 decision about downtime from a person to a timer.
+
+## The alert hub
+
+`catena-alert.timer` runs `catena-alert tick` every minute: it reads the Alerts
+settings in the store on every run, sends the alerts the administrator turned
+on to the email list and the webhook addresses, and sends nothing for a type
+that is off. The binary and both units ship in the catena-admin payload; this
+role enables the timer on every host, whatever its edition, and treats a missing
+timer as it treats the licence check's.
 
 ## The licence check
 
