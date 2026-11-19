@@ -6,7 +6,8 @@ The properties held here:
 
 - the rendered stack file names the overlay `alert_network` and no other
   network, publishes the loopback port in host mode, runs the binary as
-  `nonroot` and mounts each token where the binary reads it;
+  `nonroot` with its own health check and mounts each token where the binary
+  reads it;
 - the contract (contracts default-apps/wiring.json) puts the apps that post to
   it on that overlay, each listing its own source's token;
 - the three tokens are minted store secrets, one source token per entry of the
@@ -85,7 +86,8 @@ def test_the_service_runs_the_intake_binary_as_nonroot_on_the_panels_image():
     assert service["image"] == "registry.example/panel@sha256:0"
     assert service["entrypoint"] == ["/usr/local/bin/catena-alert-intake"]
     assert service["user"] == "nonroot"
-    assert service["healthcheck"] == {"disable": True}
+    assert service["healthcheck"]["test"] == ["CMD", "/usr/local/bin/catena-alert-intake", "health"]
+    assert "disable" not in service["healthcheck"]
 
 
 def test_the_port_is_a_host_mode_publish_and_the_state_a_named_volume():
