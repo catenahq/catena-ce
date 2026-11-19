@@ -1,5 +1,5 @@
 ---
-# The alert intake, a swarm stack of its own (alert_intake_stack) on the panel's
+# The alert intake, a swarm stack of its own (alert_intake_compose_name) on the panel's
 # image. The monitors post their alerts to it on the overlay alert_network (the
 # apps' blueprints join it), and the alert hub reads its state on the loopback
 # publish.
@@ -23,7 +23,7 @@
 # on this host reaches it, nothing else does.
 - name: "Alert intake: declare the host-side port (registry fragment, loopback-only)"
   ansible.builtin.copy:
-    dest: "{{ public_ports_fragment_dir }}/{{ alert_intake_stack }}.json"
+    dest: "{{ public_ports_fragment_dir }}/{{ alert_intake_compose_name }}.json"
     owner: root
     group: root
     mode: "0644"
@@ -31,7 +31,7 @@
       {{
         [
           {"proto": "tcp", "port": alert_intake_host_localhost_port | int,
-           "scope": "loopback", "bind": "docker", "owner": alert_intake_stack,
+           "scope": "loopback", "bind": "docker", "owner": alert_intake_compose_name,
            "comment": "alert intake for the host's alert hub -- this host only"}
         ] | to_nice_json
       }}
@@ -59,7 +59,7 @@
 - name: "Alert intake: deploy as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml
   vars:
-    svc_name: "{{ alert_intake_stack }}"
+    svc_name: "{{ alert_intake_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'alert-intake.compose.yml.j2') }}"
     # No route: the intake answers on its overlay and the loopback publish only.
     svc_domain_host: ""

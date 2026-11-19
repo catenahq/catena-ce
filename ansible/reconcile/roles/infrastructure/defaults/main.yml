@@ -158,7 +158,7 @@ infrastructure_sqlite_databases: >-
 # The service the monitors post alerts to and the alert hub reads
 # (tasks/alert_intake.yml): the binary the panel's image ships, in a stack of its
 # own on the overlay alert_network (playbooks/group_vars/all/main.yml).
-alert_intake_stack: "catena-alerts"
+alert_intake_compose_name: "catena-alerts"
 alert_intake_service: "intake"
 alert_intake_network_alias: "catena-alert-intake"
 alert_intake_command: "/usr/local/bin/catena-alert-intake"

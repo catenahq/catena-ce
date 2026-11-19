@@ -116,11 +116,11 @@ def test_the_deploy_creates_the_secrets_then_the_stack_and_prunes_the_rest():
     assert names.index("Alert intake: create the missing swarm secrets") < \
         names.index("Alert intake: deploy as a swarm stack")
     deploy = next(t for t in tasks if t["name"] == "Alert intake: deploy as a swarm stack")
-    assert deploy["vars"]["svc_name"] == "{{ alert_intake_stack }}"
+    assert deploy["vars"]["svc_name"] == "{{ alert_intake_compose_name }}"
     assert deploy["vars"]["svc_domain_host"] == ""
     named = next(t for t in tasks if "name each token" in t["name"])
     assert named["no_log"] is True
-    assert _defaults()["alert_intake_stack"] == "catena-alerts"
+    assert _defaults()["alert_intake_compose_name"] == "catena-alerts"
 
 
 def test_the_intake_is_deployed_before_the_apps_that_post_to_it():
@@ -135,7 +135,7 @@ def test_the_fragment_declares_the_port_loopback_only_on_the_dnat_bind():
     assert '"scope": "loopback", "bind": "docker"' in body
     assert '"bind": "host"' not in body
     assert '"port": alert_intake_host_localhost_port | int' in body
-    assert declare["ansible.builtin.copy"]["dest"] == "{{ public_ports_fragment_dir }}/{{ alert_intake_stack }}.json"
+    assert declare["ansible.builtin.copy"]["dest"] == "{{ public_ports_fragment_dir }}/{{ alert_intake_compose_name }}.json"
     start = next(t for t in _tasks("alert_intake.yml") if "reconcile public ports now" in t["name"])
     assert "_alert_intake_ports_fragment.changed" in start["when"]
     assert "catena_public_ports_installed | default(true) | bool" in start["when"]
