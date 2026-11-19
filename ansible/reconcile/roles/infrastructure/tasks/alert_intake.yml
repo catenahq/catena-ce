@@ -1,0 +1,73 @@
+---
+# The alert intake, a swarm stack of its own (alert_intake_stack) on the panel's
+# image. The monitors post their alerts to it on the overlay alert_network (the
+# apps' blueprints join it), and the alert hub reads its state on the loopback
+# publish.
+#
+# Its three bearer tokens are minted store secrets (helpers/onbox_config.py
+# INTERNAL_SECRETS), given to it as swarm secrets named after their content.
+
+- name: "Alert intake: preflight tokens"
+  ansible.builtin.assert:
+    that:
+      - alert_intake_token_status | default('') | length > 0
+      - alert_intake_token_resources | default('') | length > 0
+      - alert_intake_token_read | default('') | length > 0
+    fail_msg: >-
+      Missing alert intake tokens. The converge mints them on the box, so a gap
+      here means the on-box store at /etc/catena/config.json was not loaded.
+
+# The publish is host-mode (swarm cannot bind 127.0.0.1), so the port is a real
+# host bind. scope=loopback denies it on every interface but lo, and bind=docker
+# puts the deny where the DNAT path crosses (reconcile/roles/infrastructure
+# tasks/gatus.yml says why): the hub on this host reaches it, nothing else does.
+- name: "Alert intake: declare the host-side port (registry fragment, loopback-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/{{ alert_intake_stack }}.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": alert_intake_host_localhost_port | int,
+           "scope": "loopback", "bind": "docker", "owner": alert_intake_stack,
+           "comment": "alert intake for the host's alert hub -- this host only"}
+        ] | to_nice_json
+      }}
+  register: _alert_intake_ports_fragment
+
+- name: "Alert intake: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when:
+    - _alert_intake_ports_fragment.changed
+    - catena_public_ports_installed | default(true) | bool
+
+- name: "Alert intake: name each token's swarm secret after its content"
+  ansible.builtin.set_fact:
+    _alert_intake_secrets: "{{ alert_intake_secret_specs | swarm_secret_entries }}"
+  no_log: true
+
+- name: "Alert intake: create the missing swarm secrets"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets.yml"
+  vars:
+    swarm_secrets: "{{ _alert_intake_secrets }}"
+
+- name: "Alert intake: deploy as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
+  vars:
+    svc_name: "{{ alert_intake_stack }}"
+    svc_compose_content: "{{ lookup('template', 'alert-intake.compose.yml.j2') }}"
+    # No route: the intake answers on its overlay and the loopback publish only.
+    svc_domain_host: ""
+    svc_readiness_skip_reason: >-
+      The intake is not publicly routed; readiness is verified by
+      tasks/validate.yml's loopback /health probe.
+
+- name: "Alert intake: remove the swarm secrets no service mounts"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
+  vars:
+    swarm_secret_bases: "{{ alert_intake_secret_specs | map(attribute='base') | list }}"

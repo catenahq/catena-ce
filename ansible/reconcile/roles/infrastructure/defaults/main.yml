@@ -154,6 +154,34 @@ infrastructure_sqlite_databases: >-
       '%s_%s/_data/%s' | format(healthchecks_stack, healthchecks_data_volume, healthchecks_sqlite_file)]
      + (beszel_hub_sqlite_files | map('regex_replace', '^', beszel_hub_stack ~ '_' ~ beszel_hub_data_volume ~ '/_data/') | list) }}
 
+# --- Alert intake ---------------------------------------------------------
+# The service the monitors post alerts to and the alert hub reads
+# (tasks/alert_intake.yml): the binary the panel's image ships, in a stack of its
+# own on the overlay alert_network (playbooks/group_vars/all/main.yml).
+alert_intake_stack: "catena-alerts"
+alert_intake_service: "intake"
+alert_intake_network_alias: "catena-alert-intake"
+alert_intake_command: "/usr/local/bin/catena-alert-intake"
+alert_intake_internal_port: 8080
+# Host-side loopback publish the hub reads (host-mode, declared loopback-only).
+alert_intake_host_localhost_port: 18070
+# The state it keeps across a restart.
+alert_intake_state_volume: "intake-state"
+alert_intake_state_dir: "/var/lib/catena-alert-intake"
+# One swarm secret per token, mounted at <alert_intake_secret_dir>/<target>: the
+# binary reads each token from the file of that name.
+alert_intake_secret_dir: "/run/secrets"
+alert_intake_secret_specs:
+  - base: alert-intake-token-status
+    target: alert_intake_token_status
+    value: "{{ alert_intake_token_status | default('') }}"
+  - base: alert-intake-token-resources
+    target: alert_intake_token_resources
+    value: "{{ alert_intake_token_resources | default('') }}"
+  - base: alert-intake-token-read
+    target: alert_intake_token_read
+    value: "{{ alert_intake_token_read | default('') }}"
+
 # --- Off-site heartbeat ---------------------------------------------------
 # catena-admin's catena-heartbeat lane (payload/lanes) probes Gatus,
 # Healthchecks and the Beszel hub on their loopback publishes above, then

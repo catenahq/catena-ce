@@ -20,9 +20,9 @@ ROLES = ANSIBLE / "reconcile" / "roles"
 ROLE = ROLES / "public_ports"
 
 
-def test_the_three_loopback_ports_declare_the_dnat_bind():
+def test_the_loopback_ports_declare_the_dnat_bind():
     tasks = ROLES / "infrastructure" / "tasks"
-    for name in ("gatus.yml", "healthchecks.yml", "beszel.yml"):
+    for name in ("gatus.yml", "healthchecks.yml", "beszel.yml", "alert_intake.yml"):
         body = (tasks / name).read_text(encoding="utf-8")
         assert '"scope": "loopback", "bind": "docker"' in body, name
         assert '"bind": "host"' not in body, (

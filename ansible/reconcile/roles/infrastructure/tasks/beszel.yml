@@ -1,6 +1,6 @@
 ---
 # Beszel resource monitor, one catalog app: the hub, the host agent and the
-# relay that forwards the hub's alerts to Healthchecks. The relay's configure
+# relay that forwards the hub's alerts to the alert intake. The relay's configure
 # hook sets the hub up (first user, sign-in provider, alert delivery, the agent's
 # key); this file adds the app and writes the values the converge owns.
 #

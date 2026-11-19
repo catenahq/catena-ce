@@ -4,6 +4,25 @@ The monitoring plane every host runs, the shared services the catalog apps
 lean on, and the sync and probe wiring for the client apps deployed from the
 catalog. `tasks/main.yml` is the map, in run order.
 
+## Alert intake
+
+`tasks/alert_intake.yml` deploys the stack `catena-alerts`: the service `intake`
+(alias `catena-alert-intake`, user `nonroot`, port 8080) runs
+`/usr/local/bin/catena-alert-intake` from the panel's image
+(`catena_admin_image`), so a panel update moves it with the converge that follows.
+It is on the overlay `alert_network` alone, which the default apps that post their
+alerts to it join (contracts `default-apps/wiring.json`, `alert_intake_sources`
+says which app holds which source's token), and keeps its state in the volume
+`intake-state` at `/var/lib/catena-alert-intake`.
+
+Its three bearer tokens are the minted store secrets `alert_intake_token_status`,
+`alert_intake_token_resources` and `alert_intake_token_read`. Each is a swarm
+secret named after its content and mounted at `/run/secrets/<store key>`, the file
+the binary reads it from. The publish `127.0.0.1:18070` (host mode) is declared
+loopback-only by the fragment `catena-alerts.json`; the alert hub on the host reads
+the intake's state there. `tasks/validate.yml` checks that it answers `/health`
+and refuses a request with no token.
+
 ## Default apps (catalog apps)
 
 Gatus, Healthchecks and Beszel are catalog apps every host runs, in the app
@@ -34,14 +53,14 @@ app an admin stopped or removed stays so.
   are written once the edge serves a domain.
 - **Healthchecks** (`healthchecks.<zone>`) -- the dead-man-switch plane the
   backup, the maintenance, the offsite copy, the off-site heartbeat, the
-  reboot-required probe and Beszel's alerts ping. Missed pings alert the admin's
+  reboot-required probe ping. Missed pings alert the admin's
   email, through the outgoing mail set in catena-admin, and the channels added
   in Healthchecks. The app's hook keeps the project and the email channel;
   catena-admin's catena-schedule keeps the scheduled lanes' checks on their
   schedule.
 - **Beszel** (`beszel.<zone>`) -- one app holding the hub, the host agent
   (resource history and threshold alerts) and the relay that forwards those
-  alerts to Healthchecks. The relay's hook sets the hub up and hands the agent
+  alerts to the alert intake. The relay's hook sets the hub up and hands the agent
   its key.
 
 Gatus, Healthchecks and Beszel sit behind their own oauth2-proxy,
@@ -50,8 +69,8 @@ one's only public route is its gate's.
 
 Healthchecks takes the signed-in user from the `X-Forwarded-Email` header its
 gate sets, from whoever sends it, so it is on `healthchecks_network` and not
-on `catena-network`, where every client app is. Its gate, the panel, Gatus
-(its alerts) and Beszel's relay join that network to reach it.
+on `catena-network`, where every client app is. Its gate and the panel join
+that network to reach it.
 
 Beszel's hub signs in any realm user who reaches it, so it is on `beszel_network`
 and `beszel_gate_network` alone. Gatus (its probe) joins `beszel_network`.
@@ -107,7 +126,7 @@ Schedules page's `heartbeat` lane is on.
 ## Inputs
 
 From the on-box store: `cloudflare_api_token` and the zone, the
-`healthchecks_*` and `beszel_oidc_client_secret` secrets, and the SMTP and alert-channel
+`healthchecks_*`, `alert_intake_token_*` and `beszel_oidc_client_secret` secrets, and the SMTP and alert-channel
 settings. dashboard-sync's env file also names the domains the
 host serves, read from the tunnel engine's projection by
 `playbooks/tasks/served_zones.yml`.

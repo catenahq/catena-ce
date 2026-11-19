@@ -741,6 +741,26 @@ config:
   - key: ALERT_DELIVERY_FAILING_REMIND
     residence: store
     panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  # The alerts of the intake's two sources: a service check that fails
+  # (service_down) and a resource limit that is crossed (resources).
+  - key: ALERT_SERVICE_DOWN
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_SERVICE_DOWN_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_SERVICE_DOWN_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESOURCES
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESOURCES_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESOURCES_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
 
   # ---- error reports to Catena support (Catena Pro) ----
   #

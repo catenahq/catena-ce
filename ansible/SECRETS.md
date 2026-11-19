@@ -117,6 +117,9 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `healthchecks_api_key_readonly`
 - `healthchecks_api_key_readwrite`
 - `beszel_oidc_client_secret`
+- `alert_intake_token_status`, the alert intake's bearer token for its service-check source
+- `alert_intake_token_resources`, the alert intake's bearer token for its resource source
+- `alert_intake_token_read`, the token the alert hub reads the intake's state with
 - `zap_api_key`
 
 Healthchecks' signing key is a generated setting of its catalog app. The
