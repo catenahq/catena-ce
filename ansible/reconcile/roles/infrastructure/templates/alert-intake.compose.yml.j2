@@ -1,0 +1,63 @@
+# {{ ansible_managed }}
+# The alert intake: the one service the monitors post their alerts to and the
+# alert hub (catena-alert, on the host) reads the latest state from. It runs the
+# catena-alert-intake binary of the panel's own image, so a panel update moves it
+# with the converge that follows.
+#
+# On the overlay {{ alert_network }} alone, which only the intake and the
+# services that post to it join; the panel is not on it. The one host-side
+# reader reaches it on the loopback publish below.
+#
+# The three bearer tokens are swarm secrets, each named after its content
+# (playbooks/tasks/swarm_secrets.yml) and mounted at
+# {{ alert_intake_secret_dir }}/<target>; the binary reads them there.
+services:
+  {{ alert_intake_service }}:
+    image: "{{ catena_admin_image }}"
+    # The image's entrypoint is the panel.
+    entrypoint: ["{{ alert_intake_command }}"]
+    user: nonroot
+    # The image's health check probes the panel binary; this one asks the
+    # intake's own /health inside the container.
+    healthcheck:
+      test: ["CMD", "{{ alert_intake_command }}", "health"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    networks:
+      {{ alert_network }}:
+        aliases:
+          - "{{ alert_intake_network_alias }}"
+    # Host mode: swarm cannot bind an address, so the port is a real host bind
+    # that tasks/alert_intake.yml declares loopback-only.
+    ports:
+      - target: {{ alert_intake_internal_port }}
+        published: {{ alert_intake_host_localhost_port }}
+        protocol: tcp
+        mode: host
+    volumes:
+      - {{ alert_intake_state_volume }}:{{ alert_intake_state_dir }}
+    secrets:
+{% for _secret in _alert_intake_secrets %}
+      - source: {{ _secret.name }}
+        target: {{ _secret.target }}
+{% endfor %}
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+
+networks:
+  {{ alert_network }}:
+    external: true
+
+volumes:
+  {{ alert_intake_state_volume }}: {}
+
+# Created by playbooks/tasks/swarm_secrets.yml before this deploys.
+secrets:
+{% for _secret in _alert_intake_secrets %}
+  {{ _secret.name }}:
+    external: true
+{% endfor %}

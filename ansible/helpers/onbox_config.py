@@ -249,6 +249,13 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "healthchecks_api_key_readwrite": mint_hc_api_key,
     # Beszel's OIDC client secret: "Sign in with Catena" on the hub.
     "beszel_oidc_client_secret": mint_strong_password,
+    # The alert intake's bearer tokens, one per source it accepts (service
+    # checks, resource limits) and one that only reads its state, so a source's
+    # sender can post as that source alone (reconcile/roles/infrastructure
+    # tasks/alert_intake.yml).
+    "alert_intake_token_status": mint_url_safe,
+    "alert_intake_token_resources": mint_url_safe,
+    "alert_intake_token_read": mint_url_safe,
     # The auth header on the ZAP daemon's REST API while a pen-test scan is
     # running. Minted regardless of bench mode so a one-off scan against any
     # inventory needs no extra setup.

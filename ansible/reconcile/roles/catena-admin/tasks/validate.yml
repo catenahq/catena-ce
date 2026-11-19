@@ -39,13 +39,20 @@
           the public-port reconciler skips the second, which leaves the
           panel's native-login port unguarded.
 
+# playbooks/validate.yml includes each role on its own, so the gate list in
+# reconcile/roles/oauth2_proxy's defaults is read here under one name.
+- name: "validate/catena-admin: read the declared gates"
+  ansible.builtin.include_vars:
+    file: "{{ role_path }}/../oauth2_proxy/defaults/main.yml"
+    name: _ca_val_oauth2_proxy
+
 - name: "validate: each declared gate takes patch updates with a ready check"
   ansible.builtin.assert:
     that:
       - _ca_val_gate | length == 1
       - _ca_val_gate[0].kind == 'infra-swarm'
       - _ca_val_gate[0].swarm_service == _ca_val_gate_name
-      - _ca_val_gate[0].compose_name == oauth2_proxy_compose_name
+      - _ca_val_gate[0].compose_name == _ca_val_gate_compose
       - _ca_val_gate[0].policy == 'patch'
       - _ca_val_gate[0].ready | length == 3
       - _ca_val_gate[0].ready[:2] == ['sh', '-c']
@@ -53,11 +60,10 @@
       - _ca_val_gate[0].upstream.repo == 'oauth2-proxy/oauth2-proxy'
     fail_msg: "{{ _ca_val_gate_name }} needs one patch-only managed spec with a ready check and its Quay upstream."
   vars:
-    _ca_val_gate_name: "{{ oauth2_proxy_compose_name }}_oauth2-proxy-{{ item.slug }}"
+    _ca_val_gate_compose: "{{ _ca_val_oauth2_proxy.oauth2_proxy_compose_name }}"
+    _ca_val_gate_name: "{{ _ca_val_gate_compose }}_oauth2-proxy-{{ item }}"
     _ca_val_gate: "{{ _ca_val_managed | selectattr('name', 'equalto', _ca_val_gate_name) | list }}"
-  loop: "{{ oauth2_proxy_apps }}"
-  loop_control:
-    label: "{{ item.slug }}"
+  loop: "{{ _ca_val_oauth2_proxy.oauth2_proxy_apps | map(attribute='slug') | list }}"
 
 # The native-login port answers this host only: its login is the recovery
 # admin password over plain HTTP.

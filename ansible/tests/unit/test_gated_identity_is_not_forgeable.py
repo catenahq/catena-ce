@@ -257,5 +257,5 @@ def test_the_swarm_role_creates_the_private_networks():
     tasks = yaml.safe_load((ROLES / "swarm" / "tasks" / "main.yml").read_text())
     create = next(t for t in tasks if "private overlays" in t.get("name", ""))
     assert create["loop"] == ["{{ healthchecks_network }}", "{{ beszel_network }}",
-                              "{{ beszel_gate_network }}"]
+                              "{{ beszel_gate_network }}", "{{ alert_network }}"]
     assert "--attachable" not in create["ansible.builtin.command"]["argv"]

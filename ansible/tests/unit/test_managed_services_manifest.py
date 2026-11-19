@@ -339,7 +339,7 @@ def test_validate_refuses_missing_duplicate_or_unsafe_gate_specs(manifest):
     task = next(t for t in tasks if "each declared gate" in t.get("name", ""))
     v = _role_vars()
     spec = next(s for s in manifest if s.get("compose_name") == v["oauth2_proxy_compose_name"])
-    ctx = {"_ca_val_gate_name": spec["name"], "oauth2_proxy_compose_name": v["oauth2_proxy_compose_name"]}
+    ctx = {"_ca_val_gate_name": spec["name"], "_ca_val_gate_compose": v["oauth2_proxy_compose_name"]}
     key = "ansible.builtin.assert"
     assert holds(task, key, _ca_val_gate=[spec], **ctx)
     assert not holds(task, key, _ca_val_gate=[], **ctx)
@@ -348,3 +348,14 @@ def test_validate_refuses_missing_duplicate_or_unsafe_gate_specs(manifest):
                          ("ready", ["true"]), ("swarm_service", "absent"),
                          ("upstream", {"source": "quay", "repo": "wrong/repo"})):
         assert not holds(task, key, _ca_val_gate=[{**spec, field: value}], **ctx)
+
+
+def test_validate_loads_the_gate_list_itself():
+    """playbooks/validate.yml includes each role on its own, so the catena-admin
+    validate sees none of reconcile/roles/oauth2_proxy's defaults it does not load."""
+    tasks = yaml.safe_load((MANIFEST.parent.parent / "tasks" / "validate.yml").read_text())
+    load = next(t for t in tasks if "ansible.builtin.include_vars" in t)
+    assert load["ansible.builtin.include_vars"]["file"].endswith("/oauth2_proxy/defaults/main.yml")
+    task = next(t for t in tasks if "each declared gate" in t.get("name", ""))
+    used = yaml.safe_dump({k: task[k] for k in ("ansible.builtin.assert", "vars", "loop")})
+    assert not re.search(r"(?<![\w.])oauth2_proxy_\w+", used)

@@ -5,9 +5,10 @@
 # unattended-upgrades and its origins, needrestart's restart policy, the
 # journal's storage, the NTP servers, the host mail agent kept off port 25, the
 # time zone and locale set in catena-admin > Settings, the reboot-required
-# probe, the licence check, the error reports and the application verify. The
-# probe's script (catena-reboot-check), the licence check's binary
-# (catena-license), the error reporter (catena-error-report), the verify
+# probe (which reports to the alert hub), the alert hub, the licence check, the
+# error reports and the application verify. The probe's script
+# (catena-reboot-check), the alert hub (catena-alert), the licence check's
+# binary (catena-license), the error reporter (catena-error-report), the verify
 # (catena-apps) and their units ship in the catena-admin payload, installed by
 # reconcile/roles/payload earlier in the play.
 
@@ -296,14 +297,10 @@
   changed_when: true
   when: _host_locale_line.changed
 
-- name: "Reboot check: env file"
-  ansible.builtin.template:
-    src: reboot-check.env.j2
-    dest: "{{ reboot_check_env_file }}"
-    owner: root
-    group: root
-    mode: "0600"
-  no_log: true
+- name: "Reboot check: remove the env file the probe no longer reads"
+  ansible.builtin.file:
+    path: /etc/catena/reboot-check.env
+    state: absent
 
 - name: "Reboot check: remove the report file no part reads"
   ansible.builtin.file:
@@ -312,8 +309,11 @@
 
 # The units the catena-admin payload ships for the host's upkeep, each wired by
 # _payload_unit.yml. All are enabled on every host, whatever its edition:
-#   - the reboot check reads two files and pings loopback; a host without it
-#     applies patches and never says they wait for a reboot;
+#   - the reboot check reads two files and reports to the alert hub; a host
+#     without it applies patches and never says they wait for a reboot;
+#   - the alert hub (`catena-alert tick`, every minute) sends the alerts the
+#     administrator turned on in the panel, by email and webhook, and nothing
+#     for a type that is off;
 #   - the licence check (`catena-license refresh`, hourly) is the one call this
 #     host makes to Polar about its key, and with no key it asks nothing;
 #   - the error reports (`catena-error-report run`, every five minutes) run
@@ -333,6 +333,10 @@
     - unit: "{{ reboot_check_systemd_unit_name }}.timer"
       what: "reboot-check timer"
       without: "this host would never report a pending reboot"
+      start: true
+    - unit: "{{ alert_hub_systemd_unit_name }}.timer"
+      what: "alert hub timer"
+      without: "this host would never send the alerts turned on in Settings"
       start: true
     - unit: "{{ license_refresh_systemd_unit_name }}.timer"
       what: "licence-check timer"

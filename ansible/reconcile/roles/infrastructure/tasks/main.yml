@@ -30,6 +30,16 @@
          and (_cf_sync_present | default(true) | bool) }}
   tags: [always]
 
+# --- the alert intake -------------------------------------------------------
+#
+# The monitors below post their alerts to it, so it is deployed first.
+- name: Alert intake (the service the monitors post alerts to)
+  ansible.builtin.include_tasks:
+    file: alert_intake.yml
+    apply:
+      tags: [alert_intake]
+  tags: [alert_intake]
+
 # --- the default apps -------------------------------------------------------
 #
 # Healthchecks, Beszel and Gatus are catalog apps that catena-apps adds
@@ -60,7 +70,7 @@
 # history with built-in threshold alerting). Its app holds the hub, which
 # stores history and serves beszel.<zone> (admin-gated via oauth2-proxy), the
 # agent, which collects per-container + per-host metrics over docker.sock, and
-# the relay, which forwards threshold alerts into the Healthchecks plane. Part
+# the relay, which forwards threshold alerts to the alert intake. Part
 # of the base plane: this task is unconditional.
 - name: Beszel (hub, agent and alert relay)
   ansible.builtin.include_tasks:
