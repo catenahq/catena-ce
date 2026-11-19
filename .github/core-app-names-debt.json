@@ -1,6 +1,6 @@
 {
   "README.md": 9,
-  "SPEC.md": 50,
+  "SPEC.md": 48,
   "ansible/SECRETS.md": 11,
   "ansible/bootstrap/roles/docker/tasks/main.yml": 1,
   "ansible/boundary.yml": 1,
