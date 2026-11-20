@@ -3,7 +3,7 @@ name: CI
 # The Ansible tree's unit tests and syntax check, and the installer's
 # (installer/). This repo carries no Go. Python tooling comes from uv.
 #
-# A push to a branch keeps the absolute gate. A pull request is judged on what
+# A push to the default branch keeps the absolute gate. A pull request is judged on what
 # it introduces: the unit tests and the duplication ratchet run through
 # contracts' new-failures-only action, which fails only on failures the base
 # commit does not have, and the prose job gates on the files the change
@@ -12,10 +12,10 @@ name: CI
 # second build gives other bytes.
 
 on:
-  # Every pushed branch. Renovate, engine-bump and agent branches always carry
-  # a pull request, which tests each push to them.
+  # A change is checked once, on its pull request, Renovate's included. A push
+  # runs the checks only on the default branch.
   push:
-    branches-ignore: ['renovate/**', 'engine-bump/**', 'scanctl/**', 'agent/**', 'feature/auto-*']
+    branches: [dev]
   pull_request:
 
 permissions:
