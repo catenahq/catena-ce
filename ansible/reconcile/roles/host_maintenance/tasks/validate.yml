@@ -103,6 +103,47 @@
       unattended-upgrades is not enabled, or exim4 is installed and not masked,
       in which case it binds port 25 ahead of the mail server.
 
+- name: "validate/host_maintenance: is the alert hub timer expected here"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ alert_hub_systemd_unit_name }}.timer"
+
+- name: "validate/host_maintenance: the alert hub timer's state"
+  ansible.builtin.command:
+    argv: [systemctl, "{{ item }}", "{{ alert_hub_systemd_unit_name }}.timer"]
+  loop: [is-enabled, is-active]
+  register: _hm_alert_timer
+  changed_when: false
+  failed_when: false
+  when: catena_payload_expected | bool
+
+- name: "validate/host_maintenance: the alert hub timer is enabled and active"
+  ansible.builtin.assert:
+    that:
+      - _hm_alert_timer.results[0].stdout | trim == 'enabled'
+      - _hm_alert_timer.results[1].stdout | trim == 'active'
+    fail_msg: >-
+      {{ alert_hub_systemd_unit_name }}.timer is not enabled and active, so
+      this host sends none of the alerts turned on in Settings.
+  when: catena_payload_expected | bool
+
+# The reboot probe reports to the alert hub and reads no env file.
+- name: "validate/host_maintenance: stat the reboot probe's old env file"
+  ansible.builtin.stat:
+    path: /etc/catena/reboot-check.env
+  register: _hm_reboot_env
+
+- name: "validate/host_maintenance: the reboot probe's env file is gone"
+  ansible.builtin.assert:
+    that:
+      - not _hm_reboot_env.stat.exists
+    fail_msg: >-
+      /etc/catena/reboot-check.env is still on this host, and the reboot probe
+      reports to the alert hub without it.
+
 - name: "validate/host_maintenance: journald keeps a persistent, sealed journal"
   ansible.builtin.slurp:
     src: /etc/systemd/journald.conf.d/10-catena.conf

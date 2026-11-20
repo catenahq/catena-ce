@@ -2,8 +2,8 @@
 
 Configures the single-node swarm `bootstrap/roles/docker` creates, on every
 converge, from either path: the task-history bound, the `catena.role` label
-stateful services constrain to, the private overlays of Healthchecks
-and Beszel, and the `catena-network-nudge` self-heal.
+stateful services constrain to, the private overlays of Healthchecks, Beszel
+and the alert intake, and the `catena-network-nudge` self-heal.
 
 ## Inputs
 
@@ -19,11 +19,12 @@ and Beszel, and the `catena-network-nudge` self-heal.
 - `docker node update --label-add catena.role=<label>`, only when the label
   differs. The label lives in the swarm raft, which no snapshot carries.
 - `docker network create --driver overlay` for `healthchecks_network`,
-  `beszel_network` and `beszel_gate_network`, each when it is absent.
+  `beszel_network`, `beszel_gate_network` and `alert_network`, each when it is
+  absent. Anyone on `alert_network` can post to the alert intake, so only the
+  intake and the services that post to it are on it, and the panel is not.
   Healthchecks takes the signed-in user from a header anyone who reaches it
   can set, so it is on its network instead of `catena-network`, with only the
-  services that call it: its sign-in gate, the panel, Gatus and the Beszel
-  alert shim. Beszel's hub signs in any realm user who reaches it and its
+  services that call it: its sign-in gate and the panel. Beszel's hub signs in any realm user who reaches it and its
   superuser holds the shared admin password, so the hub and its alert shim are
   on theirs, with Gatus. The hub takes the signed-in email from its gate's
   header only over `beszel_gate_network`, which only the gate and the hub join;

@@ -3,7 +3,9 @@
 The settings page shows `panel.default` in a field while the store holds
 nothing, and the converge resolves the same unset value from a literal in its
 own defaults (`cfg_x | default('literal', true)`). The two have to agree, or
-the page shows one name while the server answers on another.
+the page shows one name while the server answers on another. A knob whose
+default a lane applies instead (`lane_default`) has no converge fallback and
+declares no `var`.
 
 Run: uv run pytest tests/unit/test_panel_defaults_match_the_converge.py
 """
@@ -31,7 +33,7 @@ def _fallbacks(var: str) -> set[str]:
     return found
 
 
-def test_every_panel_default_is_the_converges_fallback():
+def test_every_panel_default_is_the_converges_fallback_or_a_lanes():
     doc = render_knobs.load()
     checked = 0
     for knob in doc["config"]:
@@ -39,8 +41,11 @@ def test_every_panel_default_is_the_converges_fallback():
         if default is None:
             continue
         checked += 1
-        assert "var" in knob, f"{knob['key']}: a default with no fact to fall back on"
-        assert _fallbacks(knob["var"]) == {default}, (
-            f"{knob['key']}: the panel shows {default!r}, the converge falls "
-            f"back to {sorted(_fallbacks(knob['var']))}")
+        assert ("var" in knob) != bool(knob.get("lane_default")), (
+            f"{knob['key']}: a default with no fact to fall back on; declare a "
+            "var, or lane_default when a lane applies it")
+        if "var" in knob:
+            assert _fallbacks(knob["var"]) == {default}, (
+                f"{knob['key']}: the panel shows {default!r}, the converge falls "
+                f"back to {sorted(_fallbacks(knob['var']))}")
     assert checked, "no panel field declares a default; this check is vacuous"

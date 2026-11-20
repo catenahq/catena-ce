@@ -68,9 +68,16 @@
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it; the page's own labels and help are its
 #               translations, keyed by the knob. `default` is the value a field
-#               shows while nothing is stored, the same literal the converge
-#               falls back to; `options_from` names a list the host supplies
-#               when the page renders (`timezones`, `cloudflare_zones`).
+#               shows while nothing is stored: the literal the converge falls
+#               back to, or, on a knob with `lane_default`, the one the lane
+#               that reads the store applies; `options_from` names a list the
+#               host supplies when the page renders (`timezones`,
+#               `cloudflare_zones`).
+#   lane_default
+#               true on a knob whose `panel.default` is applied by a lane that
+#               reads the store, not by the converge: it has no `var`.
+#               Every panel default is either a `var` with a matching converge
+#               fallback or `lane_default`, never both.
 #   step        which section of the graphical installer asks for it, named in
 #               `gui_steps`. Only a knob with an `env` home has one. Absent
 #               means the launcher never asks: the value is either the
@@ -637,6 +644,131 @@ config:
   - key: OFFSITE_HEARTBEAT_URL
     residence: store
     panel: {group: alerts, section: config, kind: text, optional: true}
+
+  # The addresses catena-admin's alert hub (catena-alert) mails each alert to,
+  # separated by commas or spaces, at most ten; empty sends to ADMIN_EMAIL. No
+  # `var`: catena-alert reads it off the store on every run.
+  - key: ALERT_EMAILS
+    residence: store
+    panel: {group: alerts, section: config, kind: text, optional: true}
+
+  # One switch per alert type, its message when the condition ends (_CLEAR), and
+  # for a failure its reminder every seven days (_REMIND). Off first, so a store
+  # holding nothing shows and means off; catena-alert reads only "on" as on. No
+  # `var`: catena-alert reads them off the store on every run.
+  - key: ALERT_PANEL_UPDATE
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_PANEL_UPDATE_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_APP_UPDATE_OFFER
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_APP_UPDATE_OFFER_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_APP_UPDATE_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_APP_UPDATE_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_APP_UPDATE_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_CVE_NEW
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_CVE_NEW_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_CVE_FIX
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_CVE_FIX_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+
+  # The lowest level of vulnerability the CVE watch's alerts name: kev (known to
+  # be exploited), critical, high. Anything else, absent included, reads as kev.
+  - key: ALERT_CVE_LEVEL
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: [kev, critical, high]}
+
+  - key: ALERT_CVE_PATCH
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_REBOOT
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_REBOOT_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTART_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTART_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTART_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_TLS_RENEWAL
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_TLS_RENEWAL_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_TLS_RENEWAL_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  # The alert that the paid features locked starts on: it concerns what the
+  # client pays for, and the server sent it before the alert hub existed. The
+  # field shows "on" while the store holds nothing, and catena-alert reads an
+  # absent or blank value as this default.
+  - key: ALERT_LICENCE_LOCKED
+    residence: store
+    lane_default: true
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"], default: "on"}
+  - key: ALERT_LICENCE_LOCKED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_LICENCE_GRACE
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_LICENCE_GRACE_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_DELIVERY_FAILING
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_DELIVERY_FAILING_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_DELIVERY_FAILING_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  # The alerts of the intake's two sources: a service check that fails
+  # (service_down) and a resource limit that is crossed (resources).
+  - key: ALERT_SERVICE_DOWN
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_SERVICE_DOWN_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_SERVICE_DOWN_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESOURCES
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESOURCES_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESOURCES_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
 
   # ---- error reports to Catena support (Catena Pro) ----
   #

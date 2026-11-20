@@ -309,6 +309,24 @@ def test_the_reseeded_keys_are_the_ones_onbox_config_writes_over(registry):
     assert reseeded == set(onbox_config.ENV_RESEEDED_CONFIG)
 
 
+def test_lane_default_marks_a_panel_default_with_no_var(tmp_path):
+    """A lane applies the default, so the knob has a panel default and no `var`."""
+    doc = render_knobs.load()
+    assert _entry(doc, "ALERT_LICENCE_LOCKED")["lane_default"] is True
+
+    doc = render_knobs.load()
+    _entry(doc, "ALERT_LICENCE_LOCKED")["var"] = "cfg_alert_licence_locked"
+    _refused(tmp_path, doc, "has a var")
+
+    doc = render_knobs.load()
+    _entry(doc, "ALERT_PANEL_UPDATE")["lane_default"] = True
+    _refused(tmp_path, doc, "declares none")
+
+    doc = render_knobs.load()
+    _entry(doc, "ALERT_LICENCE_LOCKED")["lane_default"] = "yes"
+    _refused(tmp_path, doc, "`true` or absent")
+
+
 def test_a_default_that_needs_quoting_is_refused():
     with pytest.raises(render_knobs.KnobError, match="unquoted"):
         render_knobs._check_env(

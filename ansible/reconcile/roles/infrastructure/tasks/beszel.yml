@@ -1,6 +1,6 @@
 ---
 # Beszel resource monitor, one catalog app: the hub, the host agent and the
-# relay that forwards the hub's alerts to Healthchecks. The relay's configure
+# relay that forwards the hub's alerts to the alert intake. The relay's configure
 # hook sets the hub up (first user, sign-in provider, alert delivery, the agent's
 # key); this file adds the app and writes the values the converge owns.
 #
@@ -12,8 +12,8 @@
       - beszel_oidc_client_secret is defined
       - beszel_oidc_client_secret | length > 0
     fail_msg: >-
-      Missing Beszel secrets. The converge mints them on the box, so a gap here
-      means the on-box store at /etc/catena/config.json was not loaded.
+      Missing Beszel secrets: the on-box store was not loaded (see the alert
+      intake's preflight in alert_intake.yml).
 
 # Host-mode publish (swarm cannot bind 127.0.0.1), so the hub port is a real
 # host bind. scope=loopback denies it everywhere but lo -- the only reader is

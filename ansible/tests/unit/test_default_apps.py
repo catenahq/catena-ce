@@ -434,7 +434,7 @@ def test_the_overlays_are_the_contracts_networks():
     gv = _group_vars()
     networks = {n for entry in CONTRACT.values()
                 for svc in entry["services"].values() for n in (svc.get("networks") or {})}
-    for key in ("healthchecks_network", "beszel_network", "beszel_gate_network"):
+    for key in ("healthchecks_network", "beszel_network", "beszel_gate_network", "alert_network"):
         assert gv[key] in networks, key
     gate = CONTRACT["beszel"]["services"]["app"]["networks"][gv["beszel_gate_network"]]
     assert gate == [_defaults()["beszel_hub_network_alias"]]

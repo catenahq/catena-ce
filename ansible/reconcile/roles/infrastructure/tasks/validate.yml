@@ -166,3 +166,20 @@
     that:
       - (_infra_ufw.stdout | trim) == ''
     fail_msg: "ufw has rule allowing tcp/80 or tcp/443: {{ _infra_ufw.stdout }}"
+
+# The alert intake answers on its loopback publish, and refuses what carries no
+# token: a 401 is the intake's own answer, where a 200 would mean the state is
+# readable by anyone who reaches the port.
+- name: "validate/infrastructure: the alert intake answers /health on the loopback"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ alert_intake_host_localhost_port }}/health"
+    status_code: 200
+  register: _infra_intake_health
+  retries: 12
+  delay: 5
+  until: _infra_intake_health.status | default(0) == 200
+
+- name: "validate/infrastructure: the alert intake refuses a request with no token"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ alert_intake_host_localhost_port }}/v1/state"
+    status_code: 401
