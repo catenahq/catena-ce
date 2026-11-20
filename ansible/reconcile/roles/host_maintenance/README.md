@@ -93,9 +93,7 @@ decision about downtime from a person to a timer.
 `catena-alert.timer` runs `catena-alert tick` every minute: it reads the Alerts
 settings in the store on every run, sends the alerts the administrator turned
 on to the email list and the webhook addresses, and sends nothing for a type
-that is off. The binary and both units ship in the catena-admin payload; this
-role enables the timer on every host, whatever its edition, and treats a missing
-timer as it treats the licence check's.
+that is off. Its timer ships and is enabled as the licence check's is.
 
 ## The licence check
 

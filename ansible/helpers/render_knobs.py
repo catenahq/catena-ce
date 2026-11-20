@@ -36,7 +36,7 @@ LANGS = ("en", "fr")
 
 KNOB_FIELDS = frozenset({"key", "residence", "var", "env", "panel", "step",
                          "label", "help", "depends", "required",
-                         "gui_suggestions_from", "gui_choice"})
+                         "gui_suggestions_from", "gui_choice", "lane_default"})
 # The two options of the launcher's choice in front of a field: `public` leaves
 # it empty, `private` asks for it.
 GUI_CHOICES = ("public", "private")
@@ -98,8 +98,9 @@ def _check_panel(key: str, panel: dict) -> None:
         _require(options is None,
                  f"{key}: options on a {panel['kind']} field are read by nothing")
     # The value a stored-nothing field shows and stands for: the literal the
-    # converge falls back to, which tests/unit/test_panel_defaults_match_the_converge.py
-    # holds equal. A secret has no default to show.
+    # converge falls back to (tests/unit/test_panel_defaults_match_the_converge.py
+    # holds them equal), or the one a lane reads off the store applies
+    # (`lane_default`). A secret has no default to show.
     default = panel.get("default")
     if default is not None:
         _require(panel["kind"] != "secret",
@@ -279,6 +280,15 @@ def load(source: Path = SOURCE) -> dict:
         if "var" in entry:
             _require(residence == "store",
                      f"{key}: only a stored value is projected onto an Ansible fact")
+        if "lane_default" in entry:
+            _require(entry["lane_default"] is True,
+                     f"{key}: lane_default is `true` or absent")
+            _require("var" not in entry,
+                     f"{key}: lane_default says no converge fallback exists, "
+                     "and this knob has a var")
+            _require((entry.get("panel") or {}).get("default") is not None,
+                     f"{key}: lane_default marks a panel default, and this "
+                     "knob declares none")
         if "env" in entry:
             _check_env(key, entry["env"], set(section_names))
             _require(not entry["env"].get("reseed") or residence == "store",

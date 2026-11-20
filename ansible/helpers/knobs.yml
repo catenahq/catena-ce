@@ -68,9 +68,16 @@
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it; the page's own labels and help are its
 #               translations, keyed by the knob. `default` is the value a field
-#               shows while nothing is stored, the same literal the converge
-#               falls back to; `options_from` names a list the host supplies
-#               when the page renders (`timezones`, `cloudflare_zones`).
+#               shows while nothing is stored: the literal the converge falls
+#               back to, or, on a knob with `lane_default`, the one the lane
+#               that reads the store applies; `options_from` names a list the
+#               host supplies when the page renders (`timezones`,
+#               `cloudflare_zones`).
+#   lane_default
+#               true on a knob whose `panel.default` is applied by a lane that
+#               reads the store, not by the converge: it has no `var`.
+#               Every panel default is either a `var` with a matching converge
+#               fallback or `lane_default`, never both.
 #   step        which section of the graphical installer asks for it, named in
 #               `gui_steps`. Only a knob with an `env` home has one. Absent
 #               means the launcher never asks: the value is either the
@@ -722,6 +729,7 @@ config:
   # absent or blank value as this default.
   - key: ALERT_LICENCE_LOCKED
     residence: store
+    lane_default: true
     panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"], default: "on"}
   - key: ALERT_LICENCE_LOCKED_CLEAR
     residence: store
