@@ -65,6 +65,7 @@ jobs:
         with:
           repository: catenahq/contracts
           path: contracts
+        lock: catena-ce/.github/catenahq.lock
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       # In ansible/'s own project, on the ansible-core the host runs: some of
@@ -232,6 +233,7 @@ jobs:
         with:
           repository: catenahq/contracts
           path: contracts
+        lock: catena-ce/.github/catenahq.lock
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "26"
