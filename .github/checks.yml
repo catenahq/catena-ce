@@ -1,0 +1,16 @@
+gates:
+  core-app-names: [.]
+  duplication: true
+checks:
+  python:
+    tools: {uv: 0.13.9}
+    siblings: {contracts: {}}
+  wheel:
+    tools: {uv: 0.13.9}
+  keycloak:
+    inputs: [ansible/reconcile/roles/keycloak/provider/]
+  syntax:
+    tools: {uv: 0.13.9}
+    inputs: [ansible/]
+  sentences: {}
+scan: {}
