@@ -6,15 +6,15 @@ name: Publish installer
 # stored. Clients run the result as `uvx catena-installer`.
 #
 # ONE-TIME operator setup: register catenahq/catena-ce, this workflow and the
-# environment `pypi` as a trusted publisher of catena-installer on PyPI. The
-# environment `pypi` admits only the tags v*.
+# environment `pypi` as a trusted publisher of catena-installer on PyPI.
 
 on:
   push:
     tags:
       - 'v*'
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   publish:
@@ -22,25 +22,25 @@ jobs:
     runs-on: ubuntu-26.04
     environment: pypi
     permissions:
+      actions: read
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
-          # The guard below reads release from this clone.
+          # The guard below reads main from this clone.
           fetch-depth: 0
 
-      - name: Release tags must be on release
-        # Releases are tagged on release (the ci-control workflow's tag step); a
-        # v* tag anywhere else publishes nothing. The push to release ran the
-        # checks.
+      - name: Release tags must be on main
+        # Releases are tagged on main (ops create-catena-release.sh); a v* tag
+        # anywhere else publishes nothing.
         env:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if ! git merge-base --is-ancestor "$SHA" origin/release; then
-            echo "::error::commit $SHA is not on origin/release; catena-installer publishes only from release."
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::commit $SHA is not on origin/main; catena-installer publishes only from main."
             exit 1
           fi
 
@@ -49,6 +49,22 @@ jobs:
         with:
           # A release build restores nothing another run could have written.
           enable-cache: false
+
+      # The installer tests are part of ci.yml: a tree whose CI passed is not
+      # tested again, a tree whose CI failed stops the publish.
+      - name: Result of CI on this tree
+        id: tree
+        uses: catenahq/contracts/.github/actions/same-tree@ede5b1277e10a673fd5ff7791e4abfd20dbd3738 # main
+        with:
+          name: ci
+          workflow: .github/workflows/ci.yml
+          branch: main
+          siblings: catenahq/contracts
+          record: false
+
+      - name: Installer tests
+        if: steps.tree.outputs.run != 'false'
+        run: uv run pytest -q
 
       - name: Version from the tag
         env:
