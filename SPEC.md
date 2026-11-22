@@ -83,25 +83,25 @@ logged in as `ops`, runs the rest of the install.
 
 | Invariant | Enforced by |
 | --- | --- |
-| On Windows, macOS and Linux, the installer started with no arguments serves a page on the machine's loopback address, and the installer started with a command works in the terminal | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, **no bench yet** |
-| The installer runs no Ansible itself: the server installs itself from the tree of the release image it fetched, so the server's roles, engines and dashboard all come from one release | `bench:update_from_previous_release#stage-4b-one-version-after-the-reinstall`, `bench:install_rerun#stage-4-engines-follow-the-shell`, `workflow:ci.yml#installer` |
-| The installer asks only for what reaching and installing a server needs, and an install that is given a value the dashboard owns stops before writing anything | `workflow:ci.yml#installer`, **no bench yet** |
-| `init` writes an inventory in which every key is at its default value | `workflow:ci.yml#installer`, **no bench yet** |
+| On Windows, macOS and Linux, the installer started with no arguments serves a page on the machine's loopback address, and the installer started with a command works in the terminal | `checks:python`, `checks:wheel`, **no bench yet** |
+| The installer runs no Ansible itself: the server installs itself from the tree of the release image it fetched, so the server's roles, engines and dashboard all come from one release | `bench:update_from_previous_release#stage-4b-one-version-after-the-reinstall`, `bench:install_rerun#stage-4-engines-follow-the-shell`, `checks:python` |
+| The installer asks only for what reaching and installing a server needs, and an install that is given a value the dashboard owns stops before writing anything | `checks:python`, **no bench yet** |
+| `init` writes an inventory in which every key is at its default value | `checks:python`, **no bench yet** |
 | `install` connects to the server at its SSH address when one is set, and otherwise at its public IP address; `--address` connects to another address for that one run | `bench:launcher_install#stage-1-private-leg-installs`, `bench:launcher_install#stage-3-public-leg-installs`, `bench:install_rerun#stage-1a-address-is-for-this-run` |
 | `install` run a second time asks nothing, changes nothing on a healthy server, and deploys the dashboard again when the dashboard is missing | `bench:install_rerun#stage-1-install-rerun`, `bench:install_rerun#stage-6-install-deploys-the-panel` |
 | `install` run a second time re-applies the release the server records, including the bootstrap roles (the roles that only the install applies) | **no bench yet** |
 | `install --release` moves the server to that release, running that release's code | **no bench yet** |
 | `install --tags` limits the install's converge to the roles named | **no bench yet** |
 | A server that can be reached only through the login its hosting provider gave installs in two steps: the accounts step creates the `ops` and `panel` accounts with the installer's key and turns off no existing login, then the system step runs as `ops` | `bench:launcher_install#stage-1-private-leg-installs` |
-| The system step of the install, whose first role turns off every other way to log in, starts only once the SSH server has logged a session opened as `ops` with the installer's key | `workflow:ci.yml#installer`, **no bench yet** |
+| The system step of the install, whose first role turns off every other way to log in, starts only once the SSH server has logged a session opened as `ops` with the installer's key | `checks:python`, **no bench yet** |
 | An install step whose SSH connection drops still runs to its end on the server, and the server's log of that step contains no password | `bench:fi_o2_operator_ctrl_c#stage-1b-interrupted-install-ends-on-the-server` |
-| An install started while a step of an earlier install still runs on the server waits for that step to end | `workflow:ci.yml#installer`, **no bench yet** |
-| After the system step, the installer scans every TCP port of the server's public IP address, compares the open ports with the ports the server declares, and checks that the scan cannot reach the containers' network | `workflow:ci.yml#installer`, **no bench yet** |
+| An install started while a step of an earlier install still runs on the server waits for that step to end | `checks:python`, **no bench yet** |
+| After the system step, the installer scans every TCP port of the server's public IP address, compares the open ports with the ports the server declares, and checks that the scan cannot reach the containers' network | `checks:python`, **no bench yet** |
 | When a server presents a different SSH host key from the one trusted for its address, `install` stops before anything reaches the server; `--reinstalled`, or the reinstalled-server box on the installer's page, forgets the old key and trusts the new one | `bench:launcher_install#stage-6-install-stops-on-the-new-key`, `bench:launcher_install#stage-7-reinstalled-flag-continues`, `bench:launcher_install#stage-8-new-key-trusted` |
 | The inventory contains no credential | `bench:launcher_install#stage-2-private-leg-leaves-its-answers`, `bench:launcher_install#stage-4-public-leg-leaves-its-answers` |
-| An admin password reaches the server as a file with mode 0600 that exists only for the length of the run, and the installer generates no secret | `workflow:ci.yml#installer`, **no bench yet** |
+| An admin password reaches the server as a file with mode 0600 that exists only for the length of the run, and the installer generates no secret | `checks:python`, **no bench yet** |
 | The dashboard is reached through an SSH port forward, made with the `panel` account, to the server's loopback address | `bench:ce_install_suite#stage-3-bare-install` |
-| `connect` opens the `panel` account's port forward to the dashboard from the client's machine | `workflow:ci.yml#installer`, **no bench yet** |
+| `connect` opens the `panel` account's port forward to the dashboard from the client's machine | `checks:python`, **no bench yet** |
 | `uninstall` hands the server back to Debian: Debian's package updates run with Debian's default settings again, and no container engine package stays locked at its version | `bench:ce_uninstall#stage-3-handback-asserts` |
 | `uninstall` prints instructions for tearing down what remains | **no bench yet** |
 | An installer command that runs a single file from `ansible/playbooks/` has that file's name | `audit:check-grid` |
@@ -119,13 +119,13 @@ back to Debian.
 | --- | --- |
 | A converge run again repairs a server that drifted away from what the roles declare, and never duplicates or breaks anything on a healthy server | `bench:install_rerun#stage-1-install-rerun`, `bench:converge_suite#stage-7c-rotated-secret-arrives`, `bench:converge_suite#stage-7b-bump-survives` |
 | The server converges itself from the Ansible tree inside the dashboard image | `bench:reconcile_is_a_noop#stage-1-first-reconcile` |
-| The server's own converge reads nothing from an inventory on the client's machine, and no installer command starts it | `workflow:ci.yml#installer`, **no bench yet** |
-| `reconcile.yml` applies the roles of `converge.yml` in the same order, except the bootstrap roles, which only an install started by a person applies | `workflow:ci.yml#installer`, **no bench yet** |
+| The server's own converge reads nothing from an inventory on the client's machine, and no installer command starts it | `checks:python`, **no bench yet** |
+| `reconcile.yml` applies the roles of `converge.yml` in the same order, except the bootstrap roles, which only an install started by a person applies | `checks:python`, **no bench yet** |
 | Validation checks the state of every role and, from the server itself, checks the dashboard, the public hostnames once a domain is set, and the published ports; a converge ends with validation and fails when validation fails; validation judges the settings the converge started with, so a setting saved while a converge runs is judged by the converge that applies it | `bench:ce_validate#stage-1-ce-validate`, `bench:ce_install_suite#stage-3a7a-the-private-network-saved-during-a-domain-apply` |
 | Validation fails when the server exposes something it does not declare | **no bench yet** |
-| Validation is the last step of the install, and it can also be run by itself | `workflow:ci.yml#installer`, **no bench yet** |
+| Validation is the last step of the install, and it can also be run by itself | `checks:python`, **no bench yet** |
 | `lockdown.yml` joins the server to the private network saved in the dashboard | `bench:ce_install_suite#stage-3a1-tailnet-joined`, `bench:fi_n11_lockdown_refuses_shields_up` |
-| `lockdown.yml` runs only when started from the dashboard, and never during a converge | `workflow:ci.yml#installer`, **no bench yet** |
+| `lockdown.yml` runs only when started from the dashboard, and never during a converge | `checks:python`, **no bench yet** |
 | The install generates the admin and console passwords when they do not exist yet, and shows them, together with the key that verifies the system journal, right after its bootstrap step and again when it ends | **no bench yet** |
 | An admin can make the server sign in to its private network again from the dashboard | **no bench yet** |
 | A converge that meets a hung container engine or a badly degraded network fails within a bounded time and names the cause | `bench:fi_c1_docker_daemon_hang`, `bench:fi_c4_registry_pull_timeout` |
@@ -152,12 +152,12 @@ from `rotate-tunnel.yml`.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Every role is either bootstrap or reconcile, never both, and every bootstrap role states the reason it is bootstrap | `audit:check-grid`, `workflow:ci.yml#installer` |
-| No reconcile task writes a path that bootstrap owns (`/etc/ssh/`, `/etc/sudoers.d/`, `authorized_keys`, `/usr/local/sbin/catena-admin-runner`, `/usr/local/lib/catena-dispatch/`, `/etc/sysctl.d/`, `/etc/modprobe.d/`, `/etc/ansible/facts.d/`) | `workflow:ci.yml#installer` |
-| No reconcile play reaches a bootstrap task file | `workflow:ci.yml#installer` |
-| Only the `dispatch_path` role changes how the dashboard's requests reach the server, and only after proving that the new way works | `workflow:ci.yml#installer` |
-| No bootstrap task writes a path that reconcile owns: the OS update and restart settings, the settings files for the journal and the clock, the configuration of the scheduled updates, the dashboard's declaration of its ports, and the job that reattaches containers to their overlay network | `workflow:ci.yml#installer` |
-| A restore runs only when started on the server, never from the installer and never during a converge | `workflow:ci.yml#installer`, `bench:ce_restore#stage-4-ce-restore` |
+| Every role is either bootstrap or reconcile, never both, and every bootstrap role states the reason it is bootstrap | `audit:check-grid`, `checks:python` |
+| No reconcile task writes a path that bootstrap owns (`/etc/ssh/`, `/etc/sudoers.d/`, `authorized_keys`, `/usr/local/sbin/catena-admin-runner`, `/usr/local/lib/catena-dispatch/`, `/etc/sysctl.d/`, `/etc/modprobe.d/`, `/etc/ansible/facts.d/`) | `checks:python` |
+| No reconcile play reaches a bootstrap task file | `checks:python` |
+| Only the `dispatch_path` role changes how the dashboard's requests reach the server, and only after proving that the new way works | `checks:python` |
+| No bootstrap task writes a path that reconcile owns: the OS update and restart settings, the settings files for the journal and the clock, the configuration of the scheduled updates, the dashboard's declaration of its ports, and the job that reattaches containers to their overlay network | `checks:python` |
+| A restore runs only when started on the server, never from the installer and never during a converge | `checks:python`, `bench:ce_restore#stage-4-ce-restore` |
 | The install's converge and the server's own converge produce the same server: after either one runs, the other changes nothing | `bench:reconcile_is_a_noop` |
 | A server that converges itself puts back the upkeep settings it owns: unattended upgrades, the lock that keeps package updates from changing the container engine, where the journal is stored, the mail agent kept off port 25, the clock on its NTP pool, how much task history Docker Swarm keeps, the label that marks the node holding data, and the configuration its scheduled jobs read | `bench:reconcile_repairs_host_upkeep#stage-3-restored`, `bench:reconcile_repairs_host_upkeep#stage-6-clock-on-the-pool` |
 | The server resolves its own hostname, keeps the time zone and locale set in the dashboard, and runs git as the `catena-git` user, which has no login and no home directory | **no bench yet** |
@@ -169,7 +169,7 @@ from `rotate-tunnel.yml`.
 | The dashboard sends its requests to the server by signing in as the runner account, with its own key pair and a host key it trusts; the account that migrations use accepts no key unless a migration window is open | `bench:ce_admin_smoke#stage-1-host-state`, `bench:migrate_lane_auth_denied#stage-0-preconditions`, `bench:migrate_lane_auth_denied#stage-1-no-lane-before-arming`, `bench:wizard_migrate_resume_source` |
 | A server whose Ansible runtime broke repairs it without anyone stepping in | **no bench yet** |
 | A dashboard update changes how the dashboard's requests reach the server only after a request has gone through the new way; when that check fails, the converge stops and the current way stays in use | `bench:update_from_previous_release#stage-3e-the-dispatch-path-moved-beside-the-running-one`, `bench:update_from_previous_release#stage-3f-a-failed-proof-keeps-the-path` |
-| A converge installs the host engines only from the dashboard image it names, identified by digest and built from this repository's tree, and the root account runs nothing from a place the dashboard can write to | `bench:update_from_previous_release#stage-5-another-tree-is-refused`, `bench:ce_install_suite#stage-3d-payload-digest-gate`, `workflow:ci.yml#installer`, `threat:CV14` |
+| A converge installs the host engines only from the dashboard image it names, identified by digest and built from this repository's tree, and the root account runs nothing from a place the dashboard can write to | `bench:update_from_previous_release#stage-5-another-tree-is-refused`, `bench:ce_install_suite#stage-3d-payload-digest-gate`, `checks:python`, `threat:CV14` |
 | A converge fails when the host engines it installs lack the program that applies the firewall rules for the server's published ports, or that program's timer | **no bench yet** |
 | After the container engine restarts, containers that came up without their overlay network rejoin it by themselves | `bench:swarm_overlay_selfheal` |
 | A deleted container starts again by itself; a removed service stays removed until the next converge, and that converge restores every declared service | `bench:container_delete_recreated#stage-1-app-task-rescheduled`, `bench:container_delete_recreated#stage-2-infra-task-rescheduled`, `bench:container_delete_recreated#stage-3-removed-service-stays-removed`, `bench:container_delete_recreated#stage-4-converge-restores-service`, `bench:container_delete_recreated#stage-5-declared-set-serves-again` |
@@ -177,12 +177,12 @@ from `rotate-tunnel.yml`.
 | The single sign-on service keeps its database on the Postgres that serves the server's own services | **no bench yet** |
 | Each admin tool that requires signing in has its own sign-in check and its own sign-in session | `bench:app_container_cannot_claim_an_identity#stage-5-a-seen-cookie-opens-no-admin-tool` |
 | When the on-box store (`/etc/catena/config.json`, the server's settings file) holds no Cloudflare token, the tunnel waits and the converge succeeds | `bench:ce_install_suite#stage-3-bare-install`, `bench:install_without_a_domain#stage-1-converge-with-no-domain`, `bench:post_compromise_rebuild#stage-6-tunnel-sync-without-a-token` |
-| The Cloudflare tunnel is replaced only when an admin asks for it, and a converge leaves a healthy tunnel connector running and untouched | `workflow:ci.yml#installer`, `bench:cf_tunnel_regenerate_round_trip#stage-1-rotate-tunnel`, `bench:fi_c6_cloudflared_flapping#stage-1-reconverge-no-flap` |
+| The Cloudflare tunnel is replaced only when an admin asks for it, and a converge leaves a healthy tunnel connector running and untouched | `checks:python`, `bench:cf_tunnel_regenerate_round_trip#stage-1-rotate-tunnel`, `bench:fi_c6_cloudflared_flapping#stage-1-reconverge-no-flap` |
 | The dashboard runs the release that the install fetched or, when the server runs its own converge, the image the dashboard already runs | `bench:update_from_previous_release#stage-4b-one-version-after-the-reinstall`, `bench:install_rerun#stage-4-engines-follow-the-shell` |
 | A converge that does not name a dashboard image stops before any role runs | **no bench yet** |
-| An install fetches the release it is given, otherwise the release the server records, otherwise the newest release the registry lists | `workflow:ci.yml#installer`, **no bench yet** |
+| An install fetches the release it is given, otherwise the release the server records, otherwise the newest release the registry lists | `checks:python`, **no bench yet** |
 | The first backup runs as soon as a backup destination is saved | `bench:ce_install_suite#stage-4i0-first-backup-ran` |
-| At the end of a converge, the compose file built from the definitions of the control-plane services loads in the installed container engine and lists the services that run, and nothing is deployed from that file | `bench:ce_install_suite`, `workflow:ci.yml#installer` |
+| At the end of a converge, the compose file built from the definitions of the control-plane services loads in the installed container engine and lists the services that run, and nothing is deployed from that file | `bench:ce_install_suite`, `checks:python` |
 ## State the tasks produce
 
 Six things stay on the server after the run that wrote them has ended. Each one
@@ -435,7 +435,7 @@ removes the files it no longer ships and then records what it delivered.
 | --- | --- |
 | Every converge records what it delivered | `bench:converge_suite#stage-1-manifest-describes-this-converge`, `bench:converge_suite#stage-7a-the-action-is-back`, `bench:reconcile_is_a_noop#stage-1-first-reconcile` |
 | A converge removes a file that an earlier converge installed and that the current converge no longer ships, unless the file was changed after it was installed, in which case the file stays | `bench:install_rerun#stage-4b-withdrawn-pruned-drift-reported`, `bench:payload_prune_respects_ce#stage-2-withdrawn-removed` |
-| A converge never removes a Community file as though it were a licensed file, and never removes a file the host engines claim | `bench:payload_prune_respects_ce#stage-1-coexistence`, `bench:payload_prune_respects_ce#stage-3-foreign-copy-survives`, `workflow:ci.yml#installer` |
+| A converge never removes a Community file as though it were a licensed file, and never removes a file the host engines claim | `bench:payload_prune_respects_ce#stage-1-coexistence`, `bench:payload_prune_respects_ce#stage-3-foreign-copy-survives`, `checks:python` |
 
 ### The version stamp -- written first, by both converge paths
 
@@ -485,12 +485,12 @@ declares. Catena's sign-on extension
 | An application that asks for single sign-on gets its own registration in the sign-on service, which follows the labels in the application's compose file and is removed with the application; registrations made by hand are left alone | `bench:oidc_label_client_provisioned`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `threat:CV13` |
 | When an application's registration with the sign-on service is deleted while the application stays deployed, Catena registers it again at its next sync with the secret kept in the application's settings file, without redeploying the application | `bench:oidc_label_client_provisioned#stage-5-lost-entry-made-again-with-its-folders-secret` |
 | Catalogue applications that offer single sign-on in their free edition sign people in with their Catena account | `bench:nextcloud_sign_in` |
-| An account that is neither in the group an application's registration admits nor in one of the application's access groups is refused on the sign-in page, also when it signs in through an external identity provider, and a refusal because of the account's group does not count as a failed sign-in | `bench:catalog_app_sign_in#stage-client-tier-refused`, `bench:catalog_app_sign_in#stage-broker-tier-check`, `bench:catalog_app_sign_in#stage-access-refused-without-it`, `bench:nextcloud_sign_in#stage-access-refused-without-it`, `workflow:ci.yml#keycloak-provider`, `threat:CV2` |
-| Every external identity provider, including one added for an organization, checks that the account is in a group the application admits from the moment the provider is added, and a converge leaves the sign-in flows as they are | `bench:catalog_app_sign_in#stage-broker-before-converge`, `bench:catalog_app_sign_in#stage-broker-organization-provider`, `bench:catalog_app_sign_in#stage-broker-converge-keeps-the-flows`, `workflow:ci.yml#keycloak-provider` |
-| While outgoing mail is set up, a client can sign in with a code sent to the email address they type, in place of their password; every email address gets the same answer, staff, administrator, disabled and unknown accounts are sent no code and cannot use one, a code that fails to sign in counts toward the lockout, and the code never creates an account | `bench:catalog_app_sign_in#stage-client-email-code`, `workflow:ci.yml#keycloak-provider` |
+| An account that is neither in the group an application's registration admits nor in one of the application's access groups is refused on the sign-in page, also when it signs in through an external identity provider, and a refusal because of the account's group does not count as a failed sign-in | `bench:catalog_app_sign_in#stage-client-tier-refused`, `bench:catalog_app_sign_in#stage-broker-tier-check`, `bench:catalog_app_sign_in#stage-access-refused-without-it`, `bench:nextcloud_sign_in#stage-access-refused-without-it`, `checks:keycloak`, `threat:CV2` |
+| Every external identity provider, including one added for an organization, checks that the account is in a group the application admits from the moment the provider is added, and a converge leaves the sign-in flows as they are | `bench:catalog_app_sign_in#stage-broker-before-converge`, `bench:catalog_app_sign_in#stage-broker-organization-provider`, `bench:catalog_app_sign_in#stage-broker-converge-keeps-the-flows`, `checks:keycloak` |
+| While outgoing mail is set up, a client can sign in with a code sent to the email address they type, in place of their password; every email address gets the same answer, staff, administrator, disabled and unknown accounts are sent no code and cannot use one, a code that fails to sign in counts toward the lockout, and the code never creates an account | `bench:catalog_app_sign_in#stage-client-email-code`, `checks:keycloak` |
 | Giving a client access to an application lets them sign in to it and gives them the application's role before their first sign-in; removing that access refuses their next sign-in and takes the role back | `bench:catalog_app_sign_in#stage-access-given-signs-in`, `bench:catalog_app_sign_in#stage-access-removed-refused`, `bench:nextcloud_sign_in#stage-access-given-signs-in`, `bench:nextcloud_sign_in#stage-access-removed-refused` |
-| A changed sign-in flow is built in full under a new name before the sign-in realm switches to it, so a failed converge leaves sign-in working on the previous version of the flow; a flow edited by hand is replaced by a new version, and versions that are no longer in use are removed | `workflow:ci.yml#installer` |
-| The configuration run and the dashboard keep managing the sign-on service on releases of it that accept admin calls only from accounts given a separate admin permission, because the sign-on service gives Catena's own accounts that permission each time it starts | `bench:inplace_restore_suite#held-after-restore-stage-5-through-a-converge`, `bench:keycloak_master_realm_hardening#stage-6-converge-through-the-automation-client`, `bench:identity_group_gates_access`, `workflow:ci.yml#keycloak-provider` |
+| A changed sign-in flow is built in full under a new name before the sign-in realm switches to it, so a failed converge leaves sign-in working on the previous version of the flow; a flow edited by hand is replaced by a new version, and versions that are no longer in use are removed | `checks:python` |
+| The configuration run and the dashboard keep managing the sign-on service on releases of it that accept admin calls only from accounts given a separate admin permission, because the sign-on service gives Catena's own accounts that permission each time it starts | `bench:inplace_restore_suite#held-after-restore-stage-5-through-a-converge`, `bench:keycloak_master_realm_hardening#stage-6-converge-through-the-automation-client`, `bench:identity_group_gates_access`, `checks:keycloak` |
 | Each application gets a password generated on the server | **no bench yet** |
 | An application's hooks, the setup commands its `x-catena` block declares, configure it after every deploy, and a further deploy changes nothing | `bench:suite_wiring_commands#stage-talk-hpb-wired`, `bench:app_takes_the_outgoing_mail#stage-4-a-deploy-changes-nothing`, `bench:mailserver_after_domain#stage-3-wired-without-a-press` |
 | A certificate an application declares is issued by the server into the application's volume and loaded by the application, and the scheduled renewal replaces a certificate that is due and has the application serve the new one | `bench:fi_c7_coturn_cert_expired#stage-1-renewal-job-renews`, `bench:mailserver_after_domain#stage-3-wired-without-a-press`, `bench:app_declared_needs#stage-1-needs-met-before-the-deploy` |
@@ -661,19 +661,19 @@ merges.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Every workflow runs on each pull request and on each push, except pushes to the Renovate, engine-bump and scanctl branches, whose pull requests test every push | `workflow:ci.yml`, `workflow:security.yml` |
-| No secret is in the repository's files or in its history | `scanctl:gitleaks`, `workflow:security.yml#scanctl`, `threat:CP1` |
-| No env file is tracked in git, and `.gitignore` carries the rule that ignores env files | `workflow:ci.yml#prose` |
+| Every workflow runs on each pull request and on each push, except pushes to the Renovate, engine-bump and scanctl branches, whose pull requests test every push | `workflow:ci.yml`, `checks:scan` |
+| No secret is in the repository's files or in its history | `scanctl:gitleaks`, `checks:scan`, `threat:CP1` |
+| No env file is tracked in git, and `.gitignore` carries the rule that ignores env files | `checks:gates` |
 | This repository holds no licensed source code and no Go code | `audit:check-port`, `audit:check-grid`, `threat:CP3` |
-| Every dependency and every pinned image has to pass a vulnerability scan | `scanctl:osv-scanner`, `scanctl:trivy`, `workflow:security.yml#scanctl`, `threat:CP5` |
-| A known vulnerability (CVE) that has a fix in a pinned image fails the weekly scheduled scan until a newer pin clears it or a dated acceptance covers it | `scanctl:trivy`, `workflow:security.yml#scanctl` |
+| Every dependency and every pinned image has to pass a vulnerability scan | `scanctl:osv-scanner`, `scanctl:trivy`, `checks:scan`, `threat:CP5` |
+| A known vulnerability (CVE) that has a fix in a pinned image fails the scheduled scan until a newer pin clears it or a dated acceptance covers it | `scanctl:trivy`, `checks:scan` |
 | Static analysis runs on every change | `scanctl:semgrep`, `scanctl:zizmor` |
 | GitHub Actions are pinned by digest, and a tag moved to another commit is not adopted on its own | `scanctl:zizmor`, `threat:CP6` |
-| The installer builds, passes its lint checks and passes its tests | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication`, `workflow:ci.yml#sentences` |
+| The installer builds, passes its lint checks and passes its tests | `checks:python`, `checks:wheel`, `checks:syntax`, `checks:gates`, `checks:sentences` |
 | A release tag on main publishes the tested installer as `catena-installer` through trusted publishing, with its version taken from the tag | `workflow:publish-installer.yml#publish` |
-| The sign-on extension passes its tests and builds reproducibly: two builds give the same bytes | `workflow:ci.yml#keycloak-provider` |
-| Code comments describe the code as it stands and hold no history | `workflow:ci.yml#prose` |
-| Core code names no application, except in a recorded debt that can only shrink | `workflow:ci.yml#prose` |
+| The sign-on extension passes its tests and builds reproducibly: two builds give the same bytes | `checks:keycloak` |
+| Code comments describe the code as it stands and hold no history | `checks:gates` |
+| Core code names no application, except in a recorded debt that can only shrink | `checks:gates` |
 | Public text names no system that Catena does not ship | `audit:check-banned-words` |
 | Every file and every scenario is classified against the feature manifest, and none is left unclassified | `audit:check-grid`, `audit:check-all` |
 | A gate pointer in this file that does not resolve, or a rehearsal scenario that this file does not name, fails the build | `audit:check-public-specs`, `threat:CP7` |
@@ -705,7 +705,7 @@ take about 2 GB. See [README.md](README.md).
 
 | Invariant | Enforced by |
 | --- | --- |
-| Catena installs and runs on a server with less than 8 GB of memory, and the shared antivirus scanner reloads its virus signatures without keeping two copies of them in memory | `bench:ce_install_suite`, `bench:clamd_reload_on_a_small_host`, `workflow:ci.yml#installer` |
+| Catena installs and runs on a server with less than 8 GB of memory, and the shared antivirus scanner reloads its virus signatures without keeping two copies of them in memory | `bench:ce_install_suite`, `bench:clamd_reload_on_a_small_host`, `checks:python` |
 
 ## Scenarios outside the invariants
 
