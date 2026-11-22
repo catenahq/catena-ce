@@ -1,2 +1,0 @@
-# Host hardening roles: a change needs a review from the code owner.
-ansible/bootstrap/roles/common/ @ma-lalonde
