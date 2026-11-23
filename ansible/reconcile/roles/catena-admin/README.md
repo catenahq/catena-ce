@@ -73,7 +73,8 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   every request it forwards: the panel's listener is on `catena-network`,
   where any client app container can set identity headers, and it takes an
   identity only from a request carrying that secret. A secret of the panel's
-  that no service mounts is removed after the deploy. The service is on
+  that no service mounts is removed after the deploy, including one whose base
+  the specs no longer declare. The service is on
   `catena-network` alone, and the spec's networks are reconciled like its env
   and secrets. No
   Traefik route is written here (oauth2-proxy owns the gated `dash.<zone>`
@@ -82,8 +83,9 @@ TIER-1 SWARM SERVICE, with the argv rendered by
 
 `tasks/validate.yml` checks the lane files' modes (the update lane's 0600),
 that the managed-services list and the UI port fragment parse and the port is
-loopback only, the catalog files and the root-only overlay directory, and that
-the panel service is 1/1.
+loopback only, the catalog files and the root-only overlay directory, that no
+panel secret outside the declared bases is left, and that the panel service is
+1/1.
 
 ## What this role does NOT do
 
