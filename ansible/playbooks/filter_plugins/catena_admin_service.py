@@ -38,7 +38,7 @@ forever. So a rotated credential must arrive under a NEW name or it never
 reaches the container, which is why secret_name() hashes the VALUE into the
 name. A fixed name would make rotation a silent no-op. secret_entries, the
 swarm_secret_entries filter, names every swarm secret the converge creates
-(playbooks/tasks/swarm_secrets.yml), Healthchecks' too, and secrets_unmounted,
+(playbooks/tasks/swarm_secrets.yml), and secrets_unmounted,
 the swarm_secrets_unmounted filter, picks the ones a rotation left behind
 (playbooks/tasks/swarm_secrets_prune.yml).
 

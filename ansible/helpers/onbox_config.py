@@ -42,8 +42,7 @@ Design constraints:
     settings save), and they remain ADOPTABLE: a value handed to the loader
     is kept rather than replaced by a fresh mint.
   - Format contracts for the minted values: oauth2 cookie length-after-decode,
-    Healthchecks 32-char API keys, url-safe ping key, 20-char admin password,
-    64-char base64 restic password.
+    url-safe tokens, 20-char admin password, 64-char base64 restic password.
 """
 from __future__ import annotations
 
@@ -139,13 +138,8 @@ def mint_strong_password() -> str:
     return base64.b64encode(os.urandom(48)).decode("ascii")
 
 
-def mint_hc_api_key() -> str:
-    """Healthchecks API keys must be EXACTLY 32 chars. 16 bytes hex = 32."""
-    return _secrets.token_hex(16)
-
-
 def mint_url_safe() -> str:
-    """URL-path-safe 32-char string (Healthchecks ping_key lives in URL paths)."""
+    """URL-path-safe 32-char string."""
     return _secrets.token_urlsafe(24)
 
 
@@ -227,7 +221,6 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # alone (reconcile/roles/oauth2_proxy oauth2_proxy_apps cookie_secret_var),
     # so a session cookie a client app or another tool sees opens none of them.
     "catena_admin_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
-    "healthchecks_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "gatus_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "beszel_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "oauth2_proxy_client_secret": mint_strong_password,
@@ -243,10 +236,6 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # the panel has. A supervision credential that could change what it
     # supervises could hide a drift by correcting it.
     "catena_identity_probe_client_secret": mint_strong_password,
-    # Healthchecks (self-hosted heartbeat instance).
-    "healthchecks_ping_key": mint_url_safe,
-    "healthchecks_api_key_readonly": mint_hc_api_key,
-    "healthchecks_api_key_readwrite": mint_hc_api_key,
     # Beszel's OIDC client secret: "Sign in with Catena" on the hub.
     "beszel_oidc_client_secret": mint_strong_password,
     # The alert intake's bearer tokens, one per source it accepts (service
@@ -261,6 +250,16 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # inventory needs no extra setup.
     "zap_api_key": mint_url_safe,
 }
+
+# Secrets nothing on the host reads, which a store may still hold: every load
+# that writes the store removes them (drop_retired_secrets). An application
+# that keeps a copy of one reads its own copy, never these.
+RETIRED_SECRETS: frozenset[str] = frozenset({
+    "healthchecks_ping_key",
+    "healthchecks_api_key_readonly",
+    "healthchecks_api_key_readwrite",
+    "healthchecks_gate_cookie_secret",
+})
 
 # USER_HELD: the DR keyset + first-login credential, generated on-box and shown
 # ONCE so the user keeps an off-box copy in their password manager. NOT in
@@ -655,6 +654,14 @@ def ensure_user_held_secrets(store: dict) -> list[str]:
     return minted
 
 
+def drop_retired_secrets(store: dict) -> list[str]:
+    """Remove every RETIRED_SECRETS key from the store. Returns the keys
+    removed; a store holding none is left as it is."""
+    secrets_map = store.setdefault("secrets", {})
+    return [key for key in sorted(RETIRED_SECRETS)
+            if secrets_map.pop(key, None) is not None]
+
+
 TAILNET_PROVIDERS = ("none", "tailscale", "headscale")
 
 
@@ -940,6 +947,7 @@ def main(argv: list[str] | None = None) -> int:
             overwrite=args.overwrite,
         )
         settle_tailnet_provider(store)
+        drop_retired_secrets(store)
         if args.mint_user_held:
             ensure_user_held_secrets(store)
         elif not args.no_mint:

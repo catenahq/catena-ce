@@ -114,7 +114,7 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 #   upstream_alias  network alias of the BACKEND app, on catena-network or
 #                   on one of the entry's `networks`. Compose-
 #                   managed apps register an alias matching their compose
-#                   service name (e.g. `gatus`, `healthchecks`); swarm services
+#                   service name (e.g. `gatus`); swarm services
 #                   resolve via the service name (e.g. `catena-admin`).
 #   upstream_port   backend container's listen port.
 #   allowed_groups  list of Keycloak groups that may pass; oauth2-proxy
@@ -151,16 +151,6 @@ oauth2_proxy_apps:
     upstream_port: 8080
     allowed_groups: ["staff", "admin"]
     cookie_secret_var: "gatus_gate_cookie_secret"
-  # Healthchecks takes X-Forwarded-Email as the signed-in user from whoever
-  # sends it (REMOTE_USER_HEADER in the Healthchecks app's compose), so it is on
-  # healthchecks_network only: this instance joins it, no client app does.
-  - slug: "healthchecks"
-    host_var: "healthchecks_hostname"
-    upstream_alias: "healthchecks"
-    upstream_port: 8000
-    allowed_groups: ["staff", "admin"]
-    cookie_secret_var: "healthchecks_gate_cookie_secret"
-    networks: ["{{ healthchecks_network }}"]
   # catena-admin -- the per-VPS operator panel at dash.<zone>. Staff
   # may reach it; the admin's in-app role check (require_admin)
   # gates everything beyond /apps to the admin group only.

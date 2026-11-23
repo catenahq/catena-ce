@@ -106,25 +106,20 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `oauth2_proxy_cookie_secret`, the client apps' gates
 - `oauth2_proxy_cookie_secret_<zone>`, one per domain in `CLOUDFLARE_ZONES`
 - `catena_admin_gate_cookie_secret`, the panel's gate
-- `healthchecks_gate_cookie_secret`, Healthchecks' gate
 - `gatus_gate_cookie_secret`, Gatus' gate
 - `beszel_gate_cookie_secret`, the Beszel hub's gate
 - `oauth2_proxy_client_secret`
 - `dashboard_sync_client_secret`
 - `catena_admin_panel_client_secret`
 - `catena_identity_probe_client_secret`
-- `healthchecks_ping_key`
-- `healthchecks_api_key_readonly`
-- `healthchecks_api_key_readwrite`
 - `beszel_oidc_client_secret`
 - `alert_intake_token_status`, the alert intake's bearer token for its service-check source
 - `alert_intake_token_resources`, the alert intake's bearer token for its resource source
 - `alert_intake_token_read`, the token the alert hub reads the intake's state with
 - `zap_api_key`
 
-Healthchecks' signing key is a generated setting of its catalog app. The
-converge writes the mail password (`smtp_password`) into the app's `.env` as
-`EMAIL_HOST_PASSWORD` (`catena-apps defaults`).
+The loader also removes from the store the secrets nothing on the host reads
+(`RETIRED_SECRETS` in `onbox_config.py`).
 
 ### 3. Non-secret config
 

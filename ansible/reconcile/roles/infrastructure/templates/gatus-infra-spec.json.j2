@@ -5,8 +5,8 @@
    named by: the last path segment of the image the service runs
    (quay.io/phasetwo/phasetwo-keycloak -> phasetwo-keycloak).
 
-   stack names the app folder of a default app (Gatus, Healthchecks, Beszel's
-   hub). Every entry that probes one of the three, directly or through its
+   stack names the app folder of a default app (Gatus, Beszel's hub). Every
+   entry that probes one of them, directly or through its
    gate, carries it: catena-gatus-sync writes no endpoint for an entry whose
    stack has no folder, so a monitor an admin removed stops alerting instead of
    reading green through its gate.
@@ -57,17 +57,6 @@
     "interval": "120s",
     "alert_slug": "{{ catena_admin_hostname | lower | replace('.', '-') }}",
     "version_key": "catena-admin"
-  },
-  {
-    "label": "{{ healthchecks_hostname }}",
-    "url": "https://{{ healthchecks_hostname }}",
-    "group": "Infrastructure",
-    "accepted": [302],
-    "ignore_redirect": true,
-    "interval": "120s",
-    "alert_slug": "{{ healthchecks_hostname | lower | replace('.', '-') }}",
-    "version_key": "healthchecks",
-    "stack": "{{ healthchecks_stack }}"
   },
 {# The Keycloak and Beszel consoles at the hosts their panel tiles link to: the
    panel pairs a tile with the endpoint whose newest probe asked the tile's

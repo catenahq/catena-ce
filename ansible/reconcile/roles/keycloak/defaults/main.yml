@@ -152,11 +152,8 @@ keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 # configured, which says so on its own login page.
 
 # The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, and
-# every consumer calls it -- here, and the infrastructure role's
-# infrastructure_smtp (Beszel, Healthchecks) -- so a host's
-# password-reset mail and its alerts resolve to the same
-# relay from the same stored config. test_smtp_resolution.py holds each
-# consumer to the filter.
+# every consumer calls it rather than a copy. test_smtp_resolution.py holds
+# each consumer to the filter.
 _smtp: >-
   {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
        host=cfg_smtp_host | default(''),

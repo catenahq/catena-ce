@@ -290,10 +290,8 @@
 #
 # The consequence is deliberate and it is the point: a fresh host schedules no
 # backup, whatever its edition. Scheduled work spends disk and object-store
-# quota nobody has confirmed the client has. catena-schedule keeps the
-# Healthchecks checks of a lane that is off paused, so none can go late: the
-# panel shows an unscheduled host rather than an alert about a host nobody asked
-# to back anything up yet.
+# quota nobody has confirmed the client has. The panel shows an unscheduled
+# host rather than an alert about a host nobody asked to back anything up yet.
 
 # ─── initial snapshot ────────────────────────────────────────────────────
 # Take one snapshot inline so the repo has data before the first scheduled
@@ -336,7 +334,7 @@
 # its ExecStart), the lock catena-converge holds while it runs this play from
 # the panel, so waiting here would hold both until the backup's lock timeout. The
 # queued run starts once the converge releases the lock, and reports like any
-# backup run (its Healthchecks pings, the Backups page).
+# backup run (its alerts, the Backups page).
 - name: "Run first backup inline: queue it for when this converge releases the lock"  # noqa: command-instead-of-module
   when:
     - _backup_configured | bool

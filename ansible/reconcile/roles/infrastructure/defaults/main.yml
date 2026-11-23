@@ -1,13 +1,12 @@
 ---
-# reconcile/roles/infrastructure adds the default apps (Gatus, Healthchecks,
-# Beszel; playbooks/group_vars/all/main.yml default_apps) to the host's swarm
-# and holds the per-host wiring of the gatus-sync and dashboard-sync lanes. Each
-# app sets itself up in its own configure hook.
+# reconcile/roles/infrastructure adds the default apps (Gatus, Beszel;
+# playbooks/group_vars/all/main.yml default_apps) to the host's swarm and holds
+# the per-host wiring of the gatus-sync and dashboard-sync lanes. Each app sets
+# itself up in its own configure hook.
 #
 # The default apps' public hostnames, each served through the tunnel and Traefik
 # behind its own Keycloak-backed oauth2-proxy:
 #   gatus.<zone>        -> Gatus
-#   healthchecks.<zone> -> Healthchecks
 #   beszel.<zone>       -> Beszel
 #
 # The engine that adds them (catena-admin payload/engines/apps), and the list of
@@ -16,14 +15,12 @@ catena_apps_bin: /usr/local/bin/catena-apps
 default_apps_list_path: /etc/catena/default-apps.json
 # The stack of each default app, as default_apps names it.
 gatus_stack: "{{ default_apps | selectattr('app', 'eq', 'gatus') | map(attribute='stack') | first }}"
-healthchecks_stack: "{{ default_apps | selectattr('app', 'eq', 'healthchecks') | map(attribute='stack') | first }}"
 beszel_hub_stack: "{{ default_apps | selectattr('app', 'eq', 'beszel') | map(attribute='stack') | first }}"
 # The public hostname of each default app by stack, which the list names as the
 # app's address. A server with no domain yet renders a name ending in a dot,
 # which the panel opens no link for.
 default_app_addresses: >-
   {{ {gatus_stack: infrastructure_gatus_hostname,
-      healthchecks_stack: healthchecks_hostname,
       beszel_hub_stack: beszel_hostname} }}
 
 
@@ -88,56 +85,28 @@ gatus_sync_env_path: "/etc/catena/gatus-sync.env"
 gatus_summary_dir: "{{ backup_stats_dir | default('/var/lib/catena') }}"
 gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 
-# --- Healthchecks (self-hosted, cron/dead-man monitoring) ----------------
-# The OSS project behind healthchecks.io, a catalog app. One container, SQLite,
-# no metrics firehose and no healthchecks.io SaaS dependency.
-# Named Docker volume -> backed up by restic along with other volumes; the
-# backup also copies the database whole before each snapshot.
-healthchecks_data_volume: "healthchecks-data"
-healthchecks_sqlite_file: "hc.sqlite"
-healthchecks_network_alias: "healthchecks"
-healthchecks_internal_port: 8000
-# Host-side loopback publish of the app's port. 127.0.0.1:18000 is UFW-safe
-# (loopback is never publicly reachable).
-healthchecks_host_localhost_port: 18000
-
-# Outgoing mail, from the one choice in Settings > Mail, resolved by the
-# filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
-# smtp_resolve.py): {enabled, host, port, implicit_tls, user, sender}. Healthchecks
-# sends its alerts through it, and Beszel its own mail. The credential is
-# smtp_password.
-infrastructure_smtp: >-
-  {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
-       host=cfg_smtp_host | default(''),
-       port=cfg_smtp_port | default(''),
-       user=cfg_smtp_user | default(''),
-       sender=cfg_smtp_sender | default(''),
-       fallback_sender=admin_email) }}
-
 # --- Beszel (hub, host agent and alert relay: one catalog app) ----------
 # The app holds the hub (web UI + SQLite history store), the agent (per-container
-# and per-host metrics over docker.sock) and the relay that maps Beszel's alert
-# webhook to Healthchecks pings; the relay's configure hook sets the hub up.
+# and per-host metrics over docker.sock) and the relay that forwards Beszel's
+# alerts to the alert intake; the relay's configure hook sets the hub up.
 # Public surface at beszel.<zone> (beszel_hostname, playbooks/group_vars/all),
 # behind its own admin-only oauth2-proxy: the `beszel` entry of
 # reconcile/roles/oauth2_proxy oauth2_proxy_apps.
 beszel_hub_network_alias: "beszel-hub"
 beszel_hub_internal_port: 8090
 # Host-side loopback publish (UFW-safe, loopback never publicly reachable;
-# mirrors gatus_host_localhost_port / healthchecks_host_localhost_port). The
-# off-site heartbeat reads it.
+# mirrors gatus_host_localhost_port). The off-site heartbeat reads it.
 beszel_hub_host_localhost_port: 18190
 beszel_hub_data_volume: "beszel-hub-data"
 # PocketBase's own names in the hub's data folder, which a deployment does not
 # set.
 beszel_hub_sqlite_files: ["data.db", "auxiliary.db"]
-# The SQLite databases of the three monitoring stacks, one
+# The SQLite databases of the monitoring stacks, one
 # <stack>_<volume>/_data/<file> per database. catena-admin's backup copies each
 # one whole before the snapshot and a whole-server restore puts the copy back
 # (catena-admin payload/engines/recovery/backuprun.go, restore.go).
 infrastructure_sqlite_databases: >-
-  {{ ['%s_%s/_data/%s' | format(gatus_stack, gatus_data_volume, gatus_sqlite_file),
-      '%s_%s/_data/%s' | format(healthchecks_stack, healthchecks_data_volume, healthchecks_sqlite_file)]
+  {{ ['%s_%s/_data/%s' | format(gatus_stack, gatus_data_volume, gatus_sqlite_file)]
      + (beszel_hub_sqlite_files | map('regex_replace', '^', beszel_hub_stack ~ '_' ~ beszel_hub_data_volume ~ '/_data/') | list) }}
 
 # --- Alert intake ---------------------------------------------------------

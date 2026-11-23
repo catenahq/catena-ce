@@ -52,9 +52,6 @@ catena_admin_secret_specs:
   - base: catena_admin_gate_secret
     target: CATENA_ADMIN_GATE_SECRET
     value: "{{ catena_admin_gate_secret | default('') }}"
-  - base: catena_admin_healthchecks_key
-    target: HEALTHCHECKS_API_KEY_READONLY
-    value: "{{ healthchecks_api_key_readonly | default('') }}"
   # The realm service account behind the People panel. Absent on a host whose
   # converge predates it, which the panel renders as "no directory credential
   # yet" rather than as an error -- an empty secret is a state, not a fault.

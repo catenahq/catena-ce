@@ -8,8 +8,8 @@ restore's converge skips the first snapshot (tag `first_backup`;
 
 ## Tasks
 
-- `main.yml` -- write the backup configuration, register the
-  Healthchecks ping, and purge any apt restic or rclone. Whether the
+- `main.yml` -- write the backup configuration and purge any apt restic or
+  rclone. Whether the
   payload's `catena-backup.timer` runs, and when, is `catena-schedule apply`
   reading /etc/catena/config.json, and it enables a lane only on a host whose
   edition covers it: the backup runs at most once a week on every edition, and

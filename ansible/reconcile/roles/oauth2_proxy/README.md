@@ -43,7 +43,7 @@ the browser through Keycloak once, silently while the Keycloak session lasts.
   sends its upstream as a Basic password (the panel's
   `catena_admin_gate_secret`, without which the panel serves every request
   as nobody), `networks`, the overlays it joins besides `catena-network`
-  (the private networks of Healthchecks and Beszel's hub), and
+  (the private network of Beszel's hub), and
   `cross_site_api_refused`, which adds a Traefik router answering 403 to any
   `/api/` request whose `Sec-Fetch-Site` is not `same-origin`, for an upstream
   that signs in whoever sends a request with no token. Client apps are
@@ -60,6 +60,10 @@ the browser through Keycloak once, silently while the Keycloak session lasts.
 - Traefik route files are rendered atomically per app.
 - The swarm stack deploy reports a change only when the rendered stack
   file differs.
+- A gate whose entry leaves `oauth2_proxy_apps` is removed whole: the stack
+  deploy's `--prune` removes its instance, and the role removes its swarm
+  secret and its `<slug>-oauth2-proxy.yml` route file. `tasks/validate.yml`
+  fails on a route file no entry declares.
 
 ## Related
 

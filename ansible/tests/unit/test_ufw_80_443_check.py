@@ -101,7 +101,7 @@ def test_catches_the_open_port_among_the_noise():
     hits here."""
     body = _HEADER + "\n".join([
         "18080/tcp                  DENY        Anywhere                   # catena-ports:gatus",
-        "18099/tcp                  DENY        Anywhere                   # catena-ports:healthchecks",
+        "18190/tcp                  DENY        Anywhere                   # catena-ports:beszel",
         "80/tcp                     ALLOW       Anywhere",
         "5349/tcp                   ALLOW       Anywhere                   # catena-ports:gatus",
     ]) + "\n"

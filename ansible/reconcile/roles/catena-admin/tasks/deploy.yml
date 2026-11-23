@@ -57,11 +57,9 @@
     _ca_spec:
       name: "{{ catena_admin_service_name }}"
       image: "{{ catena_admin_image }}"
-      # catena-network for its gate, Keycloak and Gatus; healthchecks_network
-      # for Healthchecks, on no other.
+      # catena-network for its gate, Keycloak and Gatus, on no other.
       networks:
         - "{{ catena_network_name | default('catena-network') }}"
-        - "{{ healthchecks_network }}"
       ui_port: "{{ catena_admin_ui_port }}"
       direct_port: "{{ catena_admin_direct_port }}"
       group: "{{ catena_admin_supplementary_gid }}"
@@ -71,12 +69,9 @@
       #
       # A product constant passed from here is a second copy of something the
       # image already knows, and the copy the image keeps then goes unexercised.
-      # Seven of these were exactly that -- the Gatus and Healthchecks service
-      # names and ports, and the three ADMIN_SSH_* values -- and one of the
-      # image's unexercised copies had rotted: it defaulted GATUS_INTERNAL_PORT
-      # to 80 while this file, the compose and the healthcheck all said 8080.
-      # They are gone; the image owns them, which means the image is the thing
-      # that has to be right about them.
+      # The image owns the product constants (the monitors' service names and
+      # ports, the ADMIN_SSH_* values), which means the image is the thing that
+      # has to be right about them.
       #
       # catena_admin_env_drift emits --env-rm for keys the live service has and
       # this dict does not, so removing a name here removes it from the running
@@ -135,7 +130,6 @@
         # permanent 401 on the People panel into a CI failure.
         KEYCLOAK_ADMIN_CLIENT_ID: "{{ catena_admin_panel_client_id }}"
         INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
-        INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
         # Every address Catena answers on, a JSON list, which the Check tab
         # holds as Catena's (catena-admin shell/appcheck OwnHosts), as

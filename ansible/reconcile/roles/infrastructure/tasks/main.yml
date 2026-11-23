@@ -4,7 +4,7 @@
 #
 # 1. The tunnel-deferred gate: the steps that need the public edge wait for a
 #    converge that has it.
-# 2. Healthchecks, Beszel and Gatus, added as catalog apps (default_app.yml),
+# 2. Beszel and Gatus, added as catalog apps (default_app.yml),
 #    each setting itself up in its configure hook, and the off-site heartbeat's
 #    env file.
 # 3. The dashboard-sync wiring and the public-URL probe of the gated services.
@@ -42,29 +42,21 @@
 
 # --- the default apps -------------------------------------------------------
 #
-# Healthchecks, Beszel and Gatus are catalog apps that catena-apps adds
-# (default_app.yml). Healthchecks and Beszel come before Gatus because Gatus
-# reads the addresses they provide.
+# Beszel and Gatus are catalog apps that catena-apps adds (default_app.yml).
+# Beszel comes before Gatus because Gatus reads the address it provides.
 #
 # include_tasks doesn't propagate tags to sub-tasks by default -- a
 # top-level `tags:` here applies only to the include statement itself,
 # so `--tags <name>` makes the include fire but every child task
 # silently skips. `apply: tags:` pushes the tag down to every task
-# inside the included file, so `--tags gatus` / `--tags healthchecks` /
-# etc. run the whole file.
+# inside the included file, so `--tags gatus` / `--tags beszel` run the
+# whole file.
 - name: "Default apps: the list and the engine that adds them"
   ansible.builtin.include_tasks:
     file: default_apps.yml
     apply:
-      tags: [default_apps, gatus, healthchecks, beszel]
-  tags: [default_apps, gatus, healthchecks, beszel]
-
-- name: Healthchecks (healthchecks.<zone>) -- cron/dead-man monitoring
-  ansible.builtin.include_tasks:
-    file: healthchecks.yml
-    apply:
-      tags: [healthchecks]
-  tags: [healthchecks]
+      tags: [default_apps, gatus, beszel]
+  tags: [default_apps, gatus, beszel]
 
 # Beszel -- resource monitor (CPU/memory/network/disk + temperature/load
 # history with built-in threshold alerting). Its app holds the hub, which
@@ -86,10 +78,9 @@
       tags: [gatus]
   tags: [gatus]
 
-# The off-site heartbeat's env file: the three monitors' loopback ports and
-# the lane's own check. Its script and units ship in the catena-admin payload,
-# and catena-schedule enables its timer while the `heartbeat` lane is on.
-# 0600: it carries the Healthchecks ping key.
+# The off-site heartbeat's env file: the loopback ports of the services it
+# probes. Its script and units ship in the catena-admin payload, and
+# catena-schedule enables its timer while the `heartbeat` lane is on.
 - name: "Off-site heartbeat: env file"
   ansible.builtin.template:
     src: heartbeat.env.j2
@@ -97,8 +88,7 @@
     owner: root
     group: root
     mode: "0600"
-  no_log: true
-  tags: [healthchecks]
+  tags: [heartbeat]
 
 # The container lookup every script and task below finds an application's
 # containers with (catena-container <app> <service>), so it lands before the

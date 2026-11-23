@@ -38,7 +38,6 @@ def _spec(edge_up: bool = True, zone: str = ZONE) -> list[dict]:
         "cloudflare_zone": zone,
         "infrastructure_gatus_hostname": f"gatus.{zone}",
         "catena_admin_hostname": f"dash.{zone}",
-        "healthchecks_hostname": f"healthchecks.{zone}",
         "keycloak_hostname": f"auth.{zone}",
         "beszel_hostname": f"beszel.{zone}",
         "keycloak_realm": keycloak["keycloak_realm"],
@@ -48,7 +47,6 @@ def _spec(edge_up: bool = True, zone: str = ZONE) -> list[dict]:
         "beszel_hub_network_alias": infra["beszel_hub_network_alias"],
         "beszel_hub_internal_port": infra["beszel_hub_internal_port"],
         "gatus_stack": "catena-gatus",
-        "healthchecks_stack": "catena-healthchecks",
         "beszel_hub_stack": "catena-beszel",
     }
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
@@ -63,8 +61,8 @@ def _entry(label: str) -> dict:
 
 
 def test_every_alert_slug_is_unique():
-    """The slug names the Healthchecks check an alert lands on; two entries
-    sharing one would page as one service."""
+    """The slug names the endpoint an alert is about; two entries sharing one
+    would page as one service."""
     slugs = [e["alert_slug"] for e in _spec()]
     assert len(slugs) == len(set(slugs)), slugs
 
@@ -86,11 +84,10 @@ def test_the_beszel_hub_is_probed_on_every_host():
     assert hub["alert_slug"] == "beszel-hub"
 
 
-def test_the_three_default_apps_name_their_stack():
+def test_the_default_apps_name_their_stack():
     """catena-gatus-sync skips an entry whose stack has no app folder."""
     stacked = {e["label"]: e["stack"] for e in _spec() if "stack" in e}
     assert stacked == {f"gatus.{ZONE}": "catena-gatus",
-                       f"healthchecks.{ZONE}": "catena-healthchecks",
                        f"beszel.{ZONE}": "catena-beszel", "Beszel hub": "catena-beszel"}
     assert [e["label"] for e in _spec(False) if "stack" in e] == ["Beszel hub"]
 
@@ -127,8 +124,7 @@ def test_the_edge_probes_arrive_with_the_edge():
     """The converge that brings the edge up for a domain writes every probe
     through it, the tunnel's included."""
     public = {e["label"] for e in _spec() if e["url"].startswith("https://")}
-    assert public == {f"gatus.{ZONE}", f"dash.{ZONE}",
-                      f"healthchecks.{ZONE}", f"auth.{ZONE}", f"beszel.{ZONE}",
+    assert public == {f"gatus.{ZONE}", f"dash.{ZONE}", f"auth.{ZONE}", f"beszel.{ZONE}",
                       "cloudflared"}
 
 

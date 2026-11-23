@@ -73,9 +73,9 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   every request it forwards: the panel's listener is on `catena-network`,
   where any client app container can set identity headers, and it takes an
   identity only from a request carrying that secret. A secret of the panel's
-  that no service mounts is removed after the deploy. The service
-  also joins the private overlays of Healthchecks (`healthchecks_network`),
-  to read its checks, and the spec's networks are reconciled like its env and secrets. No
+  that no service mounts is removed after the deploy. The service is on
+  `catena-network` alone, and the spec's networks are reconciled like its env
+  and secrets. No
   Traefik route is written here (oauth2-proxy owns the gated `dash.<zone>`
   route). The test bench renders its argv from the same filter plugin when it
   recreates a panel a scenario removed.

@@ -325,11 +325,11 @@ def test_a_presence_test_and_an_asserts_that_carry_no_value():
 
 def test_a_value_built_from_a_secret_is_one():
     found = _check("""
-    - name: ping
+    - name: post
       ansible.builtin.uri:
-        url: "{{ backup_healthcheck_url }}"
-    """, definitions=[("backup_healthcheck_url", "{{ base }}/ping/{{ healthchecks_ping_key }}")])
-    assert found == {("x.yml", "ping"): {"backup_healthcheck_url"}}
+        url: "{{ intake_url }}"
+    """, definitions=[("intake_url", "{{ base }}/post/{{ alert_intake_token_status }}")])
+    assert found == {("x.yml", "post"): {"intake_url"}}
 
 
 def test_a_slurped_store_and_its_result_are_secret():

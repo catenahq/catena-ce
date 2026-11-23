@@ -154,7 +154,7 @@ acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
 # which authenticates against Keycloak and proxies to the app behind it, and
 # keeps a session cookie of its own on its host. The Keycloak session signs the
 # browser in to the next one without a prompt.
-# The three below are each default app's SUBDOMAIN setting, which
+# The default apps' subdomains are each app's SUBDOMAIN setting, which
 # playbooks/tasks/default_app_subdomains.yml reads from the app's folder; the
 # literal is the name a host whose folder is absent uses. Keycloak's and the
 # panel's come from the store.
@@ -166,22 +166,13 @@ infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudfla
 # panel for oauth2-proxy and the trust path while the DR keyset banner and the
 # gated-host probe set kept printing the old name.
 
-healthchecks_subdomain: "{{ default_app_healthchecks_subdomain | default('healthchecks', true) }}"
-healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
-# The overlay Healthchecks is on, instead of catena-network. Healthchecks takes
-# X-Forwarded-Email as the signed-in user from whoever sends it, so only the
-# services that call it join: its sign-in gate (reconcile/roles/oauth2_proxy) and
-# the panel (reconcile/roles/catena-admin).
-# reconcile/roles/swarm creates it before the first of them deploys.
-healthchecks_network: "catena-healthchecks"
-
 beszel_subdomain: "{{ default_app_beszel_subdomain | default('beszel', true) }}"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 # The overlay Beszel's hub and its alert relay are on, instead of catena-network.
 # The hub's own sign-in creates an account for any realm user, so only its
 # callers join: Gatus (reconcile/roles/infrastructure) and the app's own
 # services.
-# reconcile/roles/swarm creates it beside healthchecks_network.
+# reconcile/roles/swarm creates it.
 beszel_network: "catena-beszel"
 # The overlay only the hub and its sign-in gate (reconcile/roles/oauth2_proxy)
 # join. The hub signs in as the email in the header the gate sets, from peers
@@ -199,8 +190,8 @@ beszel_gate_network: "catena-beszelgate"
 # hyphen after "catena-" like theirs.
 alert_network: "catena-alerts"
 
-# The applications every host runs from the catalog: Gatus, Healthchecks and
-# Beszel (hub, agent and alert relay). reconcile/roles/infrastructure adds each
+# The applications every host runs from the catalog: Gatus and Beszel (hub,
+# agent and alert relay). reconcile/roles/infrastructure adds each
 # one with `catena-apps defaults` and writes this list to
 # /etc/catena/default-apps.json, which catena-admin's whole-server restore reads
 # to leave their stacks running. `tag` is the catalog tag the release names: the
@@ -210,7 +201,6 @@ alert_network: "catena-alerts"
 default_apps_repository: "https://github.com/catenahq/catena-templates"
 default_apps:
   - { app: gatus, tag: "gatus/5.38.0-4", stack: catena-gatus }
-  - { app: healthchecks, tag: "healthchecks/5.0.3-2", stack: catena-healthchecks }
   - { app: beszel, tag: "beszel/0.21.2-2", stack: catena-beszel }
 # One folder per catalog application, which catena-apps writes.
 default_apps_compose_dir: "{{ storage_mount_point }}/compose"
@@ -244,7 +234,7 @@ admin_last_name: "{{ cfg_admin_last_name | default('') }}"
 # The directory the registry is built from. Here rather than in
 # reconcile/roles/public_ports because several roles write the fragment dir --
 # bootstrap/roles/common (SSH), reconcile/roles/infrastructure (gatus, beszel,
-# healthchecks) and reconcile/roles/catena-admin
+# the alert intake) and reconcile/roles/catena-admin
 # all drop a <owner>.json into it -- and a role default is only reliably in
 # scope once that role has run. A constant those roles share is the product's,
 # not one role's. The reconciler that reads it ships in the catena-admin

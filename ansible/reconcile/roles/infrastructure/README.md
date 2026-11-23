@@ -25,18 +25,18 @@ and refuses a request with no token.
 
 ## Default apps (catalog apps)
 
-Gatus, Healthchecks and Beszel are catalog apps every host runs, in the app
-folders `catena-gatus`, `catena-healthchecks` and `catena-beszel`. The list
-is `default_apps` in `playbooks/group_vars/all/main.yml` (app, first tag,
-stack); the role writes it to `/etc/catena/default-apps.json` with each app's
-public address (`default_app_addresses`, the three gate hostnames). The
+Gatus and Beszel are catalog apps every host runs, in the app folders
+`catena-gatus` and `catena-beszel`. The list is `default_apps` in
+`playbooks/group_vars/all/main.yml` (app, first tag, stack); the role writes it
+to `/etc/catena/default-apps.json` with each app's public address
+(`default_app_addresses`, the gate hostnames). The
 whole-server restore reads the file to leave their stacks running, and the
 Apps page reads it to open each app at its address.
 `tasks/default_app.yml` adds one with `catena-apps defaults -held -stdin` and
 prints the engine's lines as they are; a tag that cannot be fetched (exit 3)
 and exit 4 are printed, not failures. The request is `{app, tag, stack, env, run}`:
 `env` holds the values this role owns (the contract's `env_core_writes`: the
-addresses, mail, the hub's sign-in header, its trusted subnet and realm), in
+addresses, the hub's sign-in header, its trusted subnet and realm), in
 keys the app's block does not declare; `run` is `CATENA_INFRA_RUN`, under which
 the engine files each move of the app (see Data copies). The names, ports, volumes and keys core
 depends on are in contracts `default-apps/wiring.json`, which the unit tests
@@ -51,26 +51,14 @@ app an admin stopped or removed stays so.
   `50-catena-apps.yaml` from the app intent and `40-infra.yaml` from
   `templates/gatus-infra-spec.json.j2`, whose probes through the public edge
   are written once the edge serves a domain.
-- **Healthchecks** (`healthchecks.<zone>`) -- the dead-man-switch plane the
-  backup, the maintenance, the offsite copy, the off-site heartbeat, the
-  reboot-required probe ping. Missed pings alert the admin's
-  email, through the outgoing mail set in catena-admin, and the channels added
-  in Healthchecks. The app's hook keeps the project and the email channel;
-  catena-admin's catena-schedule keeps the scheduled lanes' checks on their
-  schedule.
 - **Beszel** (`beszel.<zone>`) -- one app holding the hub, the host agent
   (resource history and threshold alerts) and the relay that forwards those
   alerts to the alert intake. The relay's hook sets the hub up and hands the agent
   its key.
 
-Gatus, Healthchecks and Beszel sit behind their own oauth2-proxy,
-rendered by `reconcile/roles/oauth2_proxy` before this role runs, and each
-one's only public route is its gate's.
-
-Healthchecks takes the signed-in user from the `X-Forwarded-Email` header its
-gate sets, from whoever sends it, so it is on `healthchecks_network` and not
-on `catena-network`, where every client app is. Its gate and the panel join
-that network to reach it.
+Gatus and Beszel sit behind their own oauth2-proxy, rendered by
+`reconcile/roles/oauth2_proxy` before this role runs, and each one's only
+public route is its gate's.
 
 Beszel's hub signs in any realm user who reaches it, so it is on `beszel_network`
 and `beszel_gate_network` alone. Gatus (its probe) joins `beszel_network`.
@@ -88,9 +76,6 @@ the hub on the host loopback, not through Traefik.
 The hub's spec carries no credential: the relay's hook makes the admin its
 first user through the hub's first-user endpoint.
 
-Healthchecks' signing key and mail password are settings of its app, kept in the
-app's `.env`.
-
 ## Data copies
 
 `swarm_stack.yml` runs `catena-stack-update-managed infra-data copy` between
@@ -100,7 +85,7 @@ service, as Keycloak's in catena-postgres) has that data copied, with its
 service stopped for the copy, when the file changes the service's image; a
 refusal fails the converge before the deploy. Keycloak declares its database in
 `catena-ce/ansible/reconcile/roles/keycloak/templates/keycloak.compose.yml.j2`;
-Gatus, Healthchecks and Beszel declare their volumes in their catalog blocks,
+Gatus and Beszel declare their volumes in their catalog blocks,
 and the update engine copies them as it does for any app.
 A release update names the run the copies and the default apps' moves are
 filed under (`CATENA_INFRA_RUN`); when it rolls back it puts the copies back
@@ -126,7 +111,7 @@ Schedules page's `heartbeat` lane is on.
 ## Inputs
 
 From the on-box store: `cloudflare_api_token` and the zone, the
-`healthchecks_*`, `alert_intake_token_*` and `beszel_oidc_client_secret` secrets, and the SMTP and alert-channel
+`alert_intake_token_*` and `beszel_oidc_client_secret` secrets, and the alert-channel
 settings. dashboard-sync's env file also names the domains the
 host serves, read from the tunnel engine's projection by
 `playbooks/tasks/served_zones.yml`.

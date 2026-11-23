@@ -37,7 +37,6 @@ def _render(name: str, templates=TEMPLATES, **values) -> dict:
     text = (templates / name).read_text(encoding="utf-8")
     return yaml.safe_load(env.from_string(text).render(
         catena_public_surface_deferred=False,
-        infrastructure_smtp={"enabled": False, "sender": "x", "implicit_tls": False},
         **values,
     ))
 

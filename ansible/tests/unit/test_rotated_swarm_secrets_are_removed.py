@@ -1,6 +1,6 @@
 """A rotated credential leaves no swarm secret holding its old value: each
-service that mounts content-named secrets (the panel, Healthchecks, the admin
-tools' gates, Keycloak) removes, right after it is deployed, every secret of
+service that mounts content-named secrets (the panel, the admin tools' gates,
+Keycloak) removes, right after it is deployed, every secret of
 its bases that no service mounts (CV7).
 
 Run: uv run pytest tests/unit/test_rotated_swarm_secrets_are_removed.py
@@ -28,18 +28,18 @@ def _service(*names):
 
 
 def test_only_unmounted_secrets_of_the_given_bases_are_picked():
-    old = svc.secret_name("healthchecks_secret_key", "old")
-    new = svc.secret_name("healthchecks_secret_key", "new")
-    mail = svc.secret_name("healthchecks_email_password", "pw")
+    old = svc.secret_name("app_secret_key", "old")
+    new = svc.secret_name("app_secret_key", "new")
+    mail = svc.secret_name("app_email_password", "pw")
     names = [old, new, mail,
              svc.secret_name("catena_admin_gate_secret", "x"),
              svc.secret_name("oauth2-proxy-clients", "y"),
-             "healthchecks_secret_key-notahash",
-             "healthchecks_secret_key-0123abcd-extra",
+             "app_secret_key-notahash",
+             "app_secret_key-0123abcd-extra",
              "catena_postgres_password"]
     picked = svc.secrets_unmounted(
         names, [_service(new), _service()],
-        ["healthchecks_secret_key", "healthchecks_email_password"])
+        ["app_secret_key", "app_email_password"])
     assert picked == sorted([old, mail])
 
 
@@ -106,8 +106,8 @@ def test_each_creator_prunes_its_own_bases_after_its_deploy():
         (ROLES / "keycloak" / "tasks" / "deploy.yml", "deploy as a swarm stack",
          ["{{ keycloak_config_secret_base }}"]),
         (ROLES / "oauth2_proxy" / "tasks" / "deploy.yml", "deploy per-app instance stack",
-         "{{ oauth2_proxy_apps | map(attribute='slug') | map('regex_replace', '^', "
-         "'oauth2-proxy-') | list }}"),
+         "{{ ((oauth2_proxy_apps | map(attribute='slug') | list) + _oauth2_gone_slugs) "
+         "| map('regex_replace', '^', 'oauth2-proxy-') | list }}"),
     )
     for path, deploy, bases in cases:
         tasks = _tasks(path)

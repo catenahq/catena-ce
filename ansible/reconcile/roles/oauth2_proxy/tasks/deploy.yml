@@ -35,8 +35,32 @@
       oauth2-proxy is not publicly routed; readiness is verified by
       tasks/validate.yml's docker-exec /ping probe.
 
+# A gate with a route file and no entry in oauth2_proxy_apps: the deploy's
+# --prune removes its instance, and the tasks below remove its swarm secret and
+# its route file, which would keep sending its host to that instance. Only this
+# role writes a `<slug>-oauth2-proxy.yml` route file.
+- name: "oauth2-proxy: find the gates' route files"
+  ansible.builtin.find:
+    paths: "{{ traefik_dynamic_dir }}"
+    patterns: "*-oauth2-proxy.yml"
+  register: _oauth2_route_files
+
+- name: "oauth2-proxy: the gates no entry declares"
+  ansible.builtin.set_fact:
+    _oauth2_gone_slugs: >-
+      {{ _oauth2_route_files.files | map(attribute='path') | map('basename')
+         | map('regex_replace', '-oauth2-proxy[.]yml$', '')
+         | reject('in', oauth2_proxy_apps | map(attribute='slug') | list) | list }}
+
 - name: "oauth2-proxy: remove the swarm secrets no service mounts"
   ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
   vars:
     swarm_secret_bases: >-
-      {{ oauth2_proxy_apps | map(attribute='slug') | map('regex_replace', '^', 'oauth2-proxy-') | list }}
+      {{ ((oauth2_proxy_apps | map(attribute='slug') | list) + _oauth2_gone_slugs)
+         | map('regex_replace', '^', 'oauth2-proxy-') | list }}
+
+- name: "oauth2-proxy: remove the route files of the gates no entry declares"
+  ansible.builtin.file:
+    path: "{{ traefik_dynamic_dir }}/{{ item }}-oauth2-proxy.yml"
+    state: absent
+  loop: "{{ _oauth2_gone_slugs }}"

@@ -17,9 +17,7 @@
 #
 # SQL rendered to /root and piped via stdin instead of inlined in
 # `command:`/`shell:` argv -- ansible-core 2.20's stricter arg scanner
-# trips on Jinja-rendered SQL embedded in a shell heredoc (same root
-# cause as the Healthchecks seed-script-to-file refactor recorded in
-# memory `feedback_pg_password_state_machine`).
+# trips on Jinja-rendered SQL embedded in a shell heredoc.
 
 - name: "Keycloak DB: find catena-postgres swarm task"
   ansible.builtin.shell: |

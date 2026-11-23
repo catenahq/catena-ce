@@ -1,5 +1,5 @@
-"""The backup carries the volumes of the monitoring stacks (Gatus, Healthchecks,
-Beszel) as it carries every application's data, and names their SQLite
+"""The backup carries the volumes of the monitoring stacks (Gatus, Beszel) as
+it carries every application's data, and names their SQLite
 databases so each is also copied whole.
 
 Patterns are matched the way restic 0.19.1 documents: component by component,
@@ -129,7 +129,6 @@ def _databases() -> list[str]:
     return env.from_string(expr).render(
         **_plain(INFRA / "defaults" / "main.yml"),
         gatus_stack=stacks["gatus"],
-        healthchecks_stack=stacks["healthchecks"],
         beszel_hub_stack=stacks["beszel"])
 
 
@@ -142,7 +141,7 @@ def test_the_copy_list_names_each_monitoring_database():
     lines = [ln for ln in listing.splitlines() if ln and not ln.startswith("#")]
     assert lines == [
         f"{VOLUMES}/{entry['volumes'][db['volume']]}/_data/{db['file']}"
-        for entry in (_wiring()[app] for app in ("gatus", "healthchecks", "beszel"))
+        for entry in (_wiring()[app] for app in ("gatus", "beszel"))
         for db in entry["sqlite"]
     ]
 
@@ -150,7 +149,6 @@ def test_the_copy_list_names_each_monitoring_database():
 def test_the_listed_files_are_the_names_the_defaults_hold():
     defaults = _defaults()
     assert defaults["gatus_sqlite_file"] == "gatus.db"
-    assert defaults["healthchecks_sqlite_file"] == "hc.sqlite"
     assert defaults["beszel_hub_sqlite_files"] == ["data.db", "auxiliary.db"]
 
 

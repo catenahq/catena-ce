@@ -41,6 +41,29 @@
          and (_cf_sync_present | default(_cf_edge_up | default(true)) | bool)
          and not (catena_public_surface_deferred | default(false) | bool) }}
 
+# A route file of a gate with no entry in oauth2_proxy_apps sends its host
+# to an instance the deploy removed (tasks/deploy.yml removes it).
+- name: "validate/oauth2-proxy: list the gates' route files"
+  ansible.builtin.find:
+    paths: "{{ traefik_dynamic_dir }}"
+    patterns: "*-oauth2-proxy.yml"
+  register: _oauth2_validate_routes
+
+- name: "validate/oauth2-proxy: every route file belongs to a declared gate"
+  ansible.builtin.assert:
+    that: _oauth2_stray_routes | length == 0
+    fail_msg: >-
+      {{ _oauth2_stray_routes | join(', ') }} in {{ traefik_dynamic_dir }} route
+      a host to a gate this converge does not deploy. The oauth2-proxy deploy
+      removes them; converge again.
+    quiet: true
+  vars:
+    _oauth2_stray_routes: >-
+      {{ _oauth2_validate_routes.files | map(attribute='path') | map('basename')
+         | reject('in', oauth2_proxy_apps | map(attribute='slug')
+                        | map('regex_replace', '$', '-oauth2-proxy.yml') | list)
+         | list }}
+
 - name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation"
   ansible.builtin.debug:
     msg: >-

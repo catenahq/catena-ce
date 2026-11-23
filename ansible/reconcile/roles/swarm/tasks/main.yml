@@ -81,21 +81,20 @@
   changed_when: _swarm_node_label.rc == 0
 
 # ─── the overlays a service shares with its callers only ─────────────────
-# Healthchecks takes the signed-in user from a header whoever reaches it can
-# set, and Beszel's hub offers a sign-in that creates an account for any realm
-# user, so each is on its own network rather than catena-network
-# (playbooks/group_vars/all/main.yml healthchecks_network, beszel_network,
-# beszel_gate_network). The alert intake's overlay is shared the same way: only
-# the intake and the services that post to it are on it (alert_network).
+# Beszel's hub offers a sign-in that creates an account for any realm user, so
+# it is on its own networks rather than catena-network
+# (playbooks/group_vars/all/main.yml beszel_network, beszel_gate_network). The
+# alert intake's overlay is shared the same way: only the intake and the
+# services that post to it are on it (alert_network).
 # Created here, ahead of reconcile/roles/oauth2_proxy and
 # reconcile/roles/infrastructure, because a service or stack naming a network
 # that does not exist does not deploy. Not attachable: only a swarm service
-# declared to join one can.
+# declared to join one can. This role deletes no network: an overlay a running
+# application names as external stays while it does.
 - name: "swarm: ensure the private overlays exist"
   ansible.builtin.command:
     argv: [docker, network, create, --driver, overlay, "{{ item }}"]
   loop:
-    - "{{ healthchecks_network }}"
     - "{{ beszel_network }}"
     - "{{ beszel_gate_network }}"
     - "{{ alert_network }}"
