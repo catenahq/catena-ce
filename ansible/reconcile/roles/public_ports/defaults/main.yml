@@ -9,3 +9,4 @@
 # playbooks/tasks/prune_withdrawn_files.yml.
 public_ports_managed_paths:
   - /etc/systemd/system/docker.service.d/30-catena-public-ports.conf
+  - /etc/systemd/system/tailscaled.service.d/30-catena-public-ports.conf

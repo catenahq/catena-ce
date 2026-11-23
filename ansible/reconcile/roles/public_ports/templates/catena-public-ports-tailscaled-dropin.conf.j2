@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# Installed at /etc/systemd/system/tailscaled.service.d/30-catena-public-ports.conf
+#
+# Re-applies the tailnet guards after every tailscaled.service start. tailscaled
+# puts its own ts-input and ts-forward jumps at the top of INPUT and FORWARD
+# when it starts, ahead of the guards that keep loopback and rfc1918 ports from
+# tailnet peers, and it does so once it has started, not before its unit is
+# up: the reconcile is therefore a transient timer 20 seconds later, which puts
+# the guards back in front. Its own unit name keeps it from colliding with the
+# docker.service drop-in's start. The leading - makes the dispatch non-fatal:
+# tailscaled still comes up, and the reconciler's timer picks up the slack.
+[Service]
+ExecStartPost=-/usr/bin/systemd-run --no-block --on-active=20 --unit=catena-public-ports-after-tailscaled /usr/bin/systemctl start catena-public-ports.service

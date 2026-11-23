@@ -4,7 +4,7 @@
 
 # Root alone declares a port: a fragment another account could write would let
 # it open a port the firewall closes.
-- name: "validate/public_ports: the fragment dir and the docker drop-in"
+- name: "validate/public_ports: the fragment dir and the drop-ins"
   ansible.builtin.include_role:
     name: common
     tasks_from: _assert_path_perms
@@ -12,6 +12,7 @@
     _assert_paths:
       - { path: "{{ public_ports_fragment_dir }}", type: directory, owner: root, group: root, mode: "0755" }
       - { path: /etc/systemd/system/docker.service.d/30-catena-public-ports.conf, type: file, owner: root, group: root, mode: "0644" }
+      - { path: /etc/systemd/system/tailscaled.service.d/30-catena-public-ports.conf, type: file, owner: root, group: root, mode: "0644" }
 
 - name: "validate/public_ports: read the docker drop-in"
   ansible.builtin.slurp:
@@ -26,6 +27,22 @@
       The docker.service drop-in does not start catena-public-ports.service.
       Docker recreates DOCKER-USER empty on every start, so after a restart or
       a reboot every restricted docker-published port is open.
+
+- name: "validate/public_ports: read the tailscaled drop-in"
+  ansible.builtin.slurp:
+    src: /etc/systemd/system/tailscaled.service.d/30-catena-public-ports.conf
+  register: _pp_val_ts_dropin
+
+- name: "validate/public_ports: tailscaled start re-applies the rules"
+  ansible.builtin.assert:
+    that:
+      - "'systemctl start catena-public-ports.service' in (_pp_val_ts_dropin.content | b64decode)"
+      - "'--on-active=' in (_pp_val_ts_dropin.content | b64decode)"
+    fail_msg: >-
+      The tailscaled.service drop-in does not start catena-public-ports.service
+      after tailscaled has started. tailscaled puts its accepting jumps ahead of
+      the tailnet guards on every start, so until the next reconcile every
+      loopback and rfc1918 port answers to the server's tailnet peers.
 
 # The reconciler ships in the payload, so whether it is expected here is the
 # shared predicate's answer.
