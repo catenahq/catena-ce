@@ -4,8 +4,7 @@ restic-free.
 A transient systemd unit starts with a CLEAN environment, and restic refuses to
 run without a cache location ($XDG_CACHE_HOME or $HOME). Every dispatch action
 that wraps a restic run in `systemd-run` lives in the panel image's dispatch
-drop-ins, where catena-admin payload/actions.d/catena_actions_test.go asserts
-each one sets both variables to the same pair the payload's
+drop-ins, where catena-admin's host action tests assert each one sets both variables to the same pair the payload's
 catena-backup.service uses. An arm in this repo carries no such guard, so one
 that runs under systemd-run is DECLARED below, one reviewed entry at a time, as
 running no restic.
