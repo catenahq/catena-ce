@@ -48,6 +48,7 @@
   "ansible/reconcile/roles/swarm/README.md": 6,
   "ansible/reconcile/roles/swarm/tasks/main.yml": 5,
   "ansible/scripts/catena-network-nudge.sh": 1,
+  "ansible/tests/unit/test_a_dropped_default_app_is_left_alone.py": 1,
   "ansible/tests/unit/test_backup_keeps_monitoring_volumes.py": 19,
   "ansible/tests/unit/test_beszel_hub_is_gated.py": 11,
   "ansible/tests/unit/test_catena_admin_service.py": 3,

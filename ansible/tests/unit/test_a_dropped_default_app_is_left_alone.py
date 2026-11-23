@@ -1,7 +1,7 @@
 """An app that leaves `default_apps` is left alone on a host that runs it.
 
 Catena removes only its own wiring of the app: the converge names neither the
-app's stack nor the overlay it was on, so no task stops, removes or converts a
+app's stack nor its overlay, so no task stops, removes or converts a
 running copy, and no task deletes an overlay network, which a running copy's
 compose may name as external. The copy stays an ordinary catalog app the admin
 updates or removes from the panel.

@@ -21,7 +21,7 @@ ROLE = Path(__file__).resolve().parents[2] / "reconcile" / "roles" / "oauth2_pro
 DEPLOY = ROLE / "tasks" / "deploy.yml"
 VALIDATE = ROLE / "tasks" / "validate.yml"
 DIR = "/etc/catena/traefik/dynamic"
-APPS = [{"slug": "gatus"}, {"slug": "catena-admin"}, {"slug": "beszel"}]
+APPS = [{"slug": "status"}, {"slug": "catena-admin"}, {"slug": "resources"}]
 
 
 def _env() -> jinja2.Environment:
@@ -56,10 +56,10 @@ def test_the_route_files_are_listed_in_the_traefik_dir():
 
 
 def test_only_a_gate_no_entry_declares_is_gone():
-    found = _found("gatus-oauth2-proxy.yml", "catena-admin-oauth2-proxy.yml",
-                   "beszel-oauth2-proxy.yml", "old-oauth2-proxy.yml")
+    found = _found("status-oauth2-proxy.yml", "catena-admin-oauth2-proxy.yml",
+                   "resources-oauth2-proxy.yml", "old-oauth2-proxy.yml")
     assert _gone(found) == ["old"]
-    assert _gone(_found("gatus-oauth2-proxy.yml")) == []
+    assert _gone(_found("status-oauth2-proxy.yml")) == []
     assert _gone(_found()) == []
 
 
@@ -67,8 +67,8 @@ def test_the_gone_gates_secret_is_pruned_with_the_declared_ones():
     prune = _task(_tasks(DEPLOY), "remove the swarm secrets no service mounts")
     bases = _env().from_string(prune["vars"]["swarm_secret_bases"]).render(
         oauth2_proxy_apps=APPS, _oauth2_gone_slugs=["old"]).strip()
-    assert bases == str(["oauth2-proxy-gatus", "oauth2-proxy-catena-admin",
-                         "oauth2-proxy-beszel", "oauth2-proxy-old"])
+    assert bases == str(["oauth2-proxy-status", "oauth2-proxy-catena-admin",
+                         "oauth2-proxy-resources", "oauth2-proxy-old"])
 
 
 def test_the_route_file_goes_after_the_deploy_and_the_prune():
@@ -93,8 +93,8 @@ def test_validate_fails_on_a_route_file_no_entry_declares():
     render = lambda found: _env().compile_expression(  # noqa: E731
         stray.strip().removeprefix("{{").removesuffix("}}"))(
             _oauth2_validate_routes=found, oauth2_proxy_apps=APPS)
-    assert render(_found("gatus-oauth2-proxy.yml", "beszel-oauth2-proxy.yml")) == []
-    assert render(_found("gatus-oauth2-proxy.yml", "old-oauth2-proxy.yml")) == [
+    assert render(_found("status-oauth2-proxy.yml", "resources-oauth2-proxy.yml")) == []
+    assert render(_found("status-oauth2-proxy.yml", "old-oauth2-proxy.yml")) == [
         "old-oauth2-proxy.yml"]
     assert check["ansible.builtin.assert"]["that"] == "_oauth2_stray_routes | length == 0"
     listing = _task(tasks, "list the gates' route files")["ansible.builtin.find"]
