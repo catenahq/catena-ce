@@ -370,6 +370,7 @@
   ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/swarm_secrets_prune.yml"
   vars:
     swarm_secret_bases: "{{ catena_admin_secret_specs | map(attribute='base') | list }}"
+    swarm_secret_prefix: catena_admin_
   when: catena_admin_deploy_from_converge | bool
 
 # A primary domain or zone change reaches the host as a converge. Each folder
