@@ -128,7 +128,6 @@ The 196 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_v2_external_scan_blocked` | An external exposure scan blocked by the provider is downgraded to an inconclusive result rather than reported as a failure. |
 | `fi_v3_tailscale_acl_misconfig` | A private network access policy that blocks SSH to the server stops the lockdown before public SSH closes. |
 | `gatus_probes_beszel_hub` | Gatus watches Beszel's hub on every server, the hub's public address sends an anonymous visitor to sign in, and what Gatus and Beszel report reaches the alert hub through an intake that only the server's own services reach. |
-| `healthchecks_self_host_loss` | Losing the self-hosted monitoring instance stops its own pings without blocking the maintenance, and the external watchdog keeps the outage visible. |
 | `host_network_app_ports` | An application from the catalog that runs on the host network opens the ports its labels declare, a person's own copy of its file is refused the host network, and removing the application closes its ports again. |
 | `host_reboot_recovery` | A host that is restarted comes back serving every declared service without anyone touching it. |
 | `identity_group_gates_access` | Groups created in the administration panel are honoured by the access gate, and a destructive membership change cannot be applied without showing what it will affect. |
@@ -151,7 +150,7 @@ The 196 scenarios the maintainers' test bench carries, and the behaviour each on
 | `migrate_lane_auth_denied` | The migration endpoint refuses every unauthenticated and unauthorised caller, and is absent entirely on a host that is not migrating. |
 | `migrate_preseed_no_split_brain` | The bulk pre-copy leg of a migration starts nothing on the destination, so two hosts can never serve at once. |
 | `mixed_template_negative_restore` | A restore whose verification fails names the application that failed, rather than reporting a generic error or a silent partial success. |
-| `monitoring_apps_from_the_catalog` | A new server installs its status, job and resource monitors as applications from Catena's catalogue, Catena reads each of them, and one an administrator removes stays removed until it is added back. |
+| `monitoring_apps_from_the_catalog` | A new server installs its status and resource monitors as applications from Catena's catalogue, Catena reads each of them, one an administrator removes stays removed until it is added back, and any other monitor is added from the catalogue like every other application. |
 | `monthly_report_renders` | The monthly report of a Catena Business server shows, in English and in French, the backups, restore tests, updates, vulnerabilities, availability and alerts the server recorded for last month and for the current one, and names as not shown a figure the server does not keep. |
 | `nextcloud_sign_in` | A Keycloak account signs in to Nextcloud through its own sign-in, and Nextcloud refuses a single sign-on app release other than the one its template names. |
 | `nightly_update_real` | The real scheduled update takes the newer build of a client application, leaves every infrastructure service it moved running, records the update in the maintenance feed, and ends the run done. |
