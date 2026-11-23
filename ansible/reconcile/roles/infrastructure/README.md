@@ -102,8 +102,14 @@ and reverts each default app it moved, with the copies the update engine kept.
 ship in the catena-admin payload with their units. This role renders their env
 files and enables their timers.
 
-The off-site heartbeat (`catena-heartbeat`, catena-admin payload) probes Gatus,
-the Beszel hub and the alert intake on their loopback publishes and calls the
+`catena-uptime` (catena-admin payload) checks every minute the addresses listed
+in `/etc/catena/uptime-targets.json`, which `tasks/uptime.yml` renders from
+`templates/uptime-targets.json.j2`: Catena's own services, and the Beszel hub
+always. Its probes through the public edge are written once the edge serves a
+domain. The check reads the applications off the app intent itself.
+
+The off-site heartbeat (`catena-heartbeat`, catena-admin payload) probes the
+Beszel hub and the alert intake on their loopback publishes and calls the
 outside monitoring address saved in Settings > Alerts. This role renders its
 `/etc/catena/heartbeat.env`; catena-schedule enables its timer while the
 Schedules page's `heartbeat` lane is on.

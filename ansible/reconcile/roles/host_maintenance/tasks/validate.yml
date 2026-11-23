@@ -130,6 +130,33 @@
       this host sends none of the alerts turned on in Settings.
   when: catena_payload_expected | bool
 
+- name: "validate/host_maintenance: is the uptime check timer expected here"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ uptime_systemd_unit_name }}.timer"
+
+- name: "validate/host_maintenance: the uptime check timer's state"
+  ansible.builtin.command:
+    argv: [systemctl, "{{ item }}", "{{ uptime_systemd_unit_name }}.timer"]
+  loop: [is-enabled, is-active]
+  register: _hm_uptime_timer
+  changed_when: false
+  failed_when: false
+  when: catena_payload_expected | bool
+
+- name: "validate/host_maintenance: the uptime check timer is enabled and active"
+  ansible.builtin.assert:
+    that:
+      - _hm_uptime_timer.results[0].stdout | trim == 'enabled'
+      - _hm_uptime_timer.results[1].stdout | trim == 'active'
+    fail_msg: >-
+      {{ uptime_systemd_unit_name }}.timer is not enabled and active, so this
+      host checks none of its services and applications.
+  when: catena_payload_expected | bool
+
 # The reboot probe reports to the alert hub and reads no env file.
 - name: "validate/host_maintenance: stat the reboot probe's old env file"
   ansible.builtin.stat:

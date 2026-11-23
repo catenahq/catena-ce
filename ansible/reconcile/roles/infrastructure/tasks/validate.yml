@@ -109,6 +109,20 @@
   loop_control:
     label: "{{ item.item.0 }} {{ item.item.1 }}"
 
+- name: "validate/infrastructure: read the uptime check's targets"
+  ansible.builtin.slurp:
+    src: "{{ uptime_targets_path }}"
+  register: _infra_uptime_targets
+
+- name: "validate/infrastructure: the uptime targets are JSON of version 1"
+  ansible.builtin.assert:
+    that:
+      - (_infra_uptime_targets.content | b64decode | from_json).version == 1
+      - (_infra_uptime_targets.content | b64decode | from_json).targets | length > 0
+    fail_msg: >-
+      {{ uptime_targets_path }} is not JSON with version 1 and a target, so
+      catena-uptime would check none of Catena's own services.
+
 - name: "validate/infrastructure: catena-network exists"
   ansible.builtin.command: docker network inspect catena-network
   register: _infra_net

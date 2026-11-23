@@ -17,14 +17,11 @@
   "ansible/reconcile/roles/backup/templates/RECOVERY-README.en.md.j2": 9,
   "ansible/reconcile/roles/backup/templates/RECOVERY-README.fr.md.j2": 9,
   "ansible/reconcile/roles/catena-admin/README.md": 1,
-  "ansible/reconcile/roles/catena-admin/defaults/main.yml": 3,
   "ansible/reconcile/roles/catena-admin/tasks/deploy.yml": 5,
   "ansible/reconcile/roles/catena-admin/templates/actions.yml.j2": 12,
-  "ansible/reconcile/roles/catena-admin/templates/daily.env.j2": 4,
   "ansible/reconcile/roles/catena-admin/templates/managed-services.json.j2": 3,
-  "ansible/reconcile/roles/catena-admin/templates/stack-update.env.j2": 3,
   "ansible/reconcile/roles/infrastructure/README.md": 26,
-  "ansible/reconcile/roles/infrastructure/defaults/main.yml": 69,
+  "ansible/reconcile/roles/infrastructure/defaults/main.yml": 68,
   "ansible/reconcile/roles/infrastructure/tasks/beszel.yml": 55,
   "ansible/reconcile/roles/infrastructure/tasks/default_apps.yml": 6,
   "ansible/reconcile/roles/infrastructure/tasks/gatus.yml": 29,
@@ -35,7 +32,7 @@
   "ansible/reconcile/roles/infrastructure/tasks/verify_gated_services.yml": 7,
   "ansible/reconcile/roles/infrastructure/templates/gatus-infra-spec.json.j2": 24,
   "ansible/reconcile/roles/infrastructure/templates/gatus-sync.env.j2": 17,
-  "ansible/reconcile/roles/infrastructure/templates/heartbeat.env.j2": 6,
+  "ansible/reconcile/roles/infrastructure/templates/heartbeat.env.j2": 3,
   "ansible/reconcile/roles/keycloak/tasks/_config_cli_import.yml": 1,
   "ansible/reconcile/roles/keycloak/tasks/realm_bootstrap.yml": 1,
   "ansible/reconcile/roles/keycloak/templates/keycloak.compose.yml.j2": 2,
@@ -72,6 +69,5 @@
   "ansible/tests/unit/test_swarm_deploy_retry.py": 1,
   "ansible/tests/unit/test_swarm_task_history.py": 1,
   "ansible/tests/unit/test_sync_all_starts_a_fresh_run.py": 10,
-  "ansible/tests/unit/test_ufw_80_443_check.py": 7,
-  "ansible/tests/unit/test_update_gates_read_gatus_on_the_host.py": 20
+  "ansible/tests/unit/test_ufw_80_443_check.py": 7
 }

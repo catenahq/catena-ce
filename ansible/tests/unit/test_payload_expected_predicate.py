@@ -36,8 +36,10 @@ CALLERS = {
     ]],
     "reconcile/roles/host_maintenance/tasks/_payload_unit.yml":
         [["/etc/systemd/system/{{ _payload_unit.unit }}"]],
-    "reconcile/roles/host_maintenance/tasks/validate.yml":
-        [["/etc/systemd/system/{{ alert_hub_systemd_unit_name }}.timer"]],
+    "reconcile/roles/host_maintenance/tasks/validate.yml": [
+        ["/etc/systemd/system/{{ alert_hub_systemd_unit_name }}.timer"],
+        ["/etc/systemd/system/{{ uptime_systemd_unit_name }}.timer"],
+    ],
     "reconcile/roles/backup/tasks/validate.yml": [[
         "{{ backup_wrapper_script }}",
         "{{ backup_coverage_script }}",
@@ -99,6 +101,7 @@ def test_host_maintenance_wires_each_payload_unit_through_the_shared_tasks():
     assert [u["unit"] for u in loop["loop"]] == [
         "{{ reboot_check_systemd_unit_name }}.timer",
         "{{ alert_hub_systemd_unit_name }}.timer",
+        "{{ uptime_systemd_unit_name }}.timer",
         "{{ license_refresh_systemd_unit_name }}.timer",
         "{{ error_report_systemd_unit_name }}.timer",
         "{{ app_verify_systemd_unit_name }}.timer",

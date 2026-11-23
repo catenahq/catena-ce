@@ -9,6 +9,7 @@
 #    env file.
 # 3. The dashboard-sync wiring and the public-URL probe of the gated services.
 # 4. The gatus-sync wiring.
+# 5. The uptime check's targets file.
 #
 # reconcile/roles/cloudflare_tunnel brings the edge up before keycloak and
 # oauth2_proxy, and reconcile/roles/oauth2_proxy renders each gated app's
@@ -179,3 +180,12 @@
     apply:
       tags: [gatus, gatus_sync]
   tags: [gatus, gatus_sync]
+
+# The addresses of Catena's own services that catena-uptime checks. The check
+# and its timer ship in the catena-admin payload.
+- name: "Uptime: the targets file"
+  ansible.builtin.include_tasks:
+    file: uptime.yml
+    apply:
+      tags: [uptime]
+  tags: [uptime]

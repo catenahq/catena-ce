@@ -314,6 +314,9 @@
 #   - the alert hub (`catena-alert tick`, every minute) sends the alerts the
 #     administrator turned on in the panel, by email and webhook, and nothing
 #     for a type that is off;
+#   - the uptime check (`catena-uptime run`, every minute) checks Catena's
+#     services and every address of the applications and posts a change to the
+#     alert intake;
 #   - the licence check (`catena-license refresh`, hourly) is the one call this
 #     host makes to Polar about its key, and with no key it asks nothing;
 #   - the error reports (`catena-error-report run`, every five minutes) run
@@ -337,6 +340,10 @@
     - unit: "{{ alert_hub_systemd_unit_name }}.timer"
       what: "alert hub timer"
       without: "this host would never send the alerts turned on in Settings"
+      start: true
+    - unit: "{{ uptime_systemd_unit_name }}.timer"
+      what: "uptime check timer"
+      without: "this host would never check whether its services and applications answer"
       start: true
     - unit: "{{ license_refresh_systemd_unit_name }}.timer"
       what: "licence-check timer"

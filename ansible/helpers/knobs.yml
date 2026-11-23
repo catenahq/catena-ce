@@ -652,6 +652,13 @@ config:
     residence: store
     panel: {group: alerts, section: config, kind: text, optional: true}
 
+  # The web addresses an administrator adds for the uptime check, separated by
+  # commas or spaces, at most twenty. No `var`: catena-admin's catena-uptime
+  # reads it off the store on every run.
+  - key: UPTIME_OTHER_URLS
+    residence: store
+    panel: {group: uptime, section: config, kind: text, optional: true}
+
   # One switch per alert type, its message when the condition ends (_CLEAR), and
   # for a failure its reminder every seven days (_REMIND). Off first, so a store
   # holding nothing shows and means off; catena-alert reads only "on" as on. No

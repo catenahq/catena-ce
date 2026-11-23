@@ -149,7 +149,8 @@ installer sends the `.env` with an install, for that run only.
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
 `HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
 the off-site heartbeat (`OFFSITE_HEARTBEAT_URL`), the alert hub's email list,
-switches and CVE level (`ALERT_*`), `IDENTITY_ENFORCE_MFA`, the
+switches and CVE level (`ALERT_*`), the other addresses the uptime check
+watches (`UPTIME_OTHER_URLS`), `IDENTITY_ENFORCE_MFA`, the
 automatic emergency patch (`CVE_AUTO_PATCH`), and the server's time zone and
 locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They
 have no `.env` line; the installer names a filled one it finds, because
