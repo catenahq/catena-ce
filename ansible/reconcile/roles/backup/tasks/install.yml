@@ -148,24 +148,6 @@
   when: >-
     (not _backup_env_stat.stat.exists) or (_backup_configured | bool)
 
-# The offsite-copy lane's dead-man endpoints, written on EVERY converge,
-# including on a host whose backup is not configured yet, where backup.env
-# above is left as first written.
-#
-# WHICH buckets get copied is the `offsite_copies` list in
-# /etc/catena/config.json, which catena-admin writes and the lane reads
-# straight off disk, so a client adding a copy does not need a converge.
-#
-# The lane's unit loads this with a leading dash, so it is legal for both
-# values to be blank; blank means the lane pings nothing.
-- name: "Backup: write offsite copy env file"
-  ansible.builtin.template:
-    src: offsite.env.j2
-    dest: "{{ offsite_env_file }}"
-    owner: root
-    group: root
-    mode: "0600"
-
 # --- the backup lane ships in the image payload ------------------------------
 # The wrapper, coverage, snapshot-list/export, the restic helpers, the disk
 # preflight, restic and rclone, and the four units (catena-backup.service and

@@ -5,11 +5,8 @@
 # no metrics, ntfy-capable.
 #
 # The app sets itself up in its configure hook: the admin account, the project,
-# the ping and API keys read from the store, the admin email channel. Host lanes
-# ping http://127.0.0.1:18000/ping/<ping_key>/<slug>. The scheduled lanes'
-# checks are created and kept on the lanes' schedule by catena-admin's
-# catena-schedule, which runs after this role; any other check is created by
-# its first `?create=1` ping. Alerts reach the admin email through the
+# the ping and API keys read from the store, the admin email channel. A check
+# is created by its first `?create=1` ping. Alerts reach the admin email through the
 # outgoing mail chosen in Settings > Mail, and any channel added in
 # Healthchecks' integrations page.
 
@@ -71,11 +68,9 @@
 # Healthchecks refuses to start (hc.api.E002) when SITE_ROOT's host is not an
 # allowed one.
 #
-# 127.0.0.1 is in ALLOWED_HOSTS because every host-side consumer dials the
-# loopback publish by IP: gatus-sync (HEALTHCHECKS_API_URL) and the other
-# host-side pingers (HEALTHCHECKS_LOOPBACK_PORT). Django answers 400
-# DisallowedHost to a Host it does not list, which looks exactly like "nothing
-# to report".
+# 127.0.0.1 is in ALLOWED_HOSTS because a host-side consumer dials the
+# loopback publish by IP. Django answers 400 DisallowedHost to a Host it does
+# not list, which looks exactly like "nothing to report".
 #
 # Port 465 is implicit TLS, any other port STARTTLS, as every sender on the
 # host. Mail turned off leaves EMAIL_HOST empty, which gives Healthchecks no

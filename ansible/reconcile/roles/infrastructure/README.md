@@ -118,7 +118,7 @@ ship in the catena-admin payload with their units. This role renders their env
 files and enables their timers.
 
 The off-site heartbeat (`catena-heartbeat`, catena-admin payload) probes Gatus,
-Healthchecks and the Beszel hub on their loopback publishes and calls the
+the Beszel hub and the alert intake on their loopback publishes and calls the
 outside monitoring address saved in Settings > Alerts. This role renders its
 `/etc/catena/heartbeat.env`; catena-schedule enables its timer while the
 Schedules page's `heartbeat` lane is on.

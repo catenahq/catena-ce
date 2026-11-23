@@ -769,6 +769,54 @@ config:
   - key: ALERT_RESOURCES_REMIND
     residence: store
     panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  # The alerts of the scheduled jobs: a backup, a restore test, an offsite copy
+  # or a repository check that fails, and a job that does not run on its
+  # schedule (job_late).
+  - key: ALERT_BACKUP_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_BACKUP_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_BACKUP_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTORE_TEST_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTORE_TEST_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTORE_TEST_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_OFFSITE_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_OFFSITE_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_OFFSITE_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_REPO_CHECK_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_REPO_CHECK_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_REPO_CHECK_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_JOB_LATE
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_JOB_LATE_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_JOB_LATE_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
 
   # ---- error reports to Catena support (Catena Pro) ----
   #

@@ -388,8 +388,7 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # --- Backup ---
 # Backup creds, repo and schedule are configured post-install in catena-admin
 # (Settings > Backup), written to the on-box store, and read by run-backup.sh
-# at runtime. backup_healthcheck_url is owned by reconcile/roles/backup/defaults.
-# Retention is the `backup_retention` object in /etc/catena/config.json, set on
+# at runtime. Retention is the `backup_retention` object in /etc/catena/config.json, set on
 # the panel's Schedules page and rendered to /etc/catena/backup-retention.env by
 # catena-schedule, the only file run-backup.sh sources it from.
 

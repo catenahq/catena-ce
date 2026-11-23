@@ -97,23 +97,9 @@ healthchecks_data_volume: "healthchecks-data"
 healthchecks_sqlite_file: "hc.sqlite"
 healthchecks_network_alias: "healthchecks"
 healthchecks_internal_port: 8000
-# Host-side loopback port gatus-sync reads to reach /api/v3/checks/.
-# Gatus-sync runs as a systemd service on the host, outside catena-
-# network, so it can't resolve the container alias. 127.0.0.1:18000 is
-# UFW-safe (loopback is never publicly reachable).
+# Host-side loopback publish of the app's port. 127.0.0.1:18000 is UFW-safe
+# (loopback is never publicly reachable).
 healthchecks_host_localhost_port: 18000
-# Base every HOST-SIDE ping is built from, and loopback is what keeps the alarm
-# path off the thing it reports on. A ping built from
-# https://{{ healthchecks_hostname }}/ping/... leaves the host, crosses
-# Cloudflare's edge and comes back in through the tunnel to reach a container on
-# the same box, so a tunnel or DNS failure silences the backup dead-man instead
-# of tripping it.
-#
-# Gatus and Beszel's relay ping from their containers through the network
-# alias, which is already local. The one ping that leaves the host is the
-# heartbeat lane's, to the OFFSITE_HEARTBEAT_URL the client saves in Settings:
-# a loopback ping cannot detect a host that is gone.
-healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
 # Outgoing mail, from the one choice in Settings > Mail, resolved by the
 # filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
@@ -183,15 +169,11 @@ alert_intake_secret_specs:
     value: "{{ alert_intake_token_read | default('') }}"
 
 # --- Off-site heartbeat ---------------------------------------------------
-# catena-admin's catena-heartbeat lane (payload/lanes) probes Gatus,
-# Healthchecks and the Beszel hub on their loopback publishes above, then
-# calls the off-site address saved in Settings, which it reads off the store.
-# This file carries the rest. The Schedules page's `heartbeat` lane turns it
-# on.
+# catena-admin's catena-heartbeat lane (payload/lanes) probes Gatus, the Beszel
+# hub and the alert intake on their loopback publishes above, then calls the
+# off-site address saved in Settings, which it reads off the store. This file
+# carries the rest. The Schedules page's `heartbeat` lane turns it on.
 heartbeat_env_file: /etc/catena/heartbeat.env
-# The lane's own check on this host's Healthchecks, which catena-schedule keeps
-# on the lane's schedule.
-heartbeat_check_slug: catena-heartbeat
 
 # version-check (the current-vs-latest Versions report, a catena-admin
 # payload script) runs on every edition, Community included. It auto-detects
