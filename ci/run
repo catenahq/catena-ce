@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Runs one check of this repository by its name in .github/checks.yml, the same
+# in CI and on a workstation: bash ci/run <name>.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+case "${1:-}" in
+  python)
+    # The Ansible tree runs in ansible/'s own project, on the ansible-core the
+    # host runs: some of its tests render templates through ansible-core's
+    # templating, others with the Jinja2 it brings. The root project is
+    # catena-installer, whose tests include the gate that holds the declaration,
+    # the code it points at and the documented commands to one another, and what
+    # a wheel carries. The default apps' tests read contracts default-apps/wiring.json
+    # from the sibling checkout.
+    rc=0
+    (cd ansible && uv run --locked python -m pytest -rfE tests/unit -q) || rc=1
+    uv run --locked pytest -rfE -q || rc=1
+    exit $rc
+    ;;
+  wheel)
+    # The locks are held to their pyprojects here, since resolving needs the
+    # index; then the entry point runs from the root project and a wheel builds.
+    uv lock --check
+    uv lock --check --project ansible
+    uv run catena-installer --help
+    uv build --wheel
+    ;;
+  keycloak)
+    # The JAR of Catena's Keycloak providers: its tests, then a second offline
+    # build whose SHA-256 must equal the first's, so the same sources always
+    # give the same bytes. Only the plugins the first build fetched are
+    # available offline, and the clean plugin is not among them. The files the
+    # build leaves are handed back to the caller.
+    # renovate: datasource=docker depName=maven
+    MAVEN_IMAGE=maven:3.10.0-eclipse-temurin-21@sha256:9673eef9ed503146591667ffb92eaaa22f1b8899ed60d9df0df4da3f3a1214a6
+    docker run --rm \
+      --volume "$PWD/ansible/reconcile/roles/keycloak/provider:/provider" \
+      --workdir /provider \
+      --env "HOST_OWNER=$(id -u):$(id -g)" \
+      "$MAVEN_IMAGE" \
+      bash -euc '
+        trap "chown -R \"\$HOST_OWNER\" /provider/target" EXIT
+        mvn -B -ntp --strict-checksums verify
+        sha256sum target/catena-keycloak.jar | tee /tmp/first.sha256
+        rm -rf target
+        mvn -B -ntp -o package -DskipTests
+        sha256sum target/catena-keycloak.jar | tee /tmp/second.sha256
+        cmp /tmp/first.sha256 /tmp/second.sha256
+      '
+    ;;
+  syntax)
+    # Every playbook parses, roles and all. The unit tests read task files as
+    # data and render single templates; this loads the tree the way a converge
+    # does, so a bad task keyword, a malformed block or a module name
+    # ansible-core does not provide fails here rather than on a client's
+    # server. --syntax-check loads every role a play includes, and with no
+    # collection installed a module from one reads as a conflicting action
+    # statement: the tree runs on ansible-core alone, on the server. The
+    # inventory only has to exist, because syntax-check parses and never connects.
+    cd ansible
+    rc=0
+    for playbook in playbooks/*.yml; do
+      echo "== $playbook"
+      uv run ansible-playbook --syntax-check -i localhost, "$playbook" || rc=1
+    done
+    exit $rc
+    ;;
+  sentences)
+    # A sentence written in two places fails, unless
+    # .github/duplicate-sentences-debt.txt carries it.
+    python3 .github/scripts/duplicate_sentences.py
+    ;;
+  *)
+    echo "ci/run: unknown check '${1:-}' (checks: python, wheel, keycloak, syntax, sentences)" >&2
+    exit 2
+    ;;
+esac
