@@ -8,8 +8,8 @@ feature: the action sees an empty candidate and the panel is told a valid
 endpoint is invalid.
 
 The ACTION is authorised by the panel image's dispatch drop-in, with the other
-Community ones, and what it has to look like is asserted there (catena-admin
-payload/actions.d/catena_actions_test.go). What stays here is the part that is
+Community ones, and what it has to look like is asserted by catena-admin's
+host action tests. What stays here is the part that is
 about this host rather than about the command: sshd's AcceptEnv and the sudoers
 env_keep, which are converge-owned permanently (reconcile/roles/dispatch_path).
 The image's drop-ins can add a dispatch arm; the set of inputs root will
