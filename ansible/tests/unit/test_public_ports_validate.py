@@ -27,15 +27,16 @@ def _when(task: dict, **ctx: object) -> bool:
     return all(env().compile_expression(w)(**ctx) for w in whens)
 
 
-def test_the_fragment_dir_is_root_only_and_the_dropin_is_root_0644():
-    paths = _task("the fragment dir and the docker drop-in")["vars"]["_assert_paths"]
+def test_the_fragment_dir_is_root_only_and_the_dropins_are_root_0644():
+    paths = _task("the fragment dir and the drop-ins")["vars"]["_assert_paths"]
     by_path = {p["path"]: p for p in paths}
     frag = by_path["{{ public_ports_fragment_dir }}"]
     assert (frag["type"], frag["owner"], frag["group"], frag["mode"]) == (
         "directory", "root", "root", "0755")
-    drop = by_path["/etc/systemd/system/docker.service.d/30-catena-public-ports.conf"]
-    assert (drop["type"], drop["owner"], drop["group"], drop["mode"]) == (
-        "file", "root", "root", "0644")
+    for unit in ("docker", "tailscaled"):
+        drop = by_path[f"/etc/systemd/system/{unit}.service.d/30-catena-public-ports.conf"]
+        assert (drop["type"], drop["owner"], drop["group"], drop["mode"]) == (
+            "file", "root", "root", "0644")
 
 
 def test_the_dropin_must_start_the_reconciler():
@@ -43,6 +44,16 @@ def test_the_dropin_must_start_the_reconciler():
     start = "ExecStartPost=-/usr/bin/systemd-run --no-block /usr/bin/systemctl start catena-public-ports.service\n"
     assert holds(task, ASSERT, _pp_val_dropin={"content": b64(start)})
     assert not holds(task, ASSERT, _pp_val_dropin={"content": b64("[Service]\n")})
+
+
+def test_the_tailscaled_dropin_must_start_the_reconciler_after_tailscaled_has_started():
+    task = _task("tailscaled start re-applies the rules")
+    later = ("ExecStartPost=-/usr/bin/systemd-run --no-block --on-active=20 "
+             "/usr/bin/systemctl start catena-public-ports.service\n")
+    at_once = "ExecStartPost=-/usr/bin/systemd-run --no-block /usr/bin/systemctl start catena-public-ports.service\n"
+    assert holds(task, ASSERT, _pp_val_ts_dropin={"content": b64(later)})
+    assert not holds(task, ASSERT, _pp_val_ts_dropin={"content": b64(at_once)})
+    assert not holds(task, ASSERT, _pp_val_ts_dropin={"content": b64("[Service]\n")})
 
 
 def test_the_unit_is_asked_of_the_shared_predicate():

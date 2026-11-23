@@ -13,12 +13,14 @@ catena-admin payload (`payload/lanes/catena-public-ports.py`, its modules in
 
 This role owns what belongs to the host: the fragment directory, the
 `docker.service` drop-in that re-applies the rules on every docker start
-(Docker recreates DOCKER-USER empty), and enabling the timer. It fails the
-converge when the payload it follows has no reconciler, because that host
+(Docker recreates DOCKER-USER empty), the `tailscaled.service` drop-in that
+re-applies them 20 seconds after every tailscaled start (tailscaled puts its
+accepting jumps ahead of the tailnet guards), and enabling the timer. It fails
+the converge when the payload it follows has no reconciler, because that host
 would publish its restricted ports unguarded.
 
-`tasks/validate.yml` checks the fragment directory (root:root 0755) and the
-docker drop-in, and, when the payload is expected, that the reconciler unit is
+`tasks/validate.yml` checks the fragment directory (root:root 0755) and both
+drop-ins, and, when the payload is expected, that the reconciler unit is
 installed and its timer is enabled and active.
 
 ## Where its variables live
