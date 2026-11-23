@@ -67,8 +67,8 @@ The 196 scenarios the maintainers' test bench carries, and the behaviour each on
 | `daily_chain_verify_cold_blocks_mirror` | A failed cold-storage verification stops the offsite copy from pushing, so a bad archive is never propagated. |
 | `daily_chain_verify_cold_fail_configurable` | Whether a failed offsite check blocks the updates of the maintenance follows the host configuration. |
 | `daily_chain_verify_hot_fail_aborts_updates` | A failed restore test stops the maintenance before any update, keeping a known-good rollback target. |
+| `daily_reports_to_the_hub` | The maintenance reports each run to the alert hub: a run that ends failed raises one alert, and the next run that passes clears it. |
 | `daily_state_corrupt_fallback` | A corrupted maintenance state file starts the next run from the first step, and the log shows the state it found. |
-| `daily_umbrella_healthchecks` | The maintenance signals an external monitor when it starts and again when it succeeds. |
 | `debian_major_upgrade_restore` | A snapshot taken on one major operating-system release restores onto a host running the next one. |
 | `dev_to_prod_cutover_round_trip` | A staging deployment is promoted to its production hostname on the same machine, with every application reconciled to the new address. |
 | `docker_engine_upgrade_round_trip` | The container engine moves to the version the panel image pins, and goes back to the one it ran when the new one does not come up. |
@@ -90,7 +90,7 @@ The 196 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_b2_pg_dump_failed` | A failed database dump aborts the backup before any archive is written, so no partial snapshot is ever created. |
 | `fi_b3_snapshot_id_mismatch` | A restore asking for a snapshot that does not exist is refused with an error naming what was asked for. |
 | `fi_b4_locked_pack_rotation` | Backup data held under an object-lock retention policy survives an attempt to prune it away. |
-| `fi_b6_healthchecks_down` | An unreachable monitoring endpoint is reported instead of the failure going unnoticed. |
+| `fi_b6_alert_intake_down` | An alert intake that stops answering is named by the off-site heartbeat, and the alert hub raises the heartbeat's alert. |
 | `fi_c1_docker_daemon_hang` | A frozen container daemon makes the converge fail within a bounded time rather than hanging indefinitely. |
 | `fi_c4_registry_pull_timeout` | An install whose release registry cannot be reached fails fast at its first external step, with a message naming the timeout. |
 | `fi_c6_cloudflared_flapping` | Re-converging the public tunnel updates its configuration without restarting a healthy connector. |
