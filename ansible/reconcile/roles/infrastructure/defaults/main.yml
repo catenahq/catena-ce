@@ -75,16 +75,6 @@ beszel_hub_internal_port: 8090
 # Host-side loopback publish (UFW-safe, loopback never publicly reachable). The
 # off-site heartbeat and the uptime check read it.
 beszel_hub_host_localhost_port: 18190
-beszel_hub_data_volume: "beszel-hub-data"
-# PocketBase's own names in the hub's data folder, which a deployment does not
-# set.
-beszel_hub_sqlite_files: ["data.db", "auxiliary.db"]
-# The SQLite databases of the monitoring stacks, one
-# <stack>_<volume>/_data/<file> per database. catena-admin's backup copies each
-# one whole before the snapshot and a whole-server restore puts the copy back
-# (catena-admin payload/engines/recovery/backuprun.go, restore.go).
-infrastructure_sqlite_databases: >-
-  {{ beszel_hub_sqlite_files | map('regex_replace', '^', beszel_hub_stack ~ '_' ~ beszel_hub_data_volume ~ '/_data/') | list }}
 
 # --- Alert intake ---------------------------------------------------------
 # The service the monitors post alerts to and the alert hub reads

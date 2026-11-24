@@ -4,8 +4,8 @@ reconcile/roles/infrastructure adds with `catena-apps defaults`.
 The properties held here, against the wiring contract
 (contracts default-apps/wiring.json):
 
-- each app's stack is the contract's, and the SQLite copy list, the loopback
-  ports and the network aliases follow from it;
+- each app's stack is the contract's, and the loopback ports and the network
+  aliases follow from it;
 - `/etc/catena/default-apps.json` lists the apps, with no secret;
 - the env map the converge writes is the contract's `env_core_writes` and holds
   no key the app's own x-catena block declares (the engine refuses one);
@@ -23,7 +23,6 @@ import re
 from pathlib import Path
 
 import jinja2
-import jinja2.nativetypes
 import pytest
 import yaml
 
@@ -331,18 +330,6 @@ def test_the_gate_network_is_a_capability_name():
     assert gv["beszel_gate_network"] == "catena-beszelgate"
     for key in ("beszel_network", "beszel_gate_network"):
         assert re.fullmatch(r"catena-[a-z]+", gv[key]), (key, gv[key])
-
-
-def test_the_sqlite_list_is_the_contracts():
-    expr = _defaults()["infrastructure_sqlite_databases"]
-    env = jinja2.nativetypes.NativeEnvironment()
-    env.filters["regex_replace"] = lambda value, pattern, repl: re.sub(pattern, repl, value)
-    defaults = _defaults()
-    got = env.from_string(expr).render(**{**defaults, "beszel_hub_stack": STACKS["beszel"]})
-    want = [f"{entry['volumes'][db['volume']]}/_data/{db['file']}"
-            for entry in (CONTRACT[a] for a in ("beszel",))
-            for db in entry["sqlite"]]
-    assert got == want
 
 
 def test_each_loopback_port_and_alias_is_the_contracts():

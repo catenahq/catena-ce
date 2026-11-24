@@ -6,7 +6,8 @@ hands.
 
 You do not need our software, our tools, or our help to get your data
 back. You need ordinary programs: `restic` (reads the backup), `docker`
-(runs the applications), and `psql` or `mariadb` (load the databases).
+(runs the applications), and `psql`, `mariadb` or `mongorestore` (load the
+databases).
 
 ## 1. What is in the snapshot
 
@@ -16,6 +17,7 @@ back. You need ordinary programs: `restic` (reads the backup), `docker`
 | Application definitions (one folder per app: its compose file, its settings in `.env`, and where the file came from) | `{{ storage_mount_point }}/compose/<app-name>/` |
 | PostgreSQL database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
 | MariaDB database exports (one file per database server, plain SQL) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
+| MongoDB database exports (one archive per database server) | `{{ storage_mount_point }}/backup-staging/mongo/*.archive` |
 | Copies of the monitoring databases (Beszel), each taken whole while it ran | `{{ storage_mount_point }}/backup-staging/sqlite/<volume-name>/<file>` |
 | Files stored outside a volume | `{{ storage_mount_point }}/apps/` |
 | Your settings and passwords | `/etc/catena/config.json` |
@@ -136,6 +138,20 @@ They were written with instructions to replace what is already there, so
 loading one into an empty database is safe. Use these only if the
 application's own data directory did not survive; loading an export over
 newer data will overwrite it.
+
+A MongoDB export is one archive holding every database of the server. Feed it
+to `mongorestore` inside the database's container (`--drop` replaces what is
+there). When the server requires a login, add `--username`, `--password` and
+`--authenticationDatabase admin` with the root account the application's
+`.env` holds:
+
+```
+docker exec -i <container> mongorestore --archive --drop --oplogReplay < <name>-<date>.archive
+```
+
+Leave out `--oplogReplay` when the archive holds no oplog, which is the case
+for a server that is not a replica set: `mongorestore` refuses the option
+then.
 
 ## 6. Rebuilding the whole server
 

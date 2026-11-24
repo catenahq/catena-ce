@@ -158,7 +158,6 @@ def test_each_file_a_role_names_is_the_contracts_path():
 FILE_LITERALS = (
     ("backup_paths", "reconcile/roles/backup/tasks/install.yml"),
     ("backup_exclude_patterns", "reconcile/roles/backup/tasks/install.yml"),
-    ("backup_sqlite", "reconcile/roles/backup/tasks/install.yml"),
     ("backup_coverage_paths", "reconcile/roles/backup/tasks/install.yml"),
     ("keycloak_realm_admin_bootstrapped", "reconcile/roles/keycloak/tasks/realm_bootstrap.yml"),
     ("keycloak_realm_settings_bootstrapped", "reconcile/roles/keycloak/tasks/realm_bootstrap.yml"),
