@@ -1,5 +1,5 @@
-"""The backup carries the volumes of the monitoring stacks (Gatus, Beszel) as
-it carries every application's data, and names their SQLite
+"""The backup carries the volumes of the monitoring stack (Beszel) as
+it carries every application's data, and names its SQLite
 databases so each is also copied whole.
 
 Patterns are matched the way restic 0.19.1 documents: component by component,
@@ -77,8 +77,8 @@ def test_the_matching_follows_restics_rules():
     assert _excludes("**/postmaster.pid", "/srv/catena/docker/volumes/pg/_data/pgdata/postmaster.pid")
     assert _excludes("/etc/ssh/ssh_host_*", "/etc/ssh/ssh_host_ed25519_key")
     assert not _excludes("/etc/ssh/ssh_host_*", "/srv/etc/ssh/ssh_host_ed25519_key")
-    assert not _excludes("*/docker/volumes/gatus-data", f"{VOLUMES}/gatus_gatus-data")
-    assert _excludes("*/docker/volumes/gatus_gatus-data", f"{VOLUMES}/gatus_gatus-data/_data/gatus.db")
+    assert not _excludes("*/docker/volumes/app-data", f"{VOLUMES}/stack_app-data")
+    assert _excludes("*/docker/volumes/stack_app-data", f"{VOLUMES}/stack_app-data/_data/app.db")
 
 
 def test_no_pattern_leaves_out_a_monitoring_volume():
@@ -128,7 +128,6 @@ def _databases() -> list[str]:
     stacks = _stacks()
     return env.from_string(expr).render(
         **_plain(INFRA / "defaults" / "main.yml"),
-        gatus_stack=stacks["gatus"],
         beszel_hub_stack=stacks["beszel"])
 
 
@@ -141,14 +140,13 @@ def test_the_copy_list_names_each_monitoring_database():
     lines = [ln for ln in listing.splitlines() if ln and not ln.startswith("#")]
     assert lines == [
         f"{VOLUMES}/{entry['volumes'][db['volume']]}/_data/{db['file']}"
-        for entry in (_wiring()[app] for app in ("gatus", "beszel"))
+        for entry in (_wiring()[app] for app in ("beszel",))
         for db in entry["sqlite"]
     ]
 
 
 def test_the_listed_files_are_the_names_the_defaults_hold():
     defaults = _defaults()
-    assert defaults["gatus_sqlite_file"] == "gatus.db"
     assert defaults["beszel_hub_sqlite_files"] == ["data.db", "auxiliary.db"]
 
 

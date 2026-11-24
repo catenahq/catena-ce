@@ -29,11 +29,7 @@ SHARED = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "_payload_expect
 CALLERS = {
     "reconcile/roles/cloudflare_tunnel/tasks/main.yml": [["{{ cloudflared_sync_bin }}"]],
     "reconcile/roles/backup/tasks/install.yml": [["{{ backup_wrapper_script }}"]],
-    "reconcile/roles/infrastructure/tasks/gatus_sync.yml": [[
-        "{{ gatus_sync_script_path }}",
-        "{{ version_check_script_path }}",
-        "/etc/systemd/system/gatus-sync.timer",
-    ]],
+    "reconcile/roles/infrastructure/tasks/version_check.yml": [["{{ version_check_script_path }}"]],
     "reconcile/roles/host_maintenance/tasks/_payload_unit.yml":
         [["/etc/systemd/system/{{ _payload_unit.unit }}"]],
     "reconcile/roles/host_maintenance/tasks/validate.yml": [

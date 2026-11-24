@@ -62,7 +62,7 @@
       ansible.builtin.include_tasks: tasks/load_onbox_config.yml
       tags: [always, onbox]
 
-    # The hostnames of Gatus and Beszel come from each app's
+    # The hostname of Beszel comes from the app's
     # SUBDOMAIN setting (tasks/default_app_subdomains.yml).
     - name: "Default apps: read the address label of each"
       ansible.builtin.include_tasks: tasks/default_app_subdomains.yml
@@ -388,7 +388,7 @@
     # _gated_hosts keeps only the hostnames that are set.
     #
     # Coverage:
-    #   - The platform's gated apps (gatus, catena-admin at dash.<zone>,
+    #   - The platform's gated apps (catena-admin at dash.<zone>,
     #     beszel) are always probed.
     #   - `validate_extra_gated_hosts` adds ad-hoc gated hostnames.
     #   - Client apps get a Traefik route per address and an oauth2-proxy
@@ -412,7 +412,6 @@
           {{
             (
               [
-                infrastructure_gatus_hostname | default(''),
                 catena_admin_hostname | default(''),
                 beszel_hostname | default(''),
               ]
@@ -492,7 +491,7 @@
     # Runs ON the host (no delegate_to), so it sees the full ss(8)
     # output including loopback-only binds. We filter to public-
     # facing binds (0.0.0.0 / [::]); 127.0.0.1-bound ports
-    # (gatus_host_localhost_port, catena-postgres internals, etc)
+    # (beszel_hub_host_localhost_port, catena-postgres internals, etc)
     # never reach tailnet so they're skipped.
     - name: "Enumerate listening TCP ports on host"
       ansible.builtin.command:

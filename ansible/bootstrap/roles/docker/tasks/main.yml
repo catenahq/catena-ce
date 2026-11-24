@@ -189,7 +189,7 @@
 # off under swarm) and re-materializes the catena-network swarm overlay
 # with a NEW id; swarm SERVICES (catena-postgres, catena-traefik)
 # reconnect on their own, while the PLAIN containers the stacks
-# deploy (keycloak-server-1, oauth2-proxy, gatus, ...) come back with
+# deploy (keycloak-server-1, oauth2-proxy, ...) come back with
 # "network catena-network not found" and stay Exited, which surfaced as
 # reconcile/roles/keycloak validate finding keycloak-server-1 dead. Those are healed
 # out-of-band by catena-network-nudge (installed by reconcile/roles/swarm, fired

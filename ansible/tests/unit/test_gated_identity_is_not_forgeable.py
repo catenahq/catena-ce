@@ -11,7 +11,7 @@ peers in the subnet of a second network that only the gate and the hub join.
 
 The gates are rendered the way the converge renders them and read back as YAML,
 and a gate's credentials file as the TOML oauth2-proxy reads. The networks the
-Gatus and Beszel apps join are held by the catalog's tests (catena-templates
+Beszel app joins are held by the catalog's tests (catena-templates
 tests/) and by test_default_apps.py against the wiring contract.
 
 Run: uv run pytest tests/unit/test_gated_identity_is_not_forgeable.py
@@ -171,7 +171,7 @@ def test_every_caller_of_the_hub_joins_its_network():
 def test_no_gate_joins_the_beszel_network():
     for name, svc in _gates()["services"].items():
         assert BESZEL_NETWORK not in svc["networks"], (
-            f"{name} joins the Beszel network, where Gatus can reach the hub")
+            f"{name} joins the Beszel network, where it can reach the hub")
 
 
 def test_only_the_hubs_gate_and_the_hub_join_the_gate_network():

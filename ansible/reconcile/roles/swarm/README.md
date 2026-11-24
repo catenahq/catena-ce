@@ -25,7 +25,7 @@ intake, and the `catena-network-nudge` self-heal.
   intake and the services that post to it are on it, and the panel is not.
   Beszel's hub signs in any realm user who reaches it and its
   superuser holds the shared admin password, so the hub and its alert shim are
-  on theirs, with Gatus. The hub takes the signed-in email from its gate's
+  on theirs. The hub takes the signed-in email from its gate's
   header only over `beszel_gate_network`, which only the gate and the hub join;
   Docker picks its subnet.
   Not attachable, so no standalone

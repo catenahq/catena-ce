@@ -26,7 +26,7 @@ WHAT THIS RENDER IS FOR
   deploying over an existing standalone service does not adopt it -- it creates
   a second service beside it. Renaming catena-traefik or catena-postgres
   reaches every DNS site that names them (Keycloak's JDBC URL,
-  cloudflared's ingress target, the Gatus probes, oauth2-proxy's upstream),
+  cloudflared's ingress target, oauth2-proxy's upstream),
   three anchored matchers in catena-admin's recovery
   engines, and 107 bench assertions. The anchored ones -- pgreplay.go's
   pauseExcludeRe, quiesce.go's isControlPlane, restore.go's isRestoreExempt --

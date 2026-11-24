@@ -57,7 +57,7 @@
     _ca_spec:
       name: "{{ catena_admin_service_name }}"
       image: "{{ catena_admin_image }}"
-      # catena-network for its gate, Keycloak and Gatus, on no other.
+      # catena-network for its gate and Keycloak, on no other.
       networks:
         - "{{ catena_network_name | default('catena-network') }}"
       ui_port: "{{ catena_admin_ui_port }}"
@@ -129,7 +129,6 @@
         # disagrees with the image's own default, which turns a silent
         # permanent 401 on the People panel into a CI failure.
         KEYCLOAK_ADMIN_CLIENT_ID: "{{ catena_admin_panel_client_id }}"
-        INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
         # Every address Catena answers on, a JSON list, which the Check tab
         # holds as Catena's (catena-admin shell/appcheck OwnHosts), as

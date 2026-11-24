@@ -114,7 +114,7 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 #   upstream_alias  network alias of the BACKEND app, on catena-network or
 #                   on one of the entry's `networks`. Compose-
 #                   managed apps register an alias matching their compose
-#                   service name (e.g. `gatus`); swarm services
+#                   service name (e.g. `beszel-hub`); swarm services
 #                   resolve via the service name (e.g. `catena-admin`).
 #   upstream_port   backend container's listen port.
 #   allowed_groups  list of Keycloak groups that may pass; oauth2-proxy
@@ -142,15 +142,6 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 # as the proxy's service name -- but `upstream_alias` MUST still be
 # the BACKEND's actual network alias, NOT the public subdomain prefix.
 oauth2_proxy_apps:
-  - slug: "gatus"
-    host_var: "infrastructure_gatus_hostname"
-    upstream_alias: "gatus"
-    # Gatus binds 8080 internally regardless of the public hostname.
-    # Port 80 inside the gatus container has nothing listening, so a
-    # proxy pointed there gets `connection refused` and emits 502.
-    upstream_port: 8080
-    allowed_groups: ["staff", "admin"]
-    cookie_secret_var: "gatus_gate_cookie_secret"
   # catena-admin -- the per-VPS operator panel at dash.<zone>. Staff
   # may reach it; the admin's in-app role check (require_admin)
   # gates everything beyond /apps to the admin group only.

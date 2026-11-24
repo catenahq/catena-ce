@@ -4,12 +4,12 @@
 #
 # 1. The tunnel-deferred gate: the steps that need the public edge wait for a
 #    converge that has it.
-# 2. Beszel and Gatus, added as catalog apps (default_app.yml),
-#    each setting itself up in its configure hook, and the off-site heartbeat's
-#    env file.
+# 2. Beszel, added as a catalog app (default_app.yml), setting itself up in its
+#    configure hook, and the off-site heartbeat's env file.
 # 3. The dashboard-sync wiring and the public-URL probe of the gated services.
-# 4. The gatus-sync wiring.
+# 4. The version report's wiring.
 # 5. The uptime check's targets file.
+# 6. The files of the monitor wiring this release withdrew.
 #
 # reconcile/roles/cloudflare_tunnel brings the edge up before keycloak and
 # oauth2_proxy, and reconcile/roles/oauth2_proxy renders each gated app's
@@ -43,21 +43,19 @@
 
 # --- the default apps -------------------------------------------------------
 #
-# Beszel and Gatus are catalog apps that catena-apps adds (default_app.yml).
-# Beszel comes before Gatus because Gatus reads the address it provides.
+# Beszel is a catalog app that catena-apps adds (default_app.yml).
 #
 # include_tasks doesn't propagate tags to sub-tasks by default -- a
 # top-level `tags:` here applies only to the include statement itself,
 # so `--tags <name>` makes the include fire but every child task
 # silently skips. `apply: tags:` pushes the tag down to every task
-# inside the included file, so `--tags gatus` / `--tags beszel` run the
-# whole file.
+# inside the included file, so `--tags beszel` runs the whole file.
 - name: "Default apps: the list and the engine that adds them"
   ansible.builtin.include_tasks:
     file: default_apps.yml
     apply:
-      tags: [default_apps, gatus, beszel]
-  tags: [default_apps, gatus, beszel]
+      tags: [default_apps, beszel]
+  tags: [default_apps, beszel]
 
 # Beszel -- resource monitor (CPU/memory/network/disk + temperature/load
 # history with built-in threshold alerting). Its app holds the hub, which
@@ -71,13 +69,6 @@
     apply:
       tags: [beszel]
   tags: [beszel]
-
-- name: Gatus (gatus.<zone>)
-  ansible.builtin.include_tasks:
-    file: gatus.yml
-    apply:
-      tags: [gatus]
-  tags: [gatus]
 
 # The off-site heartbeat's env file: the loopback ports of the services it
 # probes. Its script and units ship in the catena-admin payload, and
@@ -158,7 +149,7 @@
 # catch: the domain is its own field, so a host can hold a token while its
 # zone is still empty.
 #
-# The probe would then GET https://gatus./ three times over, twelve
+# The probe would then GET https://beszel./ three times over, twelve
 # retries apiece, and call the result a service verdict.
 - name: "Verify gated services: no domain yet -- skipping public-URL probe"
   ansible.builtin.debug:
@@ -172,14 +163,14 @@
     - catena_public_surface_deferred | default(false) | bool
   tags: [verify_gated, edge]
 
-# gatus-sync reads the client apps from the app intent dashboard-sync writes.
-# Its script and units ship in the catena-admin payload.
-- name: gatus-sync env file + timer
+# The version report's script ships in the catena-admin payload; this pins
+# whether it is on the host, for the refresh at the end of the converge.
+- name: "Version check: is the script here"
   ansible.builtin.include_tasks:
-    file: gatus_sync.yml
+    file: version_check.yml
     apply:
-      tags: [gatus, gatus_sync]
-  tags: [gatus, gatus_sync]
+      tags: [version_check]
+  tags: [version_check]
 
 # The addresses of Catena's own services that catena-uptime checks. The check
 # and its timer ship in the catena-admin payload.
@@ -189,3 +180,10 @@
     apply:
       tags: [uptime]
   tags: [uptime]
+
+- name: "Remove the files of the withdrawn monitor wiring"
+  ansible.builtin.include_tasks:
+    file: withdrawn.yml
+    apply:
+      tags: [withdrawn]
+  tags: [withdrawn]

@@ -276,7 +276,6 @@ def _converge_env() -> dict:
 
 
 @pytest.mark.parametrize("name", [
-    "INFRA_GATUS_HOSTNAME",
     "INFRA_BESZEL_HOSTNAME",
 ])
 def test_the_converge_names_every_public_hostname_the_panel_links_to(name):
@@ -288,6 +287,7 @@ def test_the_converge_names_every_public_hostname_the_panel_links_to(name):
     env = _converge_env()
     assert name in env, f"{name} is no longer passed to the panel"
     assert env[name].strip(), f"{name} is passed empty"
+    assert "INFRA_GATUS_HOSTNAME" not in env, "nothing in the panel reads it any more"
 
 
 # ─── the reconcile has to settle ──────────────────────────────────────────
@@ -320,7 +320,7 @@ def test_the_reconcile_checks_that_it_settled():
 
 
 def test_the_panel_is_on_catena_network_alone():
-    """catena-network carries its gate, Keycloak and Gatus. A network a
+    """catena-network carries its gate and Keycloak. A network a
     converge stops naming is detached by the network drift."""
     spec = next(
         t["ansible.builtin.set_fact"]["_ca_spec"]

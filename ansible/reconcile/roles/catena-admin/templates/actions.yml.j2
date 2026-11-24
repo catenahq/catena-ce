@@ -169,24 +169,20 @@ actions:
     shell: "tailscale status"
 
   - name: sync-all
-    title: "Sync all (apps + monitors)"
-    title_fr: "Synchroniser tout (apps + moniteurs)"
+    title: "Sync all apps"
+    title_fr: "Synchroniser toutes les apps"
     category: Ops
     icon: "repeat"
     timeout: 90
     # Single button, non-destructive by design -- safe to spam.
     #
-    # Covers both sync paths operators actually need after an application
-    # change:
-    #   - dashboard-sync: Traefik routes + SSO-provider CRUD
-    #     (groups/providers/apps/bindings). The Apps-tab tile grid is
-    #     rendered live from the app intent, so it does not need a
-    #     sync step.
-    #   - gatus-sync: Gatus endpoint catalog, which Gatus reads again
-    #     within about 30 seconds.
+    # dashboard-sync: Traefik routes + SSO-provider CRUD
+    # (groups/providers/apps/bindings). The Apps-tab tile grid is
+    # rendered live from the app intent, so it does not need a
+    # sync step.
     #
     # A run already in flight (systemd joins a start of an active oneshot)
-    # may have begun before the change this press is for, so each sync
+    # may have begun before the change this press is for, so the sync
     # first waits for that run to end and then starts a fresh one; the log
     # shown is the journal of that fresh run alone, selected by the
     # invocation id of the unit after its start returns.
@@ -195,13 +191,11 @@ actions:
     # under the host lock, lent to catena-dashboard-sync.service as the tick
     # does: its catena-apps calls run inside the hold. While another job
     # holds the lock, host-lock answers 75 at once and the press says the
-    # server is busy. gatus-sync runs beside it with no lock, as its timer
-    # runs it.
+    # server is busy.
     #
-    # Backgrounded + `wait` gives the union of runtimes (~10-15s), not
-    # the sum. Dispatcher runs with `set -euo pipefail`, so capturing
-    # non-zero `wait` exit codes requires `set +e` first -- a plain
-    # `wait; RC=$?` aborts on errexit before the assignment.
+    # Dispatcher runs with `set -euo pipefail`, so capturing the non-zero
+    # exit code requires `set +e` first -- a plain `RC=$?` aborts on errexit
+    # before the assignment.
     shell: |
       set +e
       LOGDIR=$(mktemp -d)
@@ -219,21 +213,19 @@ actions:
         fi
         return $rc
       }
-      sync_fresh catena-dashboard-sync.service /usr/local/bin/catena-recovery host-lock -w 0 -lend catena-dashboard-sync.service -- & PID_DASH=$!
-      sync_fresh gatus-sync.service & PID_GATUS=$!
-      wait "$PID_DASH"; RC_DASH=$?
-      wait "$PID_GATUS"; RC_GATUS=$?
+      sync_fresh catena-dashboard-sync.service /usr/local/bin/catena-recovery host-lock -w 0 -lend catena-dashboard-sync.service --
+      RC_DASH=$?
       if [ "$RC_DASH" -eq 75 ]; then
         rm -rf "$LOGDIR"
         echo "The server is busy with another job, such as a backup or an update, so the applications were not synchronised; try again in a moment."
         echo "Le serveur est occupé par une autre tâche, comme une sauvegarde ou une mise à jour : les applications n'ont pas été synchronisées ; réessayez dans un instant."
         exit 75
       fi
-      cat "$LOGDIR/catena-dashboard-sync.service" "$LOGDIR/gatus-sync.service"
+      cat "$LOGDIR/catena-dashboard-sync.service"
       rm -rf "$LOGDIR"
       echo
-      echo "exit codes: dashboard-sync=$RC_DASH gatus-sync=$RC_GATUS"
-      [ "$RC_DASH" -eq 0 ] && [ "$RC_GATUS" -eq 0 ]
+      echo "exit code: dashboard-sync=$RC_DASH"
+      [ "$RC_DASH" -eq 0 ]
 
   # ─── Recovery ────────────────────────────────────────────────────────
   # Recovery actions render on the Recovery tab (not the Actions tab),

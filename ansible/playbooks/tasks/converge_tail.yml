@@ -45,7 +45,7 @@
     name: catena-version-check.service
     state: started
   changed_when: false
-  when: _gatus_sync_present | default(false) | bool
+  when: _version_check_present | default(false) | bool
   tags: [version_check]
 
 # Report -- never repair -- changes to the files boundary.yml puts on the

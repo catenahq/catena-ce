@@ -99,7 +99,7 @@ cloudflare_api_base: "https://api.cloudflare.com/client/v4"
 # Store-owned, entered in the panel's Settings with the Cloudflare token. Empty
 # until then: every server is installed without a domain.
 cloudflare_zone: "{{ cfg_cloudflare_zone | default('', true) }}"
-# An empty zone builds every hostname as `dash.`, `auth.`, `gatus.` -- names
+# An empty zone builds every hostname as `dash.`, `auth.`, `beszel.` -- names
 # that resolve nowhere and certificates no authority will issue. So nothing
 # public is published until there is a domain to publish it under, and this is
 # what every role that would publish a name gates on.
@@ -158,8 +158,6 @@ acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
 # playbooks/tasks/default_app_subdomains.yml reads from the app's folder; the
 # literal is the name a host whose folder is absent uses. Keycloak's and the
 # panel's come from the store.
-infrastructure_gatus_subdomain: "{{ default_app_gatus_subdomain | default('gatus', true) }}"
-infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
 # is the one place that is said. A second name rendering dash.<zone> from its
 # own subdomain variable would agree until the first change to one moved the
@@ -169,9 +167,8 @@ infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudfla
 beszel_subdomain: "{{ default_app_beszel_subdomain | default('beszel', true) }}"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 # The overlay Beszel's hub and its alert relay are on, instead of catena-network.
-# The hub's own sign-in creates an account for any realm user, so only its
-# callers join: Gatus (reconcile/roles/infrastructure) and the app's own
-# services.
+# The hub's own sign-in creates an account for any realm user, so only the app's
+# own services join.
 # reconcile/roles/swarm creates it.
 beszel_network: "catena-beszel"
 # The overlay only the hub and its sign-in gate (reconcile/roles/oauth2_proxy)
@@ -190,7 +187,7 @@ beszel_gate_network: "catena-beszelgate"
 # hyphen after "catena-" like theirs.
 alert_network: "catena-alerts"
 
-# The applications every host runs from the catalog: Gatus and Beszel (hub,
+# The application every host runs from the catalog: Beszel (hub,
 # agent and alert relay). reconcile/roles/infrastructure adds each
 # one with `catena-apps defaults` and writes this list to
 # /etc/catena/default-apps.json, which catena-admin's whole-server restore reads
@@ -200,7 +197,6 @@ alert_network: "catena-alerts"
 # stacks from here before any role runs.
 default_apps_repository: "https://github.com/catenahq/catena-templates"
 default_apps:
-  - { app: gatus, tag: "gatus/5.38.0-4", stack: catena-gatus }
   - { app: beszel, tag: "beszel/0.21.2-2", stack: catena-beszel }
 # One folder per catalog application, which catena-apps writes.
 default_apps_compose_dir: "{{ storage_mount_point }}/compose"
@@ -233,7 +229,7 @@ admin_last_name: "{{ cfg_admin_last_name | default('') }}"
 # --- Declarative public-port registry ---
 # The directory the registry is built from. Here rather than in
 # reconcile/roles/public_ports because several roles write the fragment dir --
-# bootstrap/roles/common (SSH), reconcile/roles/infrastructure (gatus, beszel,
+# bootstrap/roles/common (SSH), reconcile/roles/infrastructure (beszel,
 # the alert intake) and reconcile/roles/catena-admin
 # all drop a <owner>.json into it -- and a role default is only reliably in
 # scope once that role has run. A constant those roles share is the product's,
@@ -507,8 +503,8 @@ catena_hostnames: >-
      | unique | list }}
 
 # Host dir where the payload lanes write the JSON reports the panel reads
-# (backup-stats.json from catena-backup-run, gatus-summary.json from
-# catena-gatus-sync, the rest named in catena-admin shell/stats).
+# (backup-stats.json from catena-backup-run, the rest named in catena-admin
+# shell/stats).
 # Bind-mounted read-only into the admin container; the admin's stats
 # reader picks up the files unchanged. Matches reconcile/roles/backup defaults'
 # backup_stats_dir; do not move without updating that role.

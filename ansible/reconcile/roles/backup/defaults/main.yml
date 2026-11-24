@@ -113,7 +113,7 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 #      -> the folder under /srv/catena/compose
 #      ✓ covered by {{ storage_mount_point }}/compose
 #
-#   C. catena host config (traefik, gatus, keycloak realms, ...)
+#   C. catena host config (traefik, keycloak realms, ...)
 #      -> /etc/catena/<component>
 #      ✓ covered by /etc (below)
 #
@@ -341,7 +341,7 @@ backup_managed_paths: []
 # Stats file written by the wrapper after each successful run. This dir is
 # the catena-admin container's read-only bind-mount target: the catena-admin
 # role binds it at /var/lib/catena into the container, and the writers
-# (catena-backup-run, catena-gatus-sync) drop *.json files here.
+# (catena-backup-run, catena-uptime) drop *.json files here.
 # World-readable (0644) because the sidecars run as non-root users inside
 # their containers.
 backup_stats_dir: /var/lib/catena

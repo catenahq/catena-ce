@@ -194,7 +194,7 @@
         #
         # On a materialised host that reads as four oauth2-proxy services at
         # 1/1 and EIGHT Up containers -- `docker service ps` naming only one
-        # gatus task while `docker ps` shows two. It also makes the converge
+        # task per instance while `docker ps` shows two. It also makes the converge
         # permanently non-idempotent, because a corpse restarted is a corpse
         # again by the next pass, and changed_when is unconditional.
         - (_kick_line.split('|') | last).startswith('Restarting')

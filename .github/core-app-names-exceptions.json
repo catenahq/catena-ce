@@ -26,9 +26,15 @@
       ],
       "reason": "sample"
     },
+    "ansible/tests/unit/test_gatus_wiring_is_withdrawn.py": {
+      "names": [
+        "beszel",
+        "gatus"
+      ],
+      "reason": "A test that the wiring of a removed monitor is gone from the tree has to name it."
+    },
     "ansible/tests/unit/test_swarm_naming.py": {
       "names": [
-        "gatus",
         "nextcloud"
       ],
       "reason": "sample"

@@ -1,0 +1,13 @@
+---
+# Remove the files an earlier converge wrote for a monitor this release no
+# longer wires. Nothing reads them; the units and scripts that did ship in the
+# catena-admin payload, whose installer prunes what the image stops shipping.
+# A copy of the monitor already running as an ordinary app is left alone.
+# playbooks/tasks/converge_tail.yml reconciles the public ports at the end of
+# every converge, which drops the rule of the removed ports fragment.
+
+- name: "Withdrawn monitor wiring: remove its files"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ infrastructure_withdrawn_files }}"

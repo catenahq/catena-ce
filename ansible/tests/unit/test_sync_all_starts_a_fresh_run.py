@@ -1,9 +1,8 @@
 """The sync-all action waits for a sync run already in flight to end, starts a
 fresh one and reports that one: systemd joins a start of an active oneshot,
 so a bare `start --wait` can report a run that began before the press. The
-dashboard sync starts under the host lock, lent to its unit; gatus-sync starts
-beside it with no lock. A press answers 75, busy, while another job holds the
-lock.
+dashboard sync starts under the host lock, lent to its unit. A press answers
+75, busy, while another job holds the lock. The action starts no other unit.
 
 Run: uv run pytest tests/unit/test_sync_all_starts_a_fresh_run.py
 """
@@ -45,8 +44,7 @@ def _press(tmp_path, in_flight: bool = False, hold: bool = False):
     idle = tmp_path / "idle"
     idle.write_text("inactive")
     # is-active reports the in-flight dashboard-sync run once more, then the
-    # run is over; gatus-sync is idle. A start records whether the lock is
-    # held at that moment.
+    # run is over. A start records whether the lock is held at that moment.
     (bindir / "systemctl").write_text(
         "#!/bin/bash\n"
         f'echo "systemctl $*" >> "{log}"\n'
@@ -107,7 +105,8 @@ def test_an_idle_unit_is_started_once(tmp_path):
     r, calls, _ = _press(tmp_path)
     assert r.returncode == 0, r.stderr
     assert calls.count("systemctl start --wait catena-dashboard-sync.service") == 1
-    assert calls.count("systemctl start --wait gatus-sync.service") == 1
+    assert [c for c in calls if c.startswith("systemctl start")] == [
+        "systemctl start --wait catena-dashboard-sync.service"]
 
 
 def test_the_log_shown_is_the_fresh_runs_journal_alone(tmp_path):
@@ -116,16 +115,15 @@ def test_the_log_shown_is_the_fresh_runs_journal_alone(tmp_path):
     start waited for."""
     r, calls, _ = _press(tmp_path, in_flight=True)
     journals = [c for c in calls if c.startswith("journalctl")]
-    assert sorted(journals) == sorted([
+    assert journals == [
         "journalctl _SYSTEMD_INVOCATION_ID=inv-catena-dashboard-sync.service --no-pager -n 80",
-        "journalctl _SYSTEMD_INVOCATION_ID=inv-gatus-sync.service --no-pager -n 80",
-    ])
+    ]
     assert not any("--since" in c or " -u " in c for c in journals)
-    for unit in ("catena-dashboard-sync.service", "gatus-sync.service"):
-        assert calls.index(f"systemctl show -p InvocationID --value {unit}") > calls.index(
-            f"systemctl start --wait {unit}")
-    assert "journal of _SYSTEMD_INVOCATION_ID=inv-gatus-sync.service" in r.stdout
-    assert "dashboard-sync=0 gatus-sync=0" in r.stdout
+    unit = "catena-dashboard-sync.service"
+    assert calls.index(f"systemctl show -p InvocationID --value {unit}") > calls.index(
+        f"systemctl start --wait {unit}")
+    assert "journal of _SYSTEMD_INVOCATION_ID=inv-catena-dashboard-sync.service" in r.stdout
+    assert "exit code: dashboard-sync=0" in r.stdout
 
 
 def test_an_unloaded_unit_shows_the_journal_since_the_start_not_its_last_lines(tmp_path):
@@ -152,7 +150,7 @@ def test_a_failed_sync_fails_the_action_and_keeps_its_log(tmp_path):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "systemctl").write_text(
-        '#!/bin/bash\n[ "$1" = start ] && [ "$3" = gatus-sync.service ] && exit 1\n'
+        '#!/bin/bash\n[ "$1" = start ] && [ "$3" = catena-dashboard-sync.service ] && exit 1\n'
         '[ "$1" = show ] && echo inv-x\nexit 0\n')
     (bindir / "journalctl").write_text('#!/bin/bash\necho "journal of $*"\n')
     (bindir / "catena-recovery").write_text('#!/bin/bash\nshift 6\n"$@"\n')
@@ -164,7 +162,7 @@ def test_a_failed_sync_fails_the_action_and_keeps_its_log(tmp_path):
         env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
     )
     assert r.returncode != 0
-    assert "dashboard-sync=0 gatus-sync=1" in r.stdout
+    assert "exit code: dashboard-sync=1" in r.stdout
     assert "journal of" in r.stdout
 
 
@@ -184,7 +182,6 @@ def test_the_dashboard_sync_starts_inside_the_hold_lent_to_it(tmp_path):
     assert r.returncode == 0, r.stderr
     assert f"recovery {LEND} systemctl start --wait catena-dashboard-sync.service" in calls
     assert "lock catena-dashboard-sync.service held" in calls
-    assert "lock gatus-sync.service free" in calls
     assert calls.index("recovery done 0") > calls.index("lock catena-dashboard-sync.service held")
     with open(lock, "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)

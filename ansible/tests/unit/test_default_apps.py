@@ -1,12 +1,11 @@
-"""Gatus and Beszel are catalog apps that
+"""Beszel is the catalog app that
 reconcile/roles/infrastructure adds with `catena-apps defaults`.
 
 The properties held here, against the wiring contract
 (contracts default-apps/wiring.json):
 
-- each app's stack is the contract's, and the SQLite copy list, the Gatus config
-  folder, the loopback ports, the network aliases and the infra spec's stacks
-  follow from it;
+- each app's stack is the contract's, and the SQLite copy list, the loopback
+  ports and the network aliases follow from it;
 - `/etc/catena/default-apps.json` lists the apps, with no secret;
 - the env map the converge writes is the contract's `env_core_writes` and holds
   no key the app's own x-catena block declares (the engine refuses one);
@@ -67,10 +66,7 @@ def _fact(tasks: list[dict], key: str) -> dict:
 
 def _env_maps() -> dict[str, dict]:
     """The values each converge writes on every run."""
-    gatus = next(t["vars"]["default_app_env"] for t in _tasks("gatus.yml")
-                 if "default_app.yml" in str(t.get("ansible.builtin.include_tasks")))
     return {
-        "gatus": gatus,
         "beszel": _fact(_tasks("beszel.yml"), "_beszel_hub_env"),
     }
 
@@ -103,11 +99,10 @@ def test_every_entry_is_the_contracts_stack():
 
 def test_the_infrastructure_defaults_read_the_stacks_from_the_list():
     defaults = _defaults()
-    for key in ("gatus_stack", "beszel_hub_stack"):
-        assert "default_apps" in defaults[key]
-    for gone in ("gatus_compose_name", "beszel_hub_compose_name",
-                 "gatus_image_tag", "beszel_image_tag",
-                 "gatus_image", "beszel_image",
+    assert "default_apps" in defaults["beszel_hub_stack"]
+    for gone in ("beszel_hub_compose_name",
+                 "beszel_image_tag",
+                 "beszel_image",
                  "beszel_agent_image_tag", "beszel_agent_image",
                  "beszel_agent_compose_name", "beszel_agent_port", "beszel_agent_swarm_secrets",
                  "beszel_hc_shim_image_tag", "beszel_hc_shim_image", "beszel_hc_shim_compose_name",
@@ -121,7 +116,7 @@ def _addresses(hostnames: dict[str, str]) -> dict[str, str]:
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     stacks = {a["app"]: a["stack"] for a in _group_vars()["default_apps"]}
     text = env.from_string(_defaults()["default_app_addresses"]).render(
-        gatus_stack=stacks["gatus"], beszel_hub_stack=stacks["beszel"], **hostnames)
+        beszel_hub_stack=stacks["beszel"], **hostnames)
     return ast.literal_eval(text.strip())
 
 
@@ -136,14 +131,13 @@ def _list_file(addresses: dict[str, str]) -> list[dict]:
         default_app_addresses=addresses))
 
 
-GATE_HOSTNAMES = {"infrastructure_gatus_hostname": "status.acme.test",
-                  "beszel_hostname": "metrics.acme.test"}
+GATE_HOSTNAMES = {"beszel_hostname": "metrics.acme.test"}
 
 
 def test_the_list_file_has_the_five_fields_and_no_secret():
     got = _list_file(_addresses(GATE_HOSTNAMES))
     gv = _group_vars()
-    assert [set(e) for e in got] == [{"repository", "app", "tag", "stack", "address"}] * 2
+    assert [set(e) for e in got] == [{"repository", "app", "tag", "stack", "address"}]
     assert {e["repository"] for e in got} == {"https://github.com/catenahq/catena-templates"}
     assert [(e["app"], e["tag"], e["stack"]) for e in got] == [
         (a["app"], a["tag"], a["stack"]) for a in gv["default_apps"]]
@@ -151,14 +145,14 @@ def test_the_list_file_has_the_five_fields_and_no_secret():
 
 def test_the_list_names_each_apps_gate_hostname_as_its_address():
     got = {e["app"]: e["address"] for e in _list_file(_addresses(GATE_HOSTNAMES))}
-    assert got == {"gatus": "status.acme.test", "beszel": "metrics.acme.test"}
+    assert got == {"beszel": "metrics.acme.test"}
 
 
 def test_a_server_with_no_domain_lists_the_hostnames_it_renders():
     """The panel opens no link for a name that ends in a dot."""
-    dotless = {"infrastructure_gatus_hostname": "gatus.", "beszel_hostname": "beszel."}
+    dotless = {"beszel_hostname": "beszel."}
     got = {e["app"]: e["address"] for e in _list_file(_addresses(dotless))}
-    assert got == {"gatus": "gatus.", "beszel": "beszel."}
+    assert got == {"beszel": "beszel."}
 
 
 def test_the_addresses_are_the_gate_hostnames_of_group_vars():
@@ -215,7 +209,7 @@ def test_exits_3_4_and_5_do_not_fail_the_converge_but_anything_else_does():
 
 def test_nothing_prints_the_request_or_the_registered_result():
     """The registered result carries the request, which holds the mail password
-    and the Gatus alert key."""
+    and the alert token."""
     for task in _tasks("default_app.yml"):
         for module in ("ansible.builtin.debug", "ansible.builtin.fail"):
             text = json.dumps(task.get(module, {}))
@@ -230,7 +224,7 @@ def test_the_engines_lines_are_printed_unchanged():
 
 
 def test_each_app_is_added_with_its_own_entry():
-    for name, app in (("gatus.yml", "gatus"), ("beszel.yml", "beszel")):
+    for name, app in (("beszel.yml", "beszel"),):
         add = next(t for t in _tasks(name)
                    if "default_app.yml" in str(t.get("ansible.builtin.include_tasks")))
         assert add["vars"]["default_app"] == (
@@ -293,32 +287,15 @@ def test_the_secrets_the_contract_names_are_minted_or_the_mail_password():
         assert f'"{gone}"' not in minted, f"{gone} is minted again"
 
 
-def test_gatus_is_given_the_status_address_its_alert_needs():
-    env = _env_maps()["gatus"]
-    assert set(env) == {"STATUS_HOST"}
-    jenv = jinja2.Environment(undefined=jinja2.StrictUndefined)
-    jenv.filters["bool"] = lambda v: v is True or str(v).strip().lower() in ("1", "true", "yes", "on")
-
-    def host(deferred: bool) -> str:
-        return jenv.from_string(env["STATUS_HOST"]).render(
-            catena_public_surface_deferred=deferred,
-            infrastructure_gatus_hostname="gatus.acme.test")
-
-    assert host(False) == "gatus.acme.test"
-    assert host(True) == "", "no domain yet: a link to `gatus.` would be malformed"
-
-
-
 # --- the apps set themselves up ------------------------------------------------
 
 def test_no_task_seeds_deploys_an_agent_or_reads_a_container():
     """The configure hooks of the apps do the setup, so the converge only adds
     each app and writes its values."""
-    for name in ("gatus.yml", "beszel.yml"):
-        text = (TASKS / name).read_text()
-        for gone in ("docker exec", "docker cp", "docker ps", "swarm_stack.yml",
-                     "swarm_secrets", "-seed.py", "hc-shim", "universal_token", "ssh-keygen"):
-            assert gone not in text, f"{name} still holds {gone}"
+    text = (TASKS / "beszel.yml").read_text()
+    for gone in ("docker exec", "docker cp", "docker ps", "swarm_stack.yml",
+                 "swarm_secrets", "-seed.py", "hc-shim", "universal_token", "ssh-keygen"):
+        assert gone not in text, f"beszel.yml still holds {gone}"
     assert not (TASKS.parent / "templates" / "beszel-agent.compose.yml.j2").exists()
     assert not (TASKS.parent / "templates" / "beszel-hc-shim.compose.yml.j2").exists()
     for script in ("beszel-seed.py", "beszel-hc-shim.py"):
@@ -338,22 +315,16 @@ def test_the_running_flag_is_read_from_the_swarm_service():
     env.filters["regex_escape"] = re.escape
     env.tests["match"] = lambda value, pattern: re.match(pattern, value) is not None
     render = lambda lines: env.from_string(text).render(  # noqa: E731
-        _default_apps_available=True, default_app={"stack": "catena-gatus"},
+        _default_apps_available=True, default_app={"stack": "catena-beszel"},
         _default_app_service={"stdout_lines": lines}).strip()
-    assert render(["catena-gatus_app 1/1"]) == "True"
-    assert render(["catena-gatus_app 0/1"]) == "True"
-    assert render(["catena-gatus_app 0/0"]) == "False"
+    assert render(["catena-beszel_app 1/1"]) == "True"
+    assert render(["catena-beszel_app 0/1"]) == "True"
+    assert render(["catena-beszel_app 0/0"]) == "False"
     assert render([]) == "False"
-    assert render(["catena-gatus_appx 1/1"]) == "False"
+    assert render(["catena-beszel_appx 1/1"]) == "False"
 
 
-def test_gatus_comes_after_the_apps_it_reads():
-    names = [t["name"] for t in yaml.safe_load((TASKS / "main.yml").read_text())]
-    gatus = next(i for i, n in enumerate(names) if n.startswith("Gatus"))
-    assert next(i for i, n in enumerate(names) if n.startswith("Beszel")) < gatus
-
-
-# --- the overlays and the config volume ----------------------------------------
+# --- the overlays ----------------------------------------------------------------
 
 def test_the_gate_network_is_a_capability_name():
     gv = _group_vars()
@@ -362,28 +333,14 @@ def test_the_gate_network_is_a_capability_name():
         assert re.fullmatch(r"catena-[a-z]+", gv[key]), (key, gv[key])
 
 
-def test_gatus_syncs_into_the_apps_config_volume():
-    value = _defaults()["gatus_host_config_dir"]
-    assert value == ("{{ storage_mount_point }}/docker/volumes/{{ gatus_stack }}_config/_data")
-    gatus = CONTRACT["gatus"]
-    folder = jinja2.Environment().from_string(value).render(
-        storage_mount_point=STORAGE, gatus_stack=STACKS["gatus"])
-    assert folder == f"{STORAGE}/docker/volumes/{gatus['volumes'][gatus['config_volume']]}/_data"
-    assert folder == "/srv/catena/docker/volumes/catena-gatus_config/_data"
-    env = (INFRA / "templates" / "gatus-sync.env.j2").read_text()
-    assert "{{ gatus_host_config_dir }}/50-catena-apps.yaml" in env
-    assert "{{ gatus_host_config_dir }}/40-infra.yaml" in env
-
-
 def test_the_sqlite_list_is_the_contracts():
     expr = _defaults()["infrastructure_sqlite_databases"]
     env = jinja2.nativetypes.NativeEnvironment()
     env.filters["regex_replace"] = lambda value, pattern, repl: re.sub(pattern, repl, value)
     defaults = _defaults()
-    got = env.from_string(expr).render(
-        **{**defaults, "gatus_stack": STACKS["gatus"], "beszel_hub_stack": STACKS["beszel"]})
+    got = env.from_string(expr).render(**{**defaults, "beszel_hub_stack": STACKS["beszel"]})
     want = [f"{entry['volumes'][db['volume']]}/_data/{db['file']}"
-            for entry in (CONTRACT[a] for a in ("gatus", "beszel"))
+            for entry in (CONTRACT[a] for a in ("beszel",))
             for db in entry["sqlite"]]
     assert got == want
 
@@ -391,7 +348,6 @@ def test_the_sqlite_list_is_the_contracts():
 def test_each_loopback_port_and_alias_is_the_contracts():
     defaults = _defaults()
     ports = {
-        "gatus": ("gatus_host_localhost_port", "gatus_internal_port", "gatus_network_alias"),
         "beszel": ("beszel_hub_host_localhost_port", "beszel_hub_internal_port",
                    "beszel_hub_network_alias"),
     }
@@ -405,8 +361,7 @@ def test_each_loopback_port_and_alias_is_the_contracts():
 
 
 def test_each_fragment_declares_the_contracts_published_port():
-    for name, key, owner in (("gatus.yml", "gatus_host_localhost_port", "gatus"),
-                             ("beszel.yml", "beszel_hub_host_localhost_port", "beszel")):
+    for name, key, owner in (("beszel.yml", "beszel_hub_host_localhost_port", "beszel"),):
         text = (TASKS / name).read_text()
         assert f'"port": {key} | int' in text, name
         assert f'"owner": "{owner}"' in text, name
@@ -422,15 +377,12 @@ def test_the_overlays_are_the_contracts_networks():
     assert gate == [_defaults()["beszel_hub_network_alias"]]
 
 
-def test_every_infra_spec_stack_is_a_contract_stack():
-    text = (INFRA / "templates" / "gatus-infra-spec.json.j2").read_text()
+def test_every_uptime_target_stack_is_a_contract_stack():
+    text = (INFRA / "templates" / "uptime-targets.json.j2").read_text()
     names = re.findall(r'"stack": "\{\{ (\w+) \}\}"', text)
-    assert names, "the infra spec names no stack"
-    by_var = {"gatus_stack": "gatus", "beszel_hub_stack": "beszel"}
-    for name in names:
-        assert name in by_var, name
-        assert STACKS[by_var[name]] in set(STACKS.values())
-    assert set(names) == set(by_var)
+    assert names, "the uptime targets name no stack"
+    assert set(names) == {"beszel_hub_stack"}
+    assert STACKS["beszel"] in set(STACKS.values())
 
 
 # --- the address label ----------------------------------------------------------
@@ -452,7 +404,7 @@ def test_the_pre_task_sets_the_facts_group_vars_reads():
     gv = _group_vars()
     tasks = yaml.safe_load((PLAYBOOKS / "tasks" / "default_app_subdomains.yml").read_text())
     facts = [t["ansible.builtin.set_fact"] for t in tasks if "ansible.builtin.set_fact" in t][-1]
-    assert set(facts) == {"default_app_gatus_subdomain", "default_app_beszel_subdomain"}
+    assert set(facts) == {"default_app_beszel_subdomain"}
     for var in facts:
         assert var in str(gv), f"group_vars no longer reads {var}"
     read = next(t for t in tasks if "ansible.builtin.slurp" in t)
@@ -505,26 +457,27 @@ def _label_check(labels: dict) -> list[str]:
 
 
 def test_the_label_is_the_folders_subdomain_or_the_apps_own_name():
-    labels = _pre_task({"gatus": "A=1\nSUBDOMAIN=status\n", "beszel": "A=1\n"})
-    assert labels == {"gatus": "status", "beszel": "beszel"}
+    labels = _pre_task({"beszel": "A=1\nSUBDOMAIN=metrics\n"})
+    assert labels == {"beszel": "metrics"}
     assert _label_check(labels) == []
+    assert _pre_task({"beszel": "A=1\n"}) == {"beszel": "beszel"}
 
 
 def test_no_folder_leaves_each_app_its_own_name():
     labels = _pre_task({})
-    assert labels == {"gatus": "gatus", "beszel": "beszel"}
+    assert labels == {"beszel": "beszel"}
     assert _label_check(labels) == []
 
 
 def test_a_label_that_is_one_dns_label_is_accepted():
     for value in ("a", "hc", "my-status", "x9", "a" * 63):
-        assert _label_check({"gatus": value}) == [], value
+        assert _label_check({"beszel": value}) == [], value
 
 
 def test_a_label_that_is_not_one_dns_label_stops_the_converge():
     """A dot, a quote, a backtick, a slash or an uppercase letter would reach the
-    gate's route, the Keycloak redirect URI, the Gatus probes and the hub's
-    APP_URL."""
+    gate's route, the Keycloak redirect URI, the uptime check's targets and the
+    hub's APP_URL."""
     for value in ("hc.old", "a'b", 'a"b', "a`b", "a/b", "a b", "-a", "a-", "Hc",
                   "a" * 64, "a;b", "$(x)", "a{b}"):
         [message] = _label_check({"beszel": _pre_task({"beszel": f"SUBDOMAIN={value}\n"})["beszel"]}) or [""]
@@ -561,5 +514,5 @@ def test_every_converge_path_reads_the_label_before_any_role():
 
 def test_the_subdomains_are_no_longer_store_keys():
     knobs = (ANSIBLE / "helpers" / "knobs.yml").read_text()
-    for gone in ("GATUS_SUBDOMAIN", "BESZEL_SUBDOMAIN"):
+    for gone in ("BESZEL_SUBDOMAIN",):
         assert gone not in knobs, gone
