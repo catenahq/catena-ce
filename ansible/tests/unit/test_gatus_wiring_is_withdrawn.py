@@ -52,9 +52,8 @@ def test_gatus_is_not_a_default_app():
 
 
 def test_no_file_names_the_gatus_stack_overlay_or_sync():
-    """A task that named the stack could stop, remove or convert the running
-    copy; none does, because none names it. The only names left are the files the
-    removal lists."""
+    """The only names left are the files the removal lists; the same check for
+    a dropped default app is in test_a_dropped_default_app_is_left_alone.py."""
     checked = 0
     for path in _files():
         if path in NAMES_THE_REMOVAL or path == Path(__file__):

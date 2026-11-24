@@ -189,9 +189,8 @@ actions:
     #
     # The dashboard sync changes routes and applications, so its start runs
     # under the host lock, lent to catena-dashboard-sync.service as the tick
-    # does: its catena-apps calls run inside the hold. While another job
-    # holds the lock, host-lock answers 75 at once and the press says the
-    # server is busy.
+    # does: its catena-apps calls run inside the hold. A held lock ends the
+    # press with the busy answer of cloudflared-restart.
     #
     # Dispatcher runs with `set -euo pipefail`, so capturing the non-zero
     # exit code requires `set +e` first -- a plain `RC=$?` aborts on errexit
