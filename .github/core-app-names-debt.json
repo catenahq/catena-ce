@@ -39,7 +39,6 @@
   "ansible/tests/unit/test_every_hostname_a_template_uses_is_declared.py": 2,
   "ansible/tests/unit/test_gated_identity_is_not_forgeable.py": 32,
   "ansible/tests/unit/test_gated_services_have_no_default_route.py": 2,
-  "ansible/tests/unit/test_host_layout.py": 2,
   "ansible/tests/unit/test_managed_services_manifest.py": 4,
   "ansible/tests/unit/test_no_service_is_addressed_at_a_dangling_hostname.py": 18,
   "ansible/tests/unit/test_oauth2_kick_only_restarting.py": 1,

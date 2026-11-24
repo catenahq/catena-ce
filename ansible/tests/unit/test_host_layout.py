@@ -114,7 +114,7 @@ FILE_VARS = {
     "version_check": "version_check_output_file",
     "version_check_overrides": "version_check_overrides_file",
     "default_apps": "default_apps_list_path",
-    "gatus_sync_env": "gatus_sync_env_path",
+    "uptime_targets": "uptime_targets_path",
     "dashboard_sync_env": "dashboard_sync_env_path",
     "heartbeat_env": "heartbeat_env_file",
     "keycloak_master_admins": "keycloak_master_admins_path",
