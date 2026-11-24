@@ -115,6 +115,20 @@ def test_the_guide_reloads_the_mariadb_exports_too():
             f"RECOVERY-README.{lang} lost the MariaDB reload")
 
 
+def test_the_guide_reloads_the_mongodb_exports_too():
+    """The backup writes MongoDB archives under backup-staging/mongo: the guide
+    names them and reloads one with mongorestore, with the oplog replay only
+    for an archive that holds an oplog."""
+    for lang in _LANGS:
+        body = (_TEMPLATES / f"RECOVERY-README.{lang}.md.j2").read_text()
+        assert "backup-staging/mongo/*.archive`" in body, (
+            f"RECOVERY-README.{lang} does not name the MongoDB exports")
+        assert "mongorestore --archive --drop --oplogReplay < <" in body, (
+            f"RECOVERY-README.{lang} lost the MongoDB reload")
+        assert body.count("--oplogReplay") == 2, (
+            f"RECOVERY-README.{lang} must say when to leave --oplogReplay out")
+
+
 def test_the_guide_puts_a_monitoring_copy_back():
     """Each backup holds a whole copy of the monitoring services' SQLite
     databases under backup-staging/sqlite: the guide names the folder and
