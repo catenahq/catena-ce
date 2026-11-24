@@ -1,6 +1,6 @@
 {
   "README.md": 3,
-  "SPEC.md": 20,
+  "SPEC.md": 12,
   "ansible/SECRETS.md": 3,
   "ansible/helpers/onbox_config.py": 8,
   "ansible/playbooks/converge.yml": 2,
