@@ -15,12 +15,6 @@ traefik_container_name: catena-traefik
 # overlay).
 catena_network_name: catena-network
 
-# Traefik config tree: traefik.yml (static), dynamic/ (file-provider routes
-# written by oauth2_proxy + dashboard-sync + infrastructure's swarm_stack.yml).
-# Rooted under /etc/catena with the rest of the catena host config.
-traefik_config_dir: /etc/catena/traefik
-traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
-
 # The tier-1 SPEC for catena-traefik lives in the host engine, catena-admin
 # payload/engines/tier1/catalog.go: the mounts, the hardening, the placement
 # constraints and the health probe. reconcile/roles/traefik reads it with

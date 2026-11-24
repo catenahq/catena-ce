@@ -134,6 +134,12 @@ catena_zone_projection_max_age_hours: 48
 # the catena-traefik container, reachable by service name inside the network.
 cloudflared_ingress_service: "http://catena-traefik:80"
 
+# The Traefik config tree: traefik.yml (static) and dynamic/, the file-provider
+# routes reconcile/roles/traefik, oauth2_proxy and infrastructure write and
+# their validate tasks read.
+traefik_config_dir: /etc/catena/traefik
+traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
+
 # --- Local ACME server (the test bench's Pebble) ---
 # Blank on a client install, so certbot issues against Let's Encrypt. The test
 # bench points them at its host-side Pebble. The minica is ADDED to the system
