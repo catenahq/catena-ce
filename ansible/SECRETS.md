@@ -106,7 +106,6 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `oauth2_proxy_cookie_secret`, the client apps' gates
 - `oauth2_proxy_cookie_secret_<zone>`, one per domain in `CLOUDFLARE_ZONES`
 - `catena_admin_gate_cookie_secret`, the panel's gate
-- `gatus_gate_cookie_secret`, Gatus' gate
 - `beszel_gate_cookie_secret`, the Beszel hub's gate
 - `oauth2_proxy_client_secret`
 - `dashboard_sync_client_secret`
@@ -149,7 +148,8 @@ installer sends the `.env` with an install, for that run only.
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
 `HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
 the off-site heartbeat (`OFFSITE_HEARTBEAT_URL`), the alert hub's email list,
-switches and CVE level (`ALERT_*`), `IDENTITY_ENFORCE_MFA`, the
+switches and CVE level (`ALERT_*`), the other addresses the uptime check
+watches (`UPTIME_OTHER_URLS`), `IDENTITY_ENFORCE_MFA`, the
 automatic emergency patch (`CVE_AUTO_PATCH`), and the server's time zone and
 locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They
 have no `.env` line; the installer names a filled one it finds, because

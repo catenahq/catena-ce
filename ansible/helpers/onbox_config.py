@@ -221,7 +221,6 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # alone (reconcile/roles/oauth2_proxy oauth2_proxy_apps cookie_secret_var),
     # so a session cookie a client app or another tool sees opens none of them.
     "catena_admin_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
-    "gatus_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "beszel_gate_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "oauth2_proxy_client_secret": mint_strong_password,
     "dashboard_sync_client_secret": mint_strong_password,
@@ -259,6 +258,7 @@ RETIRED_SECRETS: frozenset[str] = frozenset({
     "healthchecks_api_key_readonly",
     "healthchecks_api_key_readwrite",
     "healthchecks_gate_cookie_secret",
+    "gatus_gate_cookie_secret",
 })
 
 # USER_HELD: the DR keyset + first-login credential, generated on-box and shown

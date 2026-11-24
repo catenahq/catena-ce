@@ -34,7 +34,7 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   ([../../../playbooks/filter_plugins/catena_admin_service.py](../../../playbooks/filter_plugins/catena_admin_service.py))
   expects: `/etc/catena/admin-ssh/`, `/etc/catena/admin-actions.yml`,
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
-  populated by catena-backup-run + catena-gatus-sync), and
+  populated by catena-backup-run + catena-uptime), and
   `/var/backups/catena-export/` (recovery artifacts, read-only). The
   shell's one writable directory is its own state,
   `/var/lib/catena/admin/`.

@@ -179,11 +179,6 @@ catena_managed_services_path: /etc/catena/managed-services.json
 # Schedules page).
 catena_stack_update_stabilize_seconds: 120
 catena_stack_update_cve_severity: "HIGH,CRITICAL"
-# Gatus's endpoint statuses, on the loopback port reconcile/roles/infrastructure
-# publishes it on. The maintenance's pre-update gate reads it (daily.env), and
-# so does the health baseline the update lanes compare a bump against
-# (stack-update.env); both run on the host.
-catena_gatus_statuses_url: "http://127.0.0.1:{{ gatus_host_localhost_port }}/api/v1/endpoints/statuses"
 
 # EE-reserved HOST dispatch entries. The Go shell renders Business action
 # BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only

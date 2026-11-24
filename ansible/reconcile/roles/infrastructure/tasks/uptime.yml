@@ -1,0 +1,12 @@
+---
+# The services of Catena's own that catena-uptime (catena-admin payload) checks
+# every minute. The check, its units and the record it keeps ship in the
+# catena-admin payload; this file renders the one list that is this host's: its
+# addresses. The applications are read by the check itself, off the app intent.
+- name: "Uptime: render the targets ({{ uptime_targets_path }})"
+  ansible.builtin.template:
+    src: uptime-targets.json.j2
+    dest: "{{ uptime_targets_path }}"
+    owner: root
+    group: root
+    mode: "0644"

@@ -6,7 +6,7 @@ matching `ufw status`, and the pattern has to be right in two directions:
 
   only ports 80/443     `(80|443)/tcp` as a substring would also match any
                         port ending in 80 or 443, such as `18080/tcp DENY`,
-                        gatus' loopback port, denied off-box by the
+                        a loopback port denied off-box by the
                         scope=loopback registry declaration.
 
   only rules that OPEN  the assertion is "nothing OPENS these", so an explicit
@@ -75,17 +75,17 @@ def test_an_open_80_or_443_is_caught(row):
 
 @pytest.mark.parametrize("row", [
     # The regression: a high port whose digits end in 80 or 443.
-    "18080/tcp                  DENY        Anywhere                   # catena-ports:gatus",
-    "18080/tcp (v6)             DENY        Anywhere (v6)              # catena-ports:gatus",
-    "8443/tcp                   ALLOW       Anywhere",
+    "18080/tcp                  DENY        Anywhere                   # catena-ports:monitor",
+    "18080/tcp (v6)             DENY        Anywhere (v6)              # catena-ports:monitor",
+    "8443/tcp                  ALLOW       Anywhere",
     "10443/tcp                  ALLOW       Anywhere",
     # An explicit deny on the real ports is the desired state, not a
     # violation.
     "80/tcp                     DENY        Anywhere",
     "443/tcp                    DENY        Anywhere",
     # Other protocols and unrelated services.
-    "5349/tcp                   ALLOW       Anywhere                   # catena-ports:gatus",
-    "22/tcp                    ALLOW       Anywhere",
+    "5349/tcp                   ALLOW       Anywhere                   # catena-ports:monitor",
+    "22/tcp                   ALLOW       Anywhere",
 ])
 def test_unrelated_or_denied_rows_are_ignored(row):
     assert _hits(_HEADER + row + "\n") == []
@@ -100,9 +100,9 @@ def test_catches_the_open_port_among_the_noise():
     pattern that is merely anchored but action-blind would return three
     hits here."""
     body = _HEADER + "\n".join([
-        "18080/tcp                  DENY        Anywhere                   # catena-ports:gatus",
+        "18080/tcp                  DENY        Anywhere                   # catena-ports:monitor",
         "18190/tcp                  DENY        Anywhere                   # catena-ports:beszel",
         "80/tcp                     ALLOW       Anywhere",
-        "5349/tcp                   ALLOW       Anywhere                   # catena-ports:gatus",
+        "5349/tcp                   ALLOW       Anywhere                   # catena-ports:monitor",
     ]) + "\n"
     assert _hits(body) == ["80/tcp                     ALLOW       Anywhere"]

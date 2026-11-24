@@ -22,7 +22,7 @@ ROLE = ROLES / "public_ports"
 
 def test_the_loopback_ports_declare_the_dnat_bind():
     tasks = ROLES / "infrastructure" / "tasks"
-    for name in ("gatus.yml", "beszel.yml", "alert_intake.yml"):
+    for name in ("beszel.yml", "alert_intake.yml"):
         body = (tasks / name).read_text(encoding="utf-8")
         assert '"scope": "loopback", "bind": "docker"' in body, name
         assert '"bind": "host"' not in body, (
@@ -96,7 +96,7 @@ def test_every_start_of_the_reconciler_skips_when_it_is_not_installed():
                 continue  # the lockdown runs on an installed host only
             assert "catena_public_ports_installed | default(true) | bool" in conds, (
                 f"{path.relative_to(ANSIBLE)}: {task.get('name')}")
-    assert len(starts) >= 7, starts
+    assert len(starts) >= 6, starts
 
 
 def test_the_role_runs_right_after_the_payload_that_installs_it():

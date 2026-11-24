@@ -11,7 +11,7 @@ that reads as:
 
     docker service ls  -> 4 oauth2-proxy services, each 1/1
     docker ps          -> 8 Up oauth2-proxy containers
-    docker service ps oauth2-proxy_oauth2-proxy-gatus
+    docker service ps oauth2-proxy_oauth2-proxy-beszel
                        -> one task: ...uptm6r604rjb
     docker ps          -> ...uptm6r604rjb AND ...btfqe0dzn41p, both Up
 

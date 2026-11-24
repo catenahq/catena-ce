@@ -10,8 +10,10 @@ The properties held here:
   reads it;
 - the contract (contracts default-apps/wiring.json) puts the apps that post to
   it on that overlay, each listing its own source's token;
-- the three tokens are minted store secrets, one source token per entry of the
-  contract's `alert_intake_sources`;
+- the three tokens are minted store secrets: one per source and one that reads
+  the state; the contract's `alert_intake_sources` names the sources an app
+  holds, and the service-check source's token is core's, posted by
+  `catena-uptime` from the host;
 - the port's fragment is loopback-only on the DNAT bind, and validate refuses a
   request with no token;
 - the alert switches of the two sources are declared.
@@ -168,6 +170,13 @@ def test_a_token_is_named_for_its_source_not_for_a_monitor():
     assert {f"alert_intake_token_{source}" for source in sources} <= set(TOKENS)
     for app in sources.values():
         assert app in WIRING["apps"]
+
+
+def test_the_service_check_token_is_core_s_and_no_app_holds_it():
+    assert "status" not in WIRING["alert_intake_sources"]
+    assert "alert_intake_token_status" in TOKENS
+    for app, entry in WIRING["apps"].items():
+        assert "alert_intake_token_status" not in entry["secrets"], app
 
 
 def test_the_apps_that_post_are_on_the_alert_overlay_with_their_own_token():

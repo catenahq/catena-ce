@@ -83,7 +83,7 @@ def test_the_writable_scope_is_nested_inside_a_read_only_parent():
     """The property that lets one state directory serve both writers.
 
     /var/lib/catena holds the host lanes' state and is mounted read-only: the
-    panel reads the backup stats and the gatus summary and must not be able to
+    panel reads the backup stats and the uptime record and must not be able to
     rewrite them. Its own directory is nested inside that, read-write. Docker
     sorts binds by destination depth, so the nested one shadows the parent
     whatever order they are declared in.

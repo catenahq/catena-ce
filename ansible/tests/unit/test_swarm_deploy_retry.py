@@ -84,7 +84,7 @@ def test_a_stack_that_converged_despite_the_paused_update_is_retried() -> None:
 @pytest.mark.parametrize("seen", [
     "failed to update service keycloak_server: Error response from daemon: "
     "rpc error: code = Unknown desc = update out of sequence",
-    "failed to update service gatus_app: Error response from daemon: rpc error: "
+    "failed to update service wiki_app: Error response from daemon: rpc error: "
     "code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL",
 ], ids=["late-commit", "grpc-deadline"])
 def test_a_manager_deadline_is_transient(seen: str) -> None:

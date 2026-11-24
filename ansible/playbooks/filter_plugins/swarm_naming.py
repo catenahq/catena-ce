@@ -25,7 +25,7 @@ here operates on it.
 Usage in shell-pipe form:
 
     docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \\
-      | grep -E '{{ "gatus" | swarm_container_regex("app") }}' \\
+      | grep -E '{{ "wiki" | swarm_container_regex("app") }}' \\
       | head -n1
 
 The filter returns the anchored regex (^...$). Callers wrap it in their own
