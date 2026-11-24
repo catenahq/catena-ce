@@ -60,6 +60,7 @@
   "ansible/tests/unit/test_gated_services_have_no_default_route.py": 4,
   "ansible/tests/unit/test_gatus_infra_spec.py": 41,
   "ansible/tests/unit/test_gatus_restarts_through_its_service.py": 6,
+  "ansible/tests/unit/test_host_layout.py": 2,
   "ansible/tests/unit/test_managed_services_manifest.py": 6,
   "ansible/tests/unit/test_no_service_is_addressed_at_a_dangling_hostname.py": 18,
   "ansible/tests/unit/test_oauth2_kick_only_restarting.py": 1,
