@@ -227,16 +227,20 @@
         - _kc_user_lookup is defined
         - _kc_user_lookup is succeeded
 
+    # helpers/keycloak_send_verify_email.py runs the send and tries it again
+    # while the worker log shows the relay unreached (a lost DNS lookup); a
+    # relay that refuses the mail fails the first time. Its non-zero exit is a
+    # real failure, surfaced below with the worker log.
     - name: "Keycloak: send-verify-email to admin in vps realm"
       ansible.builtin.command:
         argv:
-          - docker
-          - exec
+          - python3
+          - "{{ playbook_dir }}/../helpers/keycloak_send_verify_email.py"
+          - --container
           - "{{ _keycloak_server_ct.stdout }}"
-          - /opt/keycloak/bin/kcadm.sh
-          - update
-          - "users/{{ _kc_admin_user_id }}/send-verify-email"
-          - -r
+          - --user-id
+          - "{{ _kc_admin_user_id }}"
+          - --realm
           - "{{ keycloak_realm | default('vps') }}"
       register: _kc_send_verify
       changed_when: false
@@ -245,11 +249,6 @@
         - (_keycloak_server_ct.stdout | default('') | length) > 0
         - _kc_master_login is succeeded
         - (_kc_admin_user_id | default('') | length) > 0
-      # kcadm update on send-verify-email returns 0 if the realm has
-      # SMTP wired AND the worker accepts the dispatch. A real SMTP
-      # failure surfaces in `docker logs <keycloak-server>` (the worker
-      # logs the SMTP exception) but that asynchronous path doesn't
-      # influence rc here. Treat any non-zero rc as a real failure.
       failed_when: false
 
     # Surface the actual SMTP exception from the keycloak worker on
