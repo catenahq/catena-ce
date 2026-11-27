@@ -1,0 +1,46 @@
+---
+# Per-host wiring for catena-version-check, the current-vs-latest Versions
+# report. The script and its unit (catena-version-check.service) ship in the
+# catena-admin payload, which reconcile/roles/payload extracts earlier in the
+# play; the converge's tail starts it once every role has moved its services.
+
+- name: "version check: is the payload-shipped script expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ version_check_script_path }}"
+
+- name: "version check: the script is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      {{ version_check_script_path }} is missing although reconcile/roles/payload
+      ran in this converge. It ships in the catena-admin payload, so the
+      extract did not land or did not carry all of it -- check the "Payload:"
+      tasks above.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "version check: staged out of band and not present -- refresh deferred"
+  ansible.builtin.debug:
+    msg: >-
+      {{ version_check_script_path }} is not on the host and this converge does
+      not install the payload (CATENA_PAYLOAD_INSTALL=false). The version report
+      is refreshed by the first converge after the payload install.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+- name: "version check: pin whether the script is here"
+  ansible.builtin.set_fact:
+    _version_check_present: "{{ catena_payload_missing | length == 0 }}"
+
+# The panel refreshes the version report when a page opens, so no timer runs it.
+# A server set up before that still has the timer enabled.
+- name: "version check: no timer (disable one left from before)"
+  ansible.builtin.command: systemctl disable --now catena-version-check.timer  # noqa: command-instead-of-module
+  register: _version_timer_off
+  changed_when: _version_timer_off.rc == 0 and 'Removed' in _version_timer_off.stderr
+  failed_when: false

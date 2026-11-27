@@ -34,7 +34,7 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   ([../../../playbooks/filter_plugins/catena_admin_service.py](../../../playbooks/filter_plugins/catena_admin_service.py))
   expects: `/etc/catena/admin-ssh/`, `/etc/catena/admin-actions.yml`,
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
-  populated by catena-backup-run + catena-gatus-sync), and
+  populated by catena-backup-run + catena-uptime), and
   `/var/backups/catena-export/` (recovery artifacts, read-only). The
   shell's one writable directory is its own state,
   `/var/lib/catena/admin/`.
@@ -73,17 +73,19 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   every request it forwards: the panel's listener is on `catena-network`,
   where any client app container can set identity headers, and it takes an
   identity only from a request carrying that secret. A secret of the panel's
-  that no service mounts is removed after the deploy. The service
-  also joins the private overlays of Healthchecks (`healthchecks_network`),
-  to read its checks, and the spec's networks are reconciled like its env and secrets. No
+  that no service mounts is removed after the deploy, including one whose base
+  the specs no longer declare. The service is on
+  `catena-network` alone, and the spec's networks are reconciled like its env
+  and secrets. No
   Traefik route is written here (oauth2-proxy owns the gated `dash.<zone>`
   route). The test bench renders its argv from the same filter plugin when it
   recreates a panel a scenario removed.
 
 `tasks/validate.yml` checks the lane files' modes (the update lane's 0600),
 that the managed-services list and the UI port fragment parse and the port is
-loopback only, the catalog files and the root-only overlay directory, and that
-the panel service is 1/1.
+loopback only, the catalog files and the root-only overlay directory, that no
+panel secret outside the declared bases is left, and that the panel service is
+1/1.
 
 ## What this role does NOT do
 

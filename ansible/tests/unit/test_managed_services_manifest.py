@@ -194,10 +194,10 @@ def test_keycloak_is_covered(manifest):
 
 
 def test_the_default_apps_are_updated_through_their_folders(manifest):
-    """Gatus, Healthchecks and Beszel are catalog apps: the update engine
-    bumps them from their folders, so a second path here would bump them twice."""
+    """Beszel is a catalog app: the update engine bumps it from its folder, so
+    a second path here would bump it twice."""
     names = {s["name"] for s in manifest}
-    for absent in ("gatus", "healthchecks", "beszel", "beszel-hub", "beszel-agent"):
+    for absent in ("beszel", "beszel-hub", "beszel-agent"):
         assert absent not in names, f"{absent} is bumped as an infra stack and as an app"
 
 

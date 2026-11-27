@@ -1,5 +1,5 @@
 ---
-# The address label of each default app (Gatus, Healthchecks, Beszel) is its
+# The address label of each default app (Beszel) is its
 # SUBDOMAIN setting, which catena-apps keeps in the app's .env. Read it into the
 # default_app_*_subdomain facts that playbooks/group_vars/all/main.yml builds the
 # hostnames from; an app with no folder yet, or no value, keeps its own name (the
@@ -7,11 +7,10 @@
 # before any role runs.
 #
 # An app setting checks nothing, and the label reaches the gate's route, the
-# Keycloak redirect URI, the Gatus probes, SITE_ROOT and ALLOWED_HOSTS, so a
+# Keycloak redirect URI, the uptime check's targets and the hub's APP_URL, so a
 # value that is not one DNS label stops the converge.
 
-# The .env holds secrets (the mail password, the Gatus alert key): nothing of it
-# is printed.
+# The .env holds secrets: nothing of it is printed.
 - name: "Default apps: read each app's .env"
   ansible.builtin.slurp:
     src: "{{ default_apps_compose_dir }}/{{ item.stack }}/.env"
@@ -25,8 +24,6 @@
 - name: "Default apps: the address label of each"
   ansible.builtin.set_fact:
     _default_app_labels:
-      gatus: "{{ _texts.gatus | dotenv_value('SUBDOMAIN', 'gatus') }}"
-      healthchecks: "{{ _texts.healthchecks | dotenv_value('SUBDOMAIN', 'healthchecks') }}"
       beszel: "{{ _texts.beszel | dotenv_value('SUBDOMAIN', 'beszel') }}"
   vars:
     _texts: >-
@@ -53,6 +50,4 @@
 
 - name: "Default apps: publish the address labels"
   ansible.builtin.set_fact:
-    default_app_gatus_subdomain: "{{ _default_app_labels.gatus }}"
-    default_app_healthchecks_subdomain: "{{ _default_app_labels.healthchecks }}"
     default_app_beszel_subdomain: "{{ _default_app_labels.beszel }}"

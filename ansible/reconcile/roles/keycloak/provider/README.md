@@ -15,4 +15,4 @@ Maven resolves Keycloak and Phase Two's `keycloak-magic-link` (the version the P
 
     mvn -B -ntp --strict-checksums verify
 
-runs the JUnit 5 and Mockito tests under `src/test/java` and writes `target/catena-keycloak.jar`. The build is reproducible: `project.build.outputTimestamp` is fixed, so two builds give the same SHA-256. The CI job `keycloak-provider` builds twice and compares.
+runs the JUnit 5 and Mockito tests under `src/test/java` and writes `target/catena-keycloak.jar`. The build is reproducible: `project.build.outputTimestamp` is fixed, so two builds give the same SHA-256. The `keycloak` check (`bash ci/run keycloak`) builds twice and compares.

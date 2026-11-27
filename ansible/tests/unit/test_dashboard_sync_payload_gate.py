@@ -287,7 +287,6 @@ def test_the_reconcilers_left_the_unconditional_fixture_loop():
     front of it."""
     loop = str(_find_v("stat sync scripts + traefik dynamic dir")["loop"])
     assert "catena-dashboard-sync" not in loop
-    assert "gatus-sync" not in loop
     assert "traefik/dynamic" in loop
 
 
@@ -307,16 +306,4 @@ def test_the_dashboard_sync_timer_probe_follows_the_same_gate():
     assert "catena-dashboard-sync.timer" in expr
     assert "catena-app-events.service" in expr
     assert _V_EXPECTED in expr
-
-
-def test_the_gatus_timer_is_never_dropped_by_the_gate():
-    """gatus-sync is this role's own. If the deferral dropped both timers, a
-    host with no payload would have no timer coverage at all -- which reads as
-    a pass."""
-    expr = str(_find_v("which sync units should be armed")
-               ["ansible.builtin.set_fact"]["_infra_sync_units"])
-    tail = expr.split("else [])", 1)[-1]
-    assert "gatus-sync.timer" in tail, (
-        "gatus-sync.timer must sit OUTSIDE the conditional half of the "
-        f"expression, got: {expr!r}"
-    )
+    assert "sync.timer" not in expr.replace("catena-dashboard-sync.timer", "")

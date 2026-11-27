@@ -6,18 +6,11 @@ precedence. Wherever both name the same variable, the role's copy can
 never apply -- and it still reads as the authority to whoever opens that
 file, so an edit to it silently does nothing.
 
-Three were found this way, all in reconcile/roles/infrastructure:
-`healthchecks_subdomain` and `healthchecks_hostname`, which agreed with
-group_vars and so hid harmlessly, and `ansible_managed`, which did NOT.
-group_vars said "Managed by catena -- do not edit directly; regenerate
-via the installer / converge.yml." while the role said "Managed by catena
-- do not edit directly." Every file that role templates carried the
-group_vars banner; the role's own text had never been written to a host.
-
-The same shape cost the panel its single name: `catena_admin_hostname`
-and `infrastructure_dash_hostname` both rendered dash.<zone> from their
-own subdomain variable, so they agreed and nothing noticed -- until
-something changed one.
+A role copy that agrees with group_vars hides harmlessly until one of the
+two changes; one that disagrees, such as an `ansible_managed` banner of its
+own, is never written to a host. Two hostname variables that render the same
+name from their own subdomain variables agree the same way, until something
+changes one.
 """
 from __future__ import annotations
 

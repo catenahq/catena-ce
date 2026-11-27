@@ -58,81 +58,8 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 #
 # Fail-soft contract: if nothing is declared OR a destination's creds are
 # missing OR a destination bucket is unreachable, the lane logs the reason,
-# records it on the attempted check below, and exits 0. Backups never
-# read any of it and stay unaffected -- a misconfigured copy cannot brick
-# the primary backup path.
-#
-# One healthcheck pair for the whole lane rather than one per copy: a check
-# that appears and disappears as a client edits the list is a monitoring
-# surface that churns, and the run's single signal already names the copies
-# it is about.
-offsite_healthcheck_url: >-
-  {{
-    healthchecks_ping_base
-    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-    ~ '/catena-offsite-copy-succeeded?create=1'
-    if healthchecks_ping_key is defined else ''
-  }}
-offsite_healthcheck_attempted_url: >-
-  {{
-    healthchecks_ping_base
-    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-    ~ '/catena-offsite-copy-attempted?create=1'
-    if healthchecks_ping_key is defined else ''
-  }}
-# Two healthchecks per backup, not one. Restic / S3 are flaky enough that a
-# single failed backup should not page; two consecutive failures should.
-#
-# - succeeded: pinged at end-of-run on success.
-# - attempted: pinged on /start always, /fail on hard error (pg_dumpall
-#   abort, etc.). Catches "host went away" and structural failures
-#   immediately.
-#
-# catena-schedule (catena-admin payload/engines/schedule) keeps both checks on
-# the schedule of the lanes that run the backup, and gives the succeeded one
-# one schedule gap more grace, so a single miss alerts nobody and a second one
-# does. ?create=1 provisions a check its first ping finds missing.
-#
-# Both ping healthchecks_ping_base -- the loopback publish, not the public
-# hostname. These run from a systemd unit ON the box reaching a container ON
-# the box; routing that through Cloudflare made the backup dead-man die with
-# the edge it reports on. A host that is gone is reported by the heartbeat
-# lane's off-site call instead.
-backup_healthcheck_url: >-
-  {{
-    healthchecks_ping_base
-    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-    ~ '/catena-backup-succeeded?create=1'
-    if healthchecks_ping_key is defined else ''
-  }}
-backup_healthcheck_attempted_url: >-
-  {{
-    healthchecks_ping_base
-    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-    ~ '/catena-backup-attempted?create=1'
-    if healthchecks_ping_key is defined else ''
-  }}
-# The deep integrity check's own check: catena-restic-check --subset pings it
-# with /fail when the deep read fails and success when it passes, whatever state
-# the maintenance is in. catena-schedule keeps it on the restic_check_subset
-# lane's schedule.
-restic_check_healthcheck_url: >-
-  {{
-    healthchecks_ping_base
-    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-    ~ '/catena-restic-check-subset?create=1'
-    if healthchecks_ping_key is defined else ''
-  }}
-# The restore test lane's own check: catena-restore-test pings it with /fail
-# when the restore fails and success when it passes. catena-schedule keeps it on
-# the restore_test lane's schedule.
-restore_test_healthcheck_url: >-
-  {{
-    healthchecks_ping_base
-    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-    ~ '/catena-restore-test?create=1'
-    if healthchecks_ping_key is defined else ''
-  }}
+# and exits 0. Backups never read any of it and stay unaffected -- a
+# misconfigured copy cannot brick the primary backup path.
 
 # Retention is not set by this repo at all.
 #
@@ -186,7 +113,7 @@ restore_test_healthcheck_url: >-
 #      -> the folder under /srv/catena/compose
 #      ✓ covered by {{ storage_mount_point }}/compose
 #
-#   C. catena host config (traefik, gatus, keycloak realms, ...)
+#   C. catena host config (traefik, keycloak realms, ...)
 #      -> /etc/catena/<component>
 #      ✓ covered by /etc (below)
 #
@@ -403,10 +330,6 @@ backup_restic_check_timeout: 600
 # temp/cache plus a small stack; the derived value takes over from there.
 backup_preflight_min_bytes: 5368709120 # 5 GiB
 backup_env_file: /etc/catena/backup.env
-# The offsite-copy lane's dead-man endpoints, kept separate because backup.env
-# is rewritten only once the host's backup is configured, and these apply on
-# every converge either way.
-offsite_env_file: /etc/catena/offsite.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup
 
@@ -418,7 +341,7 @@ backup_managed_paths: []
 # Stats file written by the wrapper after each successful run. This dir is
 # the catena-admin container's read-only bind-mount target: the catena-admin
 # role binds it at /var/lib/catena into the container, and the writers
-# (catena-backup-run, catena-gatus-sync) drop *.json files here.
+# (catena-backup-run, catena-uptime) drop *.json files here.
 # World-readable (0644) because the sidecars run as non-root users inside
 # their containers.
 backup_stats_dir: /var/lib/catena

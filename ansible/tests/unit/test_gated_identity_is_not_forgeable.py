@@ -1,20 +1,18 @@
-"""A client app container cannot claim a signed-in identity at the panel or at
-Healthchecks, nor sign in to Beszel's hub.
+"""A client app container cannot claim a signed-in identity at the panel, nor
+sign in to Beszel's hub.
 
-Both take the signed-in user from headers their oauth2-proxy gate sets, and
+The panel takes the signed-in user from headers its oauth2-proxy gate sets, and
 every client app joins catena-network, where it can set any header. The panel
 therefore takes those headers only beside the gate secret its gate sends as a
-Basic password (catena-admin shell/auth Gate). Healthchecks cannot check a
-secret, so it is on a network no client app joins. Beszel's hub creates an
-account for any realm user who drives its sign-in, so it is on another such
-network. It also takes the signed-in email from its gate's header, but only
-from peers in the subnet of a third network that only the gate and the hub join.
+Basic password (catena-admin shell/auth Gate). Beszel's hub creates an account
+for any realm user who drives its sign-in, so it is on a network no client app
+joins. It also takes the signed-in email from its gate's header, but only from
+peers in the subnet of a second network that only the gate and the hub join.
 
 The gates are rendered the way the converge renders them and read back as YAML,
 and a gate's credentials file as the TOML oauth2-proxy reads. The networks the
-Healthchecks, Gatus and Beszel apps join are held by the catalog's tests
-(catena-templates tests/) and by test_default_apps.py against the wiring
-contract.
+Beszel app joins are held by the catalog's tests (catena-templates
+tests/) and by test_default_apps.py against the wiring contract.
 
 Run: uv run pytest tests/unit/test_gated_identity_is_not_forgeable.py
 """
@@ -30,7 +28,6 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLES = ANSIBLE / "reconcile" / "roles"
 
-HC_NETWORK = "catena-healthchecks"
 BESZEL_NETWORK = "catena-beszel"
 GATE_NETWORK = "catena-beszelgate"
 GATE_SECRET = "gate+secret/value=="
@@ -60,8 +57,7 @@ def _gated_apps() -> list[dict]:
         app = dict(app)
         if "networks" in app:
             app["networks"] = [
-                env.from_string(n).render(healthchecks_network=HC_NETWORK,
-                                          beszel_network=BESZEL_NETWORK,
+                env.from_string(n).render(beszel_network=BESZEL_NETWORK,
                                           beszel_gate_network=GATE_NETWORK)
                 for n in app["networks"]
             ]
@@ -128,20 +124,11 @@ def test_the_gated_apps_list_names_the_secret_not_its_value():
         assert "{{ " + app["cookie_secret_var"] not in text
 
 
-def test_every_caller_of_healthchecks_joins_its_network():
+def test_the_gates_join_catena_network_and_the_hubs_gate_network_alone():
     gates = _gates()
-    hc_gate = gates["services"]["oauth2-proxy-healthchecks"]["networks"]
-    assert "catena-network" in hc_gate and HC_NETWORK in hc_gate
-    assert gates["networks"][HC_NETWORK] == {"external": True}
-
-
-def test_no_client_facing_gate_joins_the_healthchecks_network():
-    for name, svc in _gates()["services"].items():
-        if name == "oauth2-proxy-healthchecks":
-            continue
-        assert HC_NETWORK not in svc["networks"], (
-            f"{name} joins the Healthchecks network; only Healthchecks' own "
-            f"gate may")
+    for name, svc in gates["services"].items():
+        assert set(svc["networks"]) <= {"catena-network", GATE_NETWORK}, name
+    assert set(gates["networks"]) == {"catena-network", GATE_NETWORK}
 
 
 def test_the_converge_reads_and_checks_the_subnet_before_the_hub_is_added():
@@ -184,7 +171,7 @@ def test_every_caller_of_the_hub_joins_its_network():
 def test_no_gate_joins_the_beszel_network():
     for name, svc in _gates()["services"].items():
         assert BESZEL_NETWORK not in svc["networks"], (
-            f"{name} joins the Beszel network, where Gatus can reach the hub")
+            f"{name} joins the Beszel network, where it can reach the hub")
 
 
 def test_only_the_hubs_gate_and_the_hub_join_the_gate_network():
@@ -256,6 +243,6 @@ def test_the_beszel_gate_strips_the_clients_headers_and_skips_no_auth():
 def test_the_swarm_role_creates_the_private_networks():
     tasks = yaml.safe_load((ROLES / "swarm" / "tasks" / "main.yml").read_text())
     create = next(t for t in tasks if "private overlays" in t.get("name", ""))
-    assert create["loop"] == ["{{ healthchecks_network }}", "{{ beszel_network }}",
-                              "{{ beszel_gate_network }}", "{{ alert_network }}"]
+    assert create["loop"] == ["{{ beszel_network }}", "{{ beszel_gate_network }}",
+                              "{{ alert_network }}"]
     assert "--attachable" not in create["ansible.builtin.command"]["argv"]

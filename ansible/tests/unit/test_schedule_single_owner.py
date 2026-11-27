@@ -223,40 +223,17 @@ def test_the_secret_bearing_lane_config_is_not_world_readable():
         assert str(tpl["mode"]) == "0600", f"{src} must be 0600"
 
 
-def test_the_offsite_env_is_rendered_every_converge_not_only_if_absent():
-    # backup.env next door is rewritten only once the host's backup is
-    # configured. The lane's dead-man endpoints have to follow every converge,
-    # configured or not, or pointing them off-host on such a host would write
-    # into a file nothing rewrites.
-    tasks = yaml.safe_load(BACKUP_INSTALL.read_text())
-    renders = [
-        t for t in tasks
-        if str(t.get("ansible.builtin.template", {}).get("src", ""))
-        == "offsite.env.j2"
-    ]
-    assert len(renders) == 1, "offsite.env must be rendered exactly once"
-    assert "when" not in renders[0], (
-        "offsite.env must be unconditional: both values in it are "
-        "legitimately blank, and blank means the lane pings nothing"
-    )
-
-
 def test_which_buckets_get_copied_is_not_a_converge_input():
     # Converge keys can describe only a fixed set of copies, named after the
     # buckets they happen to point at. The list lives in
     # /etc/catena/config.json, which catena-admin writes and the lane reads
     # straight off disk -- so a client adding a copy does not need a converge,
     # and no key here can go stale against it.
-    offsite_env = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "offsite.env.j2"
-    body = _code(offsite_env)
-    for key in ("OFFSITE_HEALTHCHECK_URL", "OFFSITE_HEALTHCHECK_ATTEMPTED_URL"):
-        assert key in body
     for gone in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID"):
-        assert gone not in body, (
+        assert gone not in _code(BACKUP_ENV), (
             f"{gone} is back in a converge-rendered file; the copy list has "
             "one owner and it is the config store"
         )
-        assert gone not in _code(BACKUP_ENV)
 
 
 def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():

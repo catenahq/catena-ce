@@ -1,5 +1,5 @@
 ---
-# What the default apps (Gatus, Healthchecks, Beszel's hub) need before the
+# What the default app (Beszel's hub) needs before the
 # first of them is added: the list catena-admin's whole-server restore reads, and
 # the catena-apps engine that adds them (it ships in the catena-admin payload,
 # which reconcile/roles/payload extracts earlier in the play).
@@ -33,7 +33,7 @@
   ansible.builtin.fail:
     msg: >-
       {{ catena_apps_bin }} is missing although reconcile/roles/payload ran in
-      this converge, so Gatus, Healthchecks and Beszel cannot be added. It ships
+      this converge, so Beszel cannot be added. It ships
       in the catena-admin payload; check the "Payload:" tasks above.
   when:
     - catena_payload_missing | length > 0
@@ -43,8 +43,8 @@
   ansible.builtin.debug:
     msg: >-
       {{ catena_apps_bin }} is not on the host and this converge does not
-      install the payload (CATENA_PAYLOAD_INSTALL=false). Gatus, Healthchecks
-      and Beszel are added by the first converge after the payload install.
+      install the payload (CATENA_PAYLOAD_INSTALL=false). Beszel
+      is added by the first converge after the payload install.
   when:
     - catena_payload_missing | length > 0
     - not (catena_payload_expected | bool)

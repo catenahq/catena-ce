@@ -29,19 +29,19 @@ _spec.loader.exec_module(sn)
 
 
 def test_defaults_app_slot_1():
-    rx = sn.swarm_container_regex("gatus")
-    assert re.match(rx, "gatus_app.1.k3m9xq2wz7v1p0abcdefghijk")
-    assert not re.match(rx, "gatus_app.2.k3m9xq2wz7v1p0abcdefghijk")
+    rx = sn.swarm_container_regex("wiki")
+    assert re.match(rx, "wiki_app.1.k3m9xq2wz7v1p0abcdefghijk")
+    assert not re.match(rx, "wiki_app.2.k3m9xq2wz7v1p0abcdefghijk")
     # The task id is mandatory: a bare service name is the SERVICE, not a
     # container, and a task that ran `docker exec` against it would fail.
-    assert not re.match(rx, "gatus_app")
-    assert not re.match(rx, "gatus_app.1")
+    assert not re.match(rx, "wiki_app")
+    assert not re.match(rx, "wiki_app.1")
 
 
 def test_compose_form_does_not_match():
-    rx = sn.swarm_container_regex("gatus")
-    assert not re.match(rx, "gatus-app-1")
-    assert not re.match(rx, "gatus-a1b2c3-app-1")
+    rx = sn.swarm_container_regex("wiki")
+    assert not re.match(rx, "wiki-app-1")
+    assert not re.match(rx, "wiki-a1b2c3-app-1")
 
 
 def test_service_and_slot():
@@ -63,6 +63,6 @@ def test_rejects_bad_tokens():
     with pytest.raises(ValueError):
         sn.swarm_container_regex("")
     with pytest.raises(ValueError):
-        sn.swarm_container_regex("gatus", "bad name")
+        sn.swarm_container_regex("wiki", "bad name")
     with pytest.raises(ValueError):
-        sn.swarm_container_regex("gatus", "app", slot=0)
+        sn.swarm_container_regex("wiki", "app", slot=0)

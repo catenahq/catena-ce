@@ -117,7 +117,7 @@ services:
       # is lost on restart. `cache` is a runtime option, so this is safe
       # under `start` without --optimized (no build-time rebuild loop).
       KC_CACHE: "local"
-      # --- Health (probed by validate.yml + Gatus + the public route probe) ---
+      # --- Health (probed by validate.yml + the uptime check + the public route probe) ---
       KC_HEALTH_ENABLED: "true"
       # --- Initial admin (idempotent: skipped after first boot) ---
       # Keycloak 26 reads the bootstrap admin ONLY when the master realm is

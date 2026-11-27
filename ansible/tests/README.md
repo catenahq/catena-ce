@@ -15,6 +15,4 @@ tasks alone under `ansible-playbook` on localhost, against a stand-in server on
 ## End-to-end coverage
 
 Install, break, restore and upgrade on disposable VMs run in the maintainers'
-rehearsal suite, outside this repository. Every scenario it carries, and the
-behaviour each one proves, is listed in
-[../../TEST_SCENARIOS.md](../../TEST_SCENARIOS.md).
+rehearsal suite, outside this repository.

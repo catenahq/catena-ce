@@ -54,7 +54,7 @@ jobs:
       # tested again, a tree whose CI failed stops the publish.
       - name: Result of CI on this tree
         id: tree
-        uses: catenahq/contracts/.github/actions/same-tree@main
+        uses: catenahq/contracts/.github/actions/same-tree@ede5b1277e10a673fd5ff7791e4abfd20dbd3738 # main
         with:
           name: ci
           workflow: .github/workflows/ci.yml

@@ -71,11 +71,9 @@ def _reconcile_files() -> list[Path]:
     return sorted(seen | set(files))
 
 
-def _defined_for_reconcile(files) -> set[str]:
-    names = _top_keys(
-        list(ANSIBLE.glob("reconcile/roles/*/defaults/*.yml"))
-        + list(ANSIBLE.glob("reconcile/roles/*/vars/*.yml"))
-        + list(ANSIBLE.glob("playbooks/group_vars/all/*.yml")))
+def _introduced(files) -> set[str]:
+    """The names set_fact, register, loop_var and vars: blocks introduce."""
+    names: set[str] = set()
     for p in files:
         text = p.read_text(errors="replace")
         names |= set(_REGISTER.findall(text)) | set(_LOOP_VAR.findall(text))
@@ -86,7 +84,14 @@ def _defined_for_reconcile(files) -> set[str]:
     return names
 
 
-def _read_by_reconcile(files) -> dict[str, set[str]]:
+def _defined_for_reconcile(files) -> set[str]:
+    return _top_keys(
+        list(ANSIBLE.glob("reconcile/roles/*/defaults/*.yml"))
+        + list(ANSIBLE.glob("reconcile/roles/*/vars/*.yml"))
+        + list(ANSIBLE.glob("playbooks/group_vars/all/*.yml"))) | _introduced(files)
+
+
+def _reads(files) -> dict[str, set[str]]:
     reads: dict[str, set[str]] = {}
     for p in files:
         text = p.read_text(errors="replace")
@@ -103,7 +108,7 @@ def test_every_value_the_reconcile_reads_resolves_without_a_bootstrap_role():
         list(ANSIBLE.glob("bootstrap/roles/*/defaults/*.yml"))
         + list(ANSIBLE.glob("bootstrap/roles/*/vars/*.yml"))
     ) - _defined_for_reconcile(files)
-    reads = _read_by_reconcile(files)
+    reads = _reads(files)
     offenders = {name: sorted(reads[name]) for name in bootstrap_only if name in reads}
     assert not offenders, (
         "the reconcile tree reads variables only a bootstrap role defines; a "
@@ -115,7 +120,7 @@ def test_every_value_the_reconcile_reads_resolves_without_a_bootstrap_role():
 
 def test_the_scan_sees_the_shared_values():
     """A scan that stopped reading the reconcile tree would pass anything."""
-    reads = _read_by_reconcile(_reconcile_files())
+    reads = _reads(_reconcile_files())
     for name in ("catena_admin_service_name", "catena_admin_image", "swarm_stack_dir"):
         assert name in reads, f"the scan no longer sees {name} being read"
 
@@ -141,7 +146,7 @@ def _operator_supplied() -> set[str]:
 
 
 def test_the_reconcile_reads_nothing_only_the_operator_supplies():
-    reads = _read_by_reconcile(_reconcile_files())
+    reads = _reads(_reconcile_files())
     offenders = {
         name: sorted(reads[name])
         for name in _operator_supplied() - set(_RECORDED_ON_THE_HOST)
@@ -182,4 +187,4 @@ def test_the_scan_follows_a_roles_import_of_a_shared_task_file():
     whose reads resolve on the host only if the scan reaches them."""
     files = {str(p.relative_to(ANSIBLE)) for p in _reconcile_files()}
     assert "playbooks/tasks/apt_settings.yml" in files
-    assert "catena_apt_proxy_url" in _read_by_reconcile(_reconcile_files())
+    assert "catena_apt_proxy_url" in _reads(_reconcile_files())

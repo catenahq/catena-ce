@@ -1,6 +1,6 @@
 ---
 # End-of-role aggregate readiness probe for the gated services
-# (gatus, healthchecks, beszel).
+# (beszel).
 #
 # Provider-neutral probe: each service must return one of 200, 301,
 # 302, OR 307. 401 is not accepted: oauth2-proxy, in reverse-proxy mode,
@@ -38,8 +38,6 @@
   register: _infra_gated_probes
   changed_when: false
   loop:
-    - { name: "gatus", url: "https://{{ infrastructure_gatus_hostname }}/" }
-    - { name: "healthchecks", url: "https://{{ healthchecks_hostname }}/" }
     - { name: "beszel", url: "https://{{ beszel_hostname }}/" }
   loop_control:
     label: "{{ item.name }} -> {{ item.url }}"
@@ -124,7 +122,7 @@
         - Check Keycloak readiness:
             python3 {{ playbook_dir }}/../helpers/public_https.py --url https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/health/ready
         - Re-run the probe manually:
-            python3 {{ playbook_dir }}/../helpers/public_https.py --url https://{{ infrastructure_gatus_hostname }}/
+            python3 {{ playbook_dir }}/../helpers/public_https.py --url https://{{ beszel_hostname }}/
   when: _infra_gated_failures | length > 0
 
 # --- dynamic client-app auth-gate probe (intent-driven) ----------------------

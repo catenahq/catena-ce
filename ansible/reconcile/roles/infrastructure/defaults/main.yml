@@ -1,30 +1,24 @@
 ---
-# reconcile/roles/infrastructure adds the default apps (Gatus, Healthchecks,
-# Beszel; playbooks/group_vars/all/main.yml default_apps) to the host's swarm
-# and holds the per-host wiring of the gatus-sync and dashboard-sync lanes. Each
-# app sets itself up in its own configure hook.
+# reconcile/roles/infrastructure adds the default app (Beszel;
+# playbooks/group_vars/all/main.yml default_apps) to the host's swarm, renders the
+# uptime check's targets and holds the per-host wiring of the dashboard-sync
+# lane. The app sets itself up in its own configure hook.
 #
-# The default apps' public hostnames, each served through the tunnel and Traefik
+# The default app's public hostname, served through the tunnel and Traefik
 # behind its own Keycloak-backed oauth2-proxy:
-#   gatus.<zone>        -> Gatus
-#   healthchecks.<zone> -> Healthchecks
 #   beszel.<zone>       -> Beszel
 #
-# The engine that adds them (catena-admin payload/engines/apps), and the list of
-# them it and the whole-server restore read.
+# The engine that adds it (catena-admin payload/engines/apps), and the list of
+# default apps it and the whole-server restore read.
 catena_apps_bin: /usr/local/bin/catena-apps
 default_apps_list_path: /etc/catena/default-apps.json
 # The stack of each default app, as default_apps names it.
-gatus_stack: "{{ default_apps | selectattr('app', 'eq', 'gatus') | map(attribute='stack') | first }}"
-healthchecks_stack: "{{ default_apps | selectattr('app', 'eq', 'healthchecks') | map(attribute='stack') | first }}"
 beszel_hub_stack: "{{ default_apps | selectattr('app', 'eq', 'beszel') | map(attribute='stack') | first }}"
 # The public hostname of each default app by stack, which the list names as the
 # app's address. A server with no domain yet renders a name ending in a dot,
 # which the panel opens no link for.
 default_app_addresses: >-
-  {{ {gatus_stack: infrastructure_gatus_hostname,
-      healthchecks_stack: healthchecks_hostname,
-      beszel_hub_stack: beszel_hostname} }}
+  {{ {beszel_hub_stack: beszel_hostname} }}
 
 
 # Executing-prefix paths this role writes, for
@@ -35,7 +29,7 @@ default_app_addresses: >-
 # on the host, which is the input a delete leg must never be given -- and these
 # directories are shared with the panel payload.
 #
-# catena-dashboard-sync and gatus-sync (with catena-version-check) ship in the
+# catena-dashboard-sync (with catena-version-check) ships in the
 # panel image, whose payload owns their paths
 # (tests/unit/test_no_lane_is_half_owned.py).
 infrastructure_managed_paths:
@@ -55,104 +49,32 @@ infrastructure_deploy_poll_delay: 5
 # reconcile/roles/infrastructure/tasks/_swarm_stack_deploy_attempt.yml.
 infrastructure_deploy_max_attempts: 5
 
-# --- Gatus (on-host uptime monitor) ---------------------------------------
-# Config-as-code monitor, a catalog app. Gatus loads every *.yaml of its config
-# volume alphabetically: 00-base.yaml (the app's own sidecar) + 40-infra.yaml and
-# 50-catena-apps.yaml (gatus-sync) + 99-*.yaml (operator-added, left alone by all).
-gatus_data_volume: "gatus-data"
-gatus_sqlite_file: "gatus.db"
-gatus_network_alias: "gatus"
-gatus_internal_port: 8080
-# The app's config volume on the host (stack gatus_stack, volume `config`).
-gatus_host_config_dir: "{{ storage_mount_point }}/docker/volumes/{{ gatus_stack }}_config/_data"
-# JSON spec consumed by gatus-sync to render 40-infra.yaml (one Gatus
-# endpoint per infra service, NAME the title version-check.json gives its
-# image). Rendered at converge time with hostnames / aliases substituted.
-gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
-# Host-side loopback port gatus-sync reads to reach /api/v1/endpoints/statuses.
-# gatus-sync runs as a systemd service on the host, outside catena-network,
-# so it can't resolve the container alias. 127.0.0.1:18080 is UFW-safe
-# (loopback is never publicly reachable).
-gatus_host_localhost_port: 18080
+# The addresses of Catena's own services that catena-uptime checks, rendered
+# from templates/uptime-targets.json.j2 on every converge.
+uptime_targets_path: /etc/catena/uptime-targets.json
 
-# gatus-sync (its timer, dashboard-sync and the converge start it) regenerates
-# 50-catena-apps.yaml from the app intent dashboard-sync writes, and
-# 40-infra.yaml from the spec above. The script and its units ship in the
-# catena-admin payload; this role renders the env file and wires the timer.
-gatus_sync_script_path: "/usr/local/bin/catena-gatus-sync"
-gatus_sync_env_path: "/etc/catena/gatus-sync.env"
-
-# gatus-sync also writes its count of Gatus's endpoints up and down here on
-# every run. The panel's System tab reads it through the read-only bind-mount
-# of this directory (catena_admin_stats_dir).
-gatus_summary_dir: "{{ backup_stats_dir | default('/var/lib/catena') }}"
-gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
-
-# --- Healthchecks (self-hosted, cron/dead-man monitoring) ----------------
-# The OSS project behind healthchecks.io, a catalog app. One container, SQLite,
-# no metrics firehose and no healthchecks.io SaaS dependency.
-# Named Docker volume -> backed up by restic along with other volumes; the
-# backup also copies the database whole before each snapshot.
-healthchecks_data_volume: "healthchecks-data"
-healthchecks_sqlite_file: "hc.sqlite"
-healthchecks_network_alias: "healthchecks"
-healthchecks_internal_port: 8000
-# Host-side loopback port gatus-sync reads to reach /api/v3/checks/.
-# Gatus-sync runs as a systemd service on the host, outside catena-
-# network, so it can't resolve the container alias. 127.0.0.1:18000 is
-# UFW-safe (loopback is never publicly reachable).
-healthchecks_host_localhost_port: 18000
-# Base every HOST-SIDE ping is built from, and loopback is what keeps the alarm
-# path off the thing it reports on. A ping built from
-# https://{{ healthchecks_hostname }}/ping/... leaves the host, crosses
-# Cloudflare's edge and comes back in through the tunnel to reach a container on
-# the same box, so a tunnel or DNS failure silences the backup dead-man instead
-# of tripping it.
-#
-# Gatus and Beszel's relay ping from their containers through the network
-# alias, which is already local. The one ping that leaves the host is the
-# heartbeat lane's, to the OFFSITE_HEARTBEAT_URL the client saves in Settings:
-# a loopback ping cannot detect a host that is gone.
-healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
-
-# Outgoing mail, from the one choice in Settings > Mail, resolved by the
-# filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
-# smtp_resolve.py): {enabled, host, port, implicit_tls, user, sender}. Healthchecks
-# sends its alerts through it, and Beszel its own mail. The credential is
-# smtp_password.
-infrastructure_smtp: >-
-  {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
-       host=cfg_smtp_host | default(''),
-       port=cfg_smtp_port | default(''),
-       user=cfg_smtp_user | default(''),
-       sender=cfg_smtp_sender | default(''),
-       fallback_sender=admin_email) }}
+# Files an earlier converge wrote for a monitor core does not wire; each
+# converge removes them (tasks/withdrawn.yml) and validate.yml asserts them
+# gone. The ports fragment's reconciler runs at the end of every converge
+# (playbooks/tasks/converge_tail.yml).
+infrastructure_withdrawn_files:
+  - /etc/catena/gatus-sync.env
+  - /etc/catena/gatus-infra-spec.json
+  - "{{ public_ports_fragment_dir }}/gatus.json"
+  - "{{ backup_stats_dir | default('/var/lib/catena') }}/gatus-summary.json"
 
 # --- Beszel (hub, host agent and alert relay: one catalog app) ----------
 # The app holds the hub (web UI + SQLite history store), the agent (per-container
-# and per-host metrics over docker.sock) and the relay that maps Beszel's alert
-# webhook to Healthchecks pings; the relay's configure hook sets the hub up.
+# and per-host metrics over docker.sock) and the relay that forwards Beszel's
+# alerts to the alert intake; the relay's configure hook sets the hub up.
 # Public surface at beszel.<zone> (beszel_hostname, playbooks/group_vars/all),
 # behind its own admin-only oauth2-proxy: the `beszel` entry of
 # reconcile/roles/oauth2_proxy oauth2_proxy_apps.
 beszel_hub_network_alias: "beszel-hub"
 beszel_hub_internal_port: 8090
-# Host-side loopback publish (UFW-safe, loopback never publicly reachable;
-# mirrors gatus_host_localhost_port / healthchecks_host_localhost_port). The
-# off-site heartbeat reads it.
+# Host-side loopback publish (UFW-safe, loopback never publicly reachable). The
+# off-site heartbeat and the uptime check read it.
 beszel_hub_host_localhost_port: 18190
-beszel_hub_data_volume: "beszel-hub-data"
-# PocketBase's own names in the hub's data folder, which a deployment does not
-# set.
-beszel_hub_sqlite_files: ["data.db", "auxiliary.db"]
-# The SQLite databases of the three monitoring stacks, one
-# <stack>_<volume>/_data/<file> per database. catena-admin's backup copies each
-# one whole before the snapshot and a whole-server restore puts the copy back
-# (catena-admin payload/engines/recovery/backuprun.go, restore.go).
-infrastructure_sqlite_databases: >-
-  {{ ['%s_%s/_data/%s' | format(gatus_stack, gatus_data_volume, gatus_sqlite_file),
-      '%s_%s/_data/%s' | format(healthchecks_stack, healthchecks_data_volume, healthchecks_sqlite_file)]
-     + (beszel_hub_sqlite_files | map('regex_replace', '^', beszel_hub_stack ~ '_' ~ beszel_hub_data_volume ~ '/_data/') | list) }}
 
 # --- Alert intake ---------------------------------------------------------
 # The service the monitors post alerts to and the alert hub reads
@@ -183,22 +105,17 @@ alert_intake_secret_specs:
     value: "{{ alert_intake_token_read | default('') }}"
 
 # --- Off-site heartbeat ---------------------------------------------------
-# catena-admin's catena-heartbeat lane (payload/lanes) probes Gatus,
-# Healthchecks and the Beszel hub on their loopback publishes above, then
-# calls the off-site address saved in Settings, which it reads off the store.
-# This file carries the rest. The Schedules page's `heartbeat` lane turns it
-# on.
+# catena-admin's catena-heartbeat lane (payload/lanes) probes the Beszel hub and
+# the alert intake on their loopback publishes above, then calls the
+# off-site address saved in Settings, which it reads off the store. This file
+# carries the rest. The Schedules page's `heartbeat` lane turns it on.
 heartbeat_env_file: /etc/catena/heartbeat.env
-# The lane's own check on this host's Healthchecks, which catena-schedule keeps
-# on the lane's schedule.
-heartbeat_check_slug: catena-heartbeat
 
 # version-check (the current-vs-latest Versions report, a catena-admin
 # payload script) runs on every edition, Community included. It auto-detects
 # every running container + swarm service and derives each upstream from the
 # image ref (no registry to maintain), when the panel opens
-# a page and once at the end of every converge; gatus-sync reads the latest
-# report. It also
+# a page and once at the end of every converge. It also
 # merges in the managed-update engine's state files, which the maintenance's
 # managed run (Catena Pro) and the panel update write.
 version_check_script_path: /usr/local/bin/catena-version-check

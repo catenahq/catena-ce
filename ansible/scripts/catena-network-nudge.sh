@@ -16,7 +16,7 @@
 # until something starts it. Swarm SERVICES reconcile themselves (the task
 # manager re-dispatches by name), but the compose containers the stacks
 # deploy (keycloak-server-1, oauth2-proxy,
-# gatus, ...) have nothing to heal them. Observed live: a VM boot where the
+# ...) have nothing to heal them. Observed live: a VM boot where the
 # overlay appeared 2.5s after "Loading containers: done" left
 # keycloak-server-1 dead, while every container
 # started after the overlay appeared joined fine.

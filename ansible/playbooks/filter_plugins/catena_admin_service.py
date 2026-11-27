@@ -38,7 +38,7 @@ forever. So a rotated credential must arrive under a NEW name or it never
 reaches the container, which is why secret_name() hashes the VALUE into the
 name. A fixed name would make rotation a silent no-op. secret_entries, the
 swarm_secret_entries filter, names every swarm secret the converge creates
-(playbooks/tasks/swarm_secrets.yml), Healthchecks' too, and secrets_unmounted,
+(playbooks/tasks/swarm_secrets.yml), and secrets_unmounted,
 the swarm_secrets_unmounted filter, picks the ones a rotation left behind
 (playbooks/tasks/swarm_secrets_prune.yml).
 
@@ -126,17 +126,28 @@ def secret_entries(specs):
     return out
 
 
-def secrets_unmounted(names, services, bases, kind="secret"):
-    """The secrets of `names` that secret_name made for one of `bases` and
-    that no service of `services` (`docker service inspect` output) mounts:
-    what a rotation left behind, for playbooks/tasks/swarm_secrets_prune.yml.
-    A name is matched whole, base and 8-hex suffix, so a secret of another
-    base sharing a prefix is not touched. `kind` "config" does the same for
-    swarm configs named the same way."""
-    if not bases:
+def secret_prefix_pattern(bases, prefix=""):
+    """The names secret_name made for one of `bases`, or for any base that
+    starts with `prefix` (a base that left the declared ones). A name is
+    matched whole, base and 8-hex suffix, so a secret of another base sharing
+    a prefix is not touched."""
+    alternatives = [re.escape(str(b)) for b in bases or []]
+    if prefix:
+        alternatives.append(re.escape(str(prefix)) + "[^ ]*")
+    if not alternatives:
+        return None
+    return re.compile("^(?:" + "|".join(alternatives) + ")-[0-9a-f]{8}$")
+
+
+def secrets_unmounted(names, services, bases, kind="secret", prefix=""):
+    """The secrets of `names` that secret_name made for one of `bases` (or,
+    given `prefix`, for any base starting with it) and that no service of
+    `services` (`docker service inspect` output) mounts: what a rotation or a
+    dropped base left behind, for playbooks/tasks/swarm_secrets_prune.yml.
+    `kind` "config" does the same for swarm configs named the same way."""
+    pattern = secret_prefix_pattern(bases, prefix)
+    if pattern is None:
         return []
-    pattern = re.compile(
-        "^(?:" + "|".join(re.escape(str(b)) for b in bases) + ")-[0-9a-f]{8}$")
     label = "Config" if kind == "config" else "Secret"
     mounted = {
         str(entry.get(f"{label}Name") or "")
@@ -145,6 +156,16 @@ def secrets_unmounted(names, services, bases, kind="secret"):
         if isinstance(entry, dict)
     }
     return sorted(n for n in names if pattern.match(str(n)) and n not in mounted)
+
+
+def secrets_outside_bases(names, bases, prefix):
+    """The secrets of `names` that secret_name made for a base starting with
+    `prefix` and that is not one of `bases`: what validate must find none of."""
+    every = secret_prefix_pattern([], prefix)
+    declared = secret_prefix_pattern(bases)
+    return sorted(
+        n for n in names
+        if every and every.match(str(n)) and not (declared and declared.match(str(n))))
 
 
 def catena_admin_full_env(spec):
@@ -351,6 +372,7 @@ class FilterModule:
         return {
             "swarm_secret_entries": secret_entries,
             "swarm_secrets_unmounted": secrets_unmounted,
+            "swarm_secrets_outside_bases": secrets_outside_bases,
             "catena_admin_full_env": catena_admin_full_env,
             "catena_admin_service_argv": catena_admin_service_argv,
             "catena_admin_env_drift": catena_admin_env_drift,

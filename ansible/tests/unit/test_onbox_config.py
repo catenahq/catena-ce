@@ -224,10 +224,6 @@ def test_headscale_credentials_are_external(oc):
 
 
 # --- minted-value format contracts (mirror seed.py) -------------------------
-def test_hc_api_key_is_32_chars(oc):
-    assert len(oc.mint_hc_api_key()) == 32
-
-
 def test_cookie_secret_decodes_to_32_bytes(oc):
     val = oc.mint_oauth2_proxy_cookie_secret()
     # oauth2-proxy strips '=' padding then RawURLEncoding-decodes; must be 32B.
@@ -523,7 +519,35 @@ def test_cli_seeds_external_mints_internal_and_emits(oc, tmp_path, capsys):
     assert emitted["catena_postgres_password"]  # minted on-box
     on_disk = oc.load(p)
     assert on_disk["config"]["CLOUDFLARE_ZONE"] == "x.com"
-    assert on_disk["secrets"]["healthchecks_api_key_readonly"]
+    assert on_disk["secrets"]["alert_intake_token_read"]
+
+
+# --- secrets nothing reads ----------------------------------------------------
+def test_the_retired_secrets_are_in_no_registry(oc):
+    """Each of these keys is one nothing reads: minted, held or supplied, it
+    would come straight back after its removal."""
+    for name, reg in _registries(oc).items():
+        assert not (reg & oc.RETIRED_SECRETS), f"{name} holds {reg & oc.RETIRED_SECRETS}"
+
+
+def test_drop_retired_secrets_removes_only_them(oc):
+    retired = sorted(oc.RETIRED_SECRETS)
+    store = {"secrets": {**{k: "old" for k in retired}, "catena_postgres_password": "keep"}}
+    assert oc.drop_retired_secrets(store) == retired
+    assert store["secrets"] == {"catena_postgres_password": "keep"}
+    assert oc.drop_retired_secrets(store) == [], "a second pass removes nothing"
+
+
+def test_every_converge_load_removes_the_retired_secrets(oc, tmp_path, capsys):
+    p = tmp_path / "config.json"
+    retired = sorted(oc.RETIRED_SECRETS)
+    oc.dump({"secrets": {k: "old" for k in retired}, "config": {}}, p)
+    for argv in ([], ["--no-mint"], ["--mint-user-held"]):
+        oc.dump({"secrets": {**oc.load(p)["secrets"], **{k: "old" for k in retired}},
+                 "config": {}}, p)
+        assert oc.main(["--path", str(p), "--emit", "none", *argv]) == 0
+        assert not set(oc.load(p)["secrets"]) & oc.RETIRED_SECRETS, argv
+    capsys.readouterr()
 
 
 def test_dispatch_read_prints_store(oc, tmp_path, capsys, monkeypatch):

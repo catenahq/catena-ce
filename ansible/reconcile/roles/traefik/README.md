@@ -70,6 +70,8 @@ where Renovate and Trivy follow it.
 | --- | --- | --- |
 | `traefik_container_name` | `catena-traefik` | cloudflared ingress target |
 | `catena_network_name` | `catena-network` | shared attachable overlay |
-| `traefik_config_dir` | `/etc/catena/traefik` | static + dynamic config root |
-| `traefik_dynamic_dir` | `<config_dir>/dynamic` | file-provider directory |
 | `traefik_trusted_ips` | RFC1918 + loopback | forwardedHeaders trust scope |
+
+The config tree's paths, `traefik_config_dir` and `traefik_dynamic_dir`, are in
+`ansible/playbooks/group_vars/all/main.yml`: the producers and their validate
+tasks read them in plays that do not load this role.

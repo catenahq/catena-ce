@@ -652,6 +652,13 @@ config:
     residence: store
     panel: {group: alerts, section: config, kind: text, optional: true}
 
+  # The web addresses an administrator adds for the uptime check, separated by
+  # commas or spaces, at most twenty. No `var`: catena-admin's catena-uptime
+  # reads it off the store on every run.
+  - key: UPTIME_OTHER_URLS
+    residence: store
+    panel: {group: uptime, section: config, kind: text, optional: true}
+
   # One switch per alert type, its message when the condition ends (_CLEAR), and
   # for a failure its reminder every seven days (_REMIND). Off first, so a store
   # holding nothing shows and means off; catena-alert reads only "on" as on. No
@@ -767,6 +774,54 @@ config:
     residence: store
     panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
   - key: ALERT_RESOURCES_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  # The alerts of the scheduled jobs: a backup, a restore test, an offsite copy
+  # or a repository check that fails, and a job that does not run on its
+  # schedule (job_late).
+  - key: ALERT_BACKUP_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_BACKUP_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_BACKUP_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTORE_TEST_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTORE_TEST_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_RESTORE_TEST_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_OFFSITE_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_OFFSITE_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_OFFSITE_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_REPO_CHECK_FAILED
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_REPO_CHECK_FAILED_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_REPO_CHECK_FAILED_REMIND
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_JOB_LATE
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_JOB_LATE_CLEAR
+    residence: store
+    panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
+  - key: ALERT_JOB_LATE_REMIND
     residence: store
     panel: {group: alerts, section: config, kind: choice, optional: true, options: ["off", "on"]}
 

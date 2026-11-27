@@ -1,6 +1,6 @@
 """Swarm keeps one EXITED container per retained task record.
 
-Reported as "gatus v5.36.0 has 5 container instances, of which only 1 is
+Reported as "an app has 5 container instances, of which only 1 is
 running", guessed to be the random id docker appends to a stack's container
 names creating duplicates. Five is Docker's default `--task-history-limit`:
 swarm keeps five task records per service and one container each, so a service

@@ -116,6 +116,29 @@
     | select('match', '^' ~ catena_admin_service_name ~ '\\|1/1') | list | length > 0
   when: catena_admin_deploy_from_converge | bool
 
+# The converge's prune removes a secret of a base the specs do not declare; one
+# left is a credential nothing reads.
+- name: "validate/catena-admin: list the swarm secrets"
+  ansible.builtin.command:
+    argv: [docker, secret, ls, --format, '{{ "{{" }}.Name{{ "}}" }}']
+  register: _ca_val_secrets
+  changed_when: false
+  when: catena_admin_deploy_from_converge | bool
+
+- name: "validate/catena-admin: no panel secret outside the declared ones is left"
+  ansible.builtin.assert:
+    that: _ca_val_stray_secrets | length == 0
+    fail_msg: >-
+      Swarm secrets {{ _ca_val_stray_secrets }} belong to no base in
+      catena_admin_secret_specs: the converge's prune did not remove them.
+  vars:
+    _ca_val_stray_secrets: >-
+      {{ _ca_val_secrets.stdout_lines
+         | swarm_secrets_outside_bases(catena_admin_secret_specs | map(attribute='base') | list,
+                                       'catena_admin_') }}
+  no_log: true # the list is of names; a failed assert still prints fail_msg
+  when: catena_admin_deploy_from_converge | bool
+
 - name: "validate/catena-admin: the panel service is 1/1"
   ansible.builtin.assert:
     that:

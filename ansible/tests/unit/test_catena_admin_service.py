@@ -31,7 +31,7 @@ def _spec(**over):
     base = {
         "name": "catena-admin",
         "image": "ghcr.io/catenahq/catena-admin:latest",
-        "networks": ["catena-network", "catena-healthchecks"],
+        "networks": ["catena-network", "net-b"],
         "ui_port": "9010",
         "direct_port": "8001",
         "group": "1000",
@@ -112,11 +112,9 @@ def test_a_missing_required_field_is_refused():
 
 
 def test_the_service_joins_every_network_it_names():
-    # catena-network carries its gate and everything it calls but
-    # Healthchecks, which is on its own network and nowhere else.
     argv = _plugin().catena_admin_service_argv(_spec())
     assert "--network=catena-network" in argv
-    assert "--network=catena-healthchecks" in argv
+    assert "--network=net-b" in argv
 
 
 @pytest.mark.parametrize("networks", [[], "catena-network"])
@@ -226,24 +224,24 @@ def test_an_unchanged_secret_reports_no_drift():
     ) == []
 
 
-_NETWORK_IDS = {"catena-network": "id-catena", "catena-healthchecks": "id-hc"}
+_NETWORK_IDS = {"catena-network": "id-catena", "net-b": "id-b"}
 
 
 def test_attached_networks_report_no_drift():
     # The live spec names networks by id, the converge by name.
     assert _plugin().catena_admin_network_drift(
-        _live(networks=["id-hc", "id-catena"]), _NETWORK_IDS) == []
+        _live(networks=["id-b", "id-catena"]), _NETWORK_IDS) == []
 
 
-def test_a_panel_created_before_its_healthchecks_network_joins_it():
+def test_a_panel_created_before_a_network_it_names_joins_it():
     assert _plugin().catena_admin_network_drift(
         _live(networks=["id-catena"]), _NETWORK_IDS,
-    ) == ["--network-add", "catena-healthchecks"]
+    ) == ["--network-add", "net-b"]
 
 
 def test_a_network_the_spec_no_longer_names_is_detached():
     assert _plugin().catena_admin_network_drift(
-        _live(networks=["id-catena", "id-hc", "id-old"]), _NETWORK_IDS,
+        _live(networks=["id-catena", "id-b", "id-old"]), _NETWORK_IDS,
     ) == ["--network-rm", "id-old"]
 
 
@@ -253,7 +251,7 @@ def test_a_network_with_no_id_is_refused_rather_than_detached():
     with pytest.raises(ValueError):
         _plugin().catena_admin_network_drift(
             _live(networks=["id-catena"]),
-            {"catena-network": "", "catena-healthchecks": "id-hc"})
+            {"catena-network": "", "net-b": "id-b"})
 
 
 # ─── the host facts the panel's own links are built from ──────────────────
@@ -278,8 +276,6 @@ def _converge_env() -> dict:
 
 
 @pytest.mark.parametrize("name", [
-    "INFRA_GATUS_HOSTNAME",
-    "INFRA_HEARTBEAT_HOSTNAME",
     "INFRA_BESZEL_HOSTNAME",
 ])
 def test_the_converge_names_every_public_hostname_the_panel_links_to(name):
@@ -291,6 +287,7 @@ def test_the_converge_names_every_public_hostname_the_panel_links_to(name):
     env = _converge_env()
     assert name in env, f"{name} is no longer passed to the panel"
     assert env[name].strip(), f"{name} is passed empty"
+    assert "INFRA_GATUS_HOSTNAME" not in env, "nothing in the panel reads it any more"
 
 
 # ─── the reconcile has to settle ──────────────────────────────────────────
@@ -322,21 +319,20 @@ def test_the_reconcile_checks_that_it_settled():
     )
 
 
-def test_the_converge_joins_the_private_networks():
-    """Healthchecks is on its own network and nowhere else, so a panel left off
-    it reads no checks. Beszel's hub is not read by the panel."""
+def test_the_panel_is_on_catena_network_alone():
+    """catena-network carries its gate and Keycloak. A network a
+    converge stops naming is detached by the network drift."""
     spec = next(
         t["ansible.builtin.set_fact"]["_ca_spec"]
         for t in _deploy_tasks()
         if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {})
     )
-    assert "{{ healthchecks_network }}" in spec["networks"]
-    assert "{{ beszel_network }}" not in spec["networks"]
+    assert spec["networks"] == ["{{ catena_network_name | default('catena-network') }}"]
 
 
 def test_the_secrets_are_created_by_the_shared_task():
     """One task creates every swarm secret the converge mounts, the panel's
-    and Healthchecks', with the value on stdin."""
+    among them, with the value on stdin."""
     create = next(t for t in _deploy_tasks() if "create the missing" in t.get("name", ""))
     assert create["ansible.builtin.include_tasks"].endswith("/tasks/swarm_secrets.yml")
     import yaml

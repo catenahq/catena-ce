@@ -6,20 +6,16 @@ supply their own host and port, and Resend also supplies its username, which is
 the literal string `resend` for every account. Everything else reads the fields
 as given.
 
-WHY A FILTER. Two places resolve it -- reconcile/roles/keycloak defaults and
-reconcile/roles/infrastructure defaults (infrastructure_smtp, read by Beszel
-and Healthchecks) -- and both call here, so Keycloak's password-reset mail and
-the monitoring alerts land on the same relay, from the same sender, from the
-same stored config.
-test_smtp_resolution.py holds each consumer to it. Project rule: a non-trivial
-transform gets a filter plugin and a unit test, not a copy of an expression.
+WHY A FILTER. reconcile/roles/keycloak defaults resolve it here, so the
+ladder exists once and a consumer added later reads the same answer from the
+same stored config. test_smtp_resolution.py holds each consumer to it. Project
+rule: a non-trivial transform gets a filter plugin and a unit test, not a copy
+of an expression.
 
 The port decides the connection security. Port 465 is implicit TLS (TLS from
 the first byte, the submissions port of RFC 8314); every other port is
-STARTTLS. `implicit_tls` carries the answer to every consumer: Keycloak's
-`ssl`/`starttls`, Healthchecks' EMAIL_USE_SSL/EMAIL_USE_TLS, PocketBase's
-`tls` (true is implicit TLS, false leaves the server to decide whether to
-upgrade). Both known providers use 587.
+STARTTLS. `implicit_tls` carries the answer to Keycloak's `ssl`/`starttls`.
+Both known providers use 587.
 """
 
 from __future__ import annotations

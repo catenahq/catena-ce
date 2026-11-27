@@ -148,24 +148,6 @@
   when: >-
     (not _backup_env_stat.stat.exists) or (_backup_configured | bool)
 
-# The offsite-copy lane's dead-man endpoints, written on EVERY converge,
-# including on a host whose backup is not configured yet, where backup.env
-# above is left as first written.
-#
-# WHICH buckets get copied is the `offsite_copies` list in
-# /etc/catena/config.json, which catena-admin writes and the lane reads
-# straight off disk, so a client adding a copy does not need a converge.
-#
-# The lane's unit loads this with a leading dash, so it is legal for both
-# values to be blank; blank means the lane pings nothing.
-- name: "Backup: write offsite copy env file"
-  ansible.builtin.template:
-    src: offsite.env.j2
-    dest: "{{ offsite_env_file }}"
-    owner: root
-    group: root
-    mode: "0600"
-
 # --- the backup lane ships in the image payload ------------------------------
 # The wrapper, coverage, snapshot-list/export, the restic helpers, the disk
 # preflight, restic and rclone, and the four units (catena-backup.service and
@@ -250,14 +232,6 @@
     group: root
     mode: "0644"
 
-- name: Write backup SQLite databases data file
-  ansible.builtin.template:
-    src: backup-sqlite.j2
-    dest: /etc/catena/backup-sqlite
-    owner: root
-    group: root
-    mode: "0644"
-
 - name: Drop backup coverage paths data file
   # Plain-text one-path-per-line file consumed by catena-backup-coverage.
   # Templating lives HERE (pure data, no shell code) so the checker itself
@@ -308,10 +282,8 @@
 #
 # The consequence is deliberate and it is the point: a fresh host schedules no
 # backup, whatever its edition. Scheduled work spends disk and object-store
-# quota nobody has confirmed the client has. catena-schedule keeps the
-# Healthchecks checks of a lane that is off paused, so none can go late: the
-# panel shows an unscheduled host rather than an alert about a host nobody asked
-# to back anything up yet.
+# quota nobody has confirmed the client has. The panel shows an unscheduled
+# host rather than an alert about a host nobody asked to back anything up yet.
 
 # ─── initial snapshot ────────────────────────────────────────────────────
 # Take one snapshot inline so the repo has data before the first scheduled
@@ -354,7 +326,7 @@
 # its ExecStart), the lock catena-converge holds while it runs this play from
 # the panel, so waiting here would hold both until the backup's lock timeout. The
 # queued run starts once the converge releases the lock, and reports like any
-# backup run (its Healthchecks pings, the Backups page).
+# backup run (its alerts, the Backups page).
 - name: "Run first backup inline: queue it for when this converge releases the lock"  # noqa: command-instead-of-module
   when:
     - _backup_configured | bool

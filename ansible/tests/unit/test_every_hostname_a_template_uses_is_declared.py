@@ -2,14 +2,13 @@
 
 THE FAILURE THIS ENDS. `infrastructure_dash_hostname` and
 `catena_admin_hostname` were two names for dash.<zone>. Collapsing them onto
-one updated the readers the change knew about and missed
-`gatus-infra-spec.json.j2`, which still asked for the deleted name. Ansible
+one updated the readers the change knew about and missed a template, which
+still asked for the deleted name. Ansible
 does not resolve a template variable until it renders the file, so nothing
 failed until a converge reached that task -- on the bench, at the DAG ROOT,
 with 164 scenarios queued behind it:
 
     'infrastructure_dash_hostname' is undefined
-    Origin: reconcile/roles/infrastructure/templates/gatus-infra-spec.json.j2
 
 The sibling test (test_no_variable_is_declared_twice) gates DECLARATIONS, so
 it cannot see this class: a reference whose declaration is gone.
@@ -123,8 +122,9 @@ def _referenced() -> dict[str, list[str]]:
 def test_the_collector_finds_the_addresses() -> None:
     """A gate that collects nothing passes for the wrong reason. These two are
     rendered by templates that have carried them for the life of the repo."""
+    # beszel_hostname is rendered by the uptime targets template and the gate's routes.
     refs = _referenced()
-    for name in ("catena_admin_hostname", "infrastructure_gatus_hostname"):
+    for name in ("catena_admin_hostname", "beszel_hostname"):
         assert name in refs, (
             f"{name} is not collected as a template reference, so this gate "
             f"is not reading what it thinks it is"

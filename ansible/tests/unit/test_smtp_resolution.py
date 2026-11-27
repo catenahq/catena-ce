@@ -12,10 +12,9 @@ winning when two are filled, carries three defects in one shape:
     tie-break that appears on no page the client can read;
   - switching provider without first CLEARING the old address keeps sending
     through the old one, silently, for as long as the stale value sits there;
-  - the ladder is written out once per consumer -- keycloak defaults, Beszel,
-    Healthchecks -- each free to drift, and a host whose password resets and
-    whose alerts go through different relays, from the same stored config,
-    reports nothing.
+  - the ladder is written out once per consumer, each free to drift, and a
+    host whose mail goes through different relays, from the same stored
+    config, reports nothing.
 
 Run: uv run pytest tests/unit/test_smtp_resolution.py
 """
@@ -31,7 +30,6 @@ PLUGIN = ANSIBLE / "playbooks" / "filter_plugins" / "smtp_resolve.py"
 KEYCLOAK_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "keycloak" / "defaults" / "main.yml"
 BESZEL = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "beszel.yml"
 INFRA_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "defaults" / "main.yml"
-HEALTHCHECKS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "healthchecks.yml"
 ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
 
@@ -117,12 +115,11 @@ def _code(path: Path) -> str:
         ln for ln in path.read_text().splitlines() if not ln.lstrip().startswith("#"))
 
 
-@pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, INFRA_DEFAULTS])
+@pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS])
 def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
     """A hand-written copy of the ladder is free to drift, and the symptom is
-    a host that sends password-reset mail through one relay and its alerts
-    through another, from the same stored config, with nothing
-    reporting it."""
+    a host that sends one mail through one relay and another through a second
+    one, from the same stored config, with nothing reporting it."""
     assert "catena_smtp_resolve" in path.read_text(), (
         f"{path.name} does not use the shared resolution")
     # The giveaway of a hand-rolled copy: naming a provider's hostname.
@@ -140,34 +137,11 @@ def test_beszel_is_given_no_mail_setting_by_the_converge():
     assert "EMAIL_" not in code and "SMTP_" not in code
 
 
-@pytest.mark.parametrize("path", [HEALTHCHECKS])
-def test_the_infrastructure_consumers_read_its_resolution(path):
-    """Healthchecks's alert mail takes the infrastructure role's one resolution
-    rather than a copy of it."""
-    code = _code(path)
-    assert "infrastructure_smtp." in code, (
-        f"{path.name} does not read infrastructure_smtp")
-    assert "catena_smtp_resolve" not in code, (
-        f"{path.name} resolves the mail choice a second time")
-    for literal in ("smtp.resend.com", "smtp-relay.brevo.com"):
-        assert literal not in code, (
-            f"{path.name} hardcodes {literal}; that belongs to the filter")
-
-
-def test_the_infrastructure_resolution_sends_from_the_admin_email_when_no_sender_is_set():
-    """The sender the infrastructure role resolves falls back to the admin
-    email, as for every other sender on the host."""
-    import jinja2
-    import yaml
-
-    expr = yaml.safe_load(INFRA_DEFAULTS.read_text())["infrastructure_smtp"]
-    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
-    env.filters["catena_smtp_resolve"] = _resolve()
-    body = expr.strip().removeprefix("{{").removesuffix("}}")
-    smtp = env.from_string(f"{{% set r = {body} %}}{{{{ r.sender }}}}").render(
-        cfg_smtp_provider="resend", cfg_smtp_host="", cfg_smtp_port="",
-        cfg_smtp_user="", cfg_smtp_sender="", admin_email="admin@acme.test")
-    assert smtp == "admin@acme.test"
+def test_the_infrastructure_role_resolves_no_mail():
+    """The default apps read the mail choice from the store themselves, so the
+    infrastructure role keeps no resolution of its own."""
+    code = _code(INFRA_DEFAULTS)
+    assert "catena_smtp_resolve" not in code and "infrastructure_smtp" not in code
 
 
 @pytest.mark.parametrize("port,implicit", [
@@ -232,8 +206,7 @@ def test_no_tls_setting_is_stored():
 def test_no_consumer_still_reads_a_retired_key(gone):
     """A reader of a key nothing writes resolves it to empty and takes its
     branch of the ladder with it."""
-    for path in (KEYCLOAK_DEFAULTS, BESZEL, INFRA_DEFAULTS,
-                 HEALTHCHECKS, ONBOX_CONFIG):
+    for path in (KEYCLOAK_DEFAULTS, BESZEL, INFRA_DEFAULTS, ONBOX_CONFIG):
         body = "\n".join(
             line for line in path.read_text().splitlines()
             if not line.lstrip().startswith("#")

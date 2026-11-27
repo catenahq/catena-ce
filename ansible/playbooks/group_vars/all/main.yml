@@ -99,7 +99,7 @@ cloudflare_api_base: "https://api.cloudflare.com/client/v4"
 # Store-owned, entered in the panel's Settings with the Cloudflare token. Empty
 # until then: every server is installed without a domain.
 cloudflare_zone: "{{ cfg_cloudflare_zone | default('', true) }}"
-# An empty zone builds every hostname as `dash.`, `auth.`, `gatus.` -- names
+# An empty zone builds every hostname as `dash.`, `auth.`, `beszel.` -- names
 # that resolve nowhere and certificates no authority will issue. So nothing
 # public is published until there is a domain to publish it under, and this is
 # what every role that would publish a name gates on.
@@ -134,6 +134,12 @@ catena_zone_projection_max_age_hours: 48
 # the catena-traefik container, reachable by service name inside the network.
 cloudflared_ingress_service: "http://catena-traefik:80"
 
+# The Traefik config tree: traefik.yml (static) and dynamic/, the file-provider
+# routes reconcile/roles/traefik, oauth2_proxy and infrastructure write and
+# their validate tasks read.
+traefik_config_dir: /etc/catena/traefik
+traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
+
 # --- Local ACME server (the test bench's Pebble) ---
 # Blank on a client install, so certbot issues against Let's Encrypt. The test
 # bench points them at its host-side Pebble. The minica is ADDED to the system
@@ -154,34 +160,22 @@ acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
 # which authenticates against Keycloak and proxies to the app behind it, and
 # keeps a session cookie of its own on its host. The Keycloak session signs the
 # browser in to the next one without a prompt.
-# The three below are each default app's SUBDOMAIN setting, which
+# The default apps' subdomains are each app's SUBDOMAIN setting, which
 # playbooks/tasks/default_app_subdomains.yml reads from the app's folder; the
 # literal is the name a host whose folder is absent uses. Keycloak's and the
 # panel's come from the store.
-infrastructure_gatus_subdomain: "{{ default_app_gatus_subdomain | default('gatus', true) }}"
-infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
 # is the one place that is said. A second name rendering dash.<zone> from its
 # own subdomain variable would agree until the first change to one moved the
 # panel for oauth2-proxy and the trust path while the DR keyset banner and the
 # gated-host probe set kept printing the old name.
 
-healthchecks_subdomain: "{{ default_app_healthchecks_subdomain | default('healthchecks', true) }}"
-healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
-# The overlay Healthchecks is on, instead of catena-network. Healthchecks takes
-# X-Forwarded-Email as the signed-in user from whoever sends it, so only the
-# services that call it join: its sign-in gate (reconcile/roles/oauth2_proxy) and
-# the panel (reconcile/roles/catena-admin).
-# reconcile/roles/swarm creates it before the first of them deploys.
-healthchecks_network: "catena-healthchecks"
-
 beszel_subdomain: "{{ default_app_beszel_subdomain | default('beszel', true) }}"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 # The overlay Beszel's hub and its alert relay are on, instead of catena-network.
-# The hub's own sign-in creates an account for any realm user, so only its
-# callers join: Gatus (reconcile/roles/infrastructure) and the app's own
-# services.
-# reconcile/roles/swarm creates it beside healthchecks_network.
+# The hub's own sign-in creates an account for any realm user, so only the app's
+# own services join.
+# reconcile/roles/swarm creates it.
 beszel_network: "catena-beszel"
 # The overlay only the hub and its sign-in gate (reconcile/roles/oauth2_proxy)
 # join. The hub signs in as the email in the header the gate sets, from peers
@@ -199,8 +193,8 @@ beszel_gate_network: "catena-beszelgate"
 # hyphen after "catena-" like theirs.
 alert_network: "catena-alerts"
 
-# The applications every host runs from the catalog: Gatus, Healthchecks and
-# Beszel (hub, agent and alert relay). reconcile/roles/infrastructure adds each
+# The application every host runs from the catalog: Beszel (hub,
+# agent and alert relay). reconcile/roles/infrastructure adds each
 # one with `catena-apps defaults` and writes this list to
 # /etc/catena/default-apps.json, which catena-admin's whole-server restore reads
 # to leave their stacks running. `tag` is the catalog tag the release names: the
@@ -209,9 +203,7 @@ alert_network: "catena-alerts"
 # stacks from here before any role runs.
 default_apps_repository: "https://github.com/catenahq/catena-templates"
 default_apps:
-  - { app: gatus, tag: "gatus/5.38.0-3", stack: catena-gatus }
-  - { app: healthchecks, tag: "healthchecks/5.0.3-2", stack: catena-healthchecks }
-  - { app: beszel, tag: "beszel/0.21.2-1", stack: catena-beszel }
+  - { app: beszel, tag: "beszel/0.21.2-4", stack: catena-beszel }
 # One folder per catalog application, which catena-apps writes.
 default_apps_compose_dir: "{{ storage_mount_point }}/compose"
 
@@ -243,8 +235,8 @@ admin_last_name: "{{ cfg_admin_last_name | default('') }}"
 # --- Declarative public-port registry ---
 # The directory the registry is built from. Here rather than in
 # reconcile/roles/public_ports because several roles write the fragment dir --
-# bootstrap/roles/common (SSH), reconcile/roles/infrastructure (gatus, beszel,
-# healthchecks) and reconcile/roles/catena-admin
+# bootstrap/roles/common (SSH), reconcile/roles/infrastructure (beszel,
+# the alert intake) and reconcile/roles/catena-admin
 # all drop a <owner>.json into it -- and a role default is only reliably in
 # scope once that role has run. A constant those roles share is the product's,
 # not one role's. The reconciler that reads it ships in the catena-admin
@@ -388,8 +380,7 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # --- Backup ---
 # Backup creds, repo and schedule are configured post-install in catena-admin
 # (Settings > Backup), written to the on-box store, and read by run-backup.sh
-# at runtime. backup_healthcheck_url is owned by reconcile/roles/backup/defaults.
-# Retention is the `backup_retention` object in /etc/catena/config.json, set on
+# at runtime. Retention is the `backup_retention` object in /etc/catena/config.json, set on
 # the panel's Schedules page and rendered to /etc/catena/backup-retention.env by
 # catena-schedule, the only file run-backup.sh sources it from.
 
@@ -518,8 +509,8 @@ catena_hostnames: >-
      | unique | list }}
 
 # Host dir where the payload lanes write the JSON reports the panel reads
-# (backup-stats.json from catena-backup-run, gatus-summary.json from
-# catena-gatus-sync, the rest named in catena-admin shell/stats).
+# (backup-stats.json from catena-backup-run, the rest named in catena-admin
+# shell/stats).
 # Bind-mounted read-only into the admin container; the admin's stats
 # reader picks up the files unchanged. Matches reconcile/roles/backup defaults'
 # backup_stats_dir; do not move without updating that role.

@@ -3,8 +3,7 @@
 
 # The fixtures here do not all arrive at the same time. The export dir and
 # Traefik's dynamic dir are written by THIS role;
-# catena-dashboard-sync and gatus-sync are lane scripts in the catena-admin
-# image payload. On a host whose converge does not install the payload
+# catena-dashboard-sync is a lane script in the catena-admin image payload. On a host whose converge does not install the payload
 # (CATENA_PAYLOAD_INSTALL=false) the reconciler lands when something else
 # installs it, and a validate before then would be asserting on a host that is
 # legitimately mid-assembly.
@@ -82,8 +81,7 @@
 - name: "validate/infrastructure: which sync units should be armed"
   ansible.builtin.set_fact:
     _infra_sync_units: >-
-      {{ ['catena-dashboard-sync.timer', 'catena-app-events.service',
-          'gatus-sync.timer']
+      {{ ['catena-dashboard-sync.timer', 'catena-app-events.service']
          if (_infra_payload_expected | bool) else [] }}
 
 - name: "validate/infrastructure: sync units are active + enabled"
@@ -108,6 +106,35 @@
   loop: "{{ _infra_timer_checks.results | default([]) }}"
   loop_control:
     label: "{{ item.item.0 }} {{ item.item.1 }}"
+
+- name: "validate/infrastructure: read the uptime check's targets"
+  ansible.builtin.slurp:
+    src: "{{ uptime_targets_path }}"
+  register: _infra_uptime_targets
+
+- name: "validate/infrastructure: the uptime targets are JSON of version 1"
+  ansible.builtin.assert:
+    that:
+      - (_infra_uptime_targets.content | b64decode | from_json).version == 1
+      - (_infra_uptime_targets.content | b64decode | from_json).targets | length > 0
+    fail_msg: >-
+      {{ uptime_targets_path }} is not JSON with version 1 and a target, so
+      catena-uptime would check none of Catena's own services.
+
+- name: "validate/infrastructure: stat the files of the withdrawn monitor wiring"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: _infra_withdrawn_stats
+  loop: "{{ infrastructure_withdrawn_files }}"
+
+- name: "validate/infrastructure: none of the withdrawn monitor wiring is left"
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists
+    fail_msg: "{{ item.item }} is still on the host, and nothing reads it any more"
+  loop: "{{ _infra_withdrawn_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"
 
 - name: "validate/infrastructure: catena-network exists"
   ansible.builtin.command: docker network inspect catena-network
@@ -140,8 +167,8 @@
 # neither:
 #
 #   ANCHORED. `(80|443)/tcp` is a substring match against the whole ufw
-#   line, so any port ENDING in 80 or 443 tripped it -- gatus' loopback
-#   port 18080 is the one that did. The port is the first field of a ufw
+#   line, so any port ENDING in 80 or 443 tripped it -- a loopback
+#   port such as 18080. The port is the first field of a ufw
 #   status row, so anchor to ^.
 #
 #   ALLOW ONLY. The assertion is "nothing OPENS 80/443", but it fired on

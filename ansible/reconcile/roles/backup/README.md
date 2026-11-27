@@ -8,8 +8,8 @@ restore's converge skips the first snapshot (tag `first_backup`;
 
 ## Tasks
 
-- `main.yml` -- write the backup configuration, register the
-  Healthchecks ping, and purge any apt restic or rclone. Whether the
+- `main.yml` -- write the backup configuration and purge any apt restic or
+  rclone. Whether the
   payload's `catena-backup.timer` runs, and when, is `catena-schedule apply`
   reading /etc/catena/config.json, and it enables a lane only on a host whose
   edition covers it: the backup runs at most once a week on every edition, and
@@ -22,7 +22,7 @@ restore's converge skips the first snapshot (tag `first_backup`;
 ## Where the scripts come from
 
 This role renders the per-host CONFIGURATION -- `backup.env`,
-`offsite.env`, `backup-paths`, the exclude patterns and the coverage
+`backup-paths`, the exclude patterns and the coverage
 paths. The code that reads them is not here: `catena-backup-run`,
 `catena-backup-coverage`, `catena-restic-env`,
 `catena-restic-mount`, `catena-restic-unmount`,
@@ -54,10 +54,9 @@ first stores only what changed.
 - MySQL / MariaDB -> `backup-staging/mysql/<container>-<ts>.sql`
   (`mariadb-dump`, falling back to `mysqldump`). A SEPARATE directory on
   purpose: the replay feeds every export under `pg/` to psql.
-- SQLite databases of the monitoring stacks -> `backup-staging/sqlite/<volume>/<file>`,
-  one whole copy of each database listed in `/etc/catena/backup-sqlite` (rendered
-  from `infrastructure_sqlite_databases`), taken while the service runs. A
-  whole-server restore starts each service on its copy.
+- SQLite databases -> `backup-staging/sqlite/<volume>/<file>`, one whole copy of
+  each database the app's block declares (`data.<service>.sqlite`), taken while
+  the service runs. A whole-server restore starts each service on its copy.
 
 The first backup of each day, and the offsite copy before it copies, removes
 the snapshots past the retention numbers and checks the repository.

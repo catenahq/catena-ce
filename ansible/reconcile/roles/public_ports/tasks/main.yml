@@ -7,8 +7,8 @@
 # app templates declare ports via vps.expose.* compose labels harvested live.
 # The reconciler, its modules and its units ship in the catena-admin payload,
 # which reconcile/roles/payload installs just before this role. This role owns
-# what belongs to the host: the fragment dir, the docker.service drop-in, and
-# enabling the timer. converge_tail.yml runs the reconciler once at the end of
+# what belongs to the host: the fragment dir, the docker.service and
+# tailscaled.service drop-ins, and enabling the timer. converge_tail.yml runs the reconciler once at the end of
 # a converge, after every role has dropped its fragment.
 
 - name: "public-ports: fragment dir exists"
@@ -76,10 +76,31 @@
     mode: "0644"
   register: _pp_docker_dropin
 
-- name: "public-ports: daemon-reload if the drop-in changed"
+# Re-apply the tailnet guards after every tailscaled.service start: tailscaled
+# puts its own accepting jumps ahead of them. Installed on every host: a drop-in
+# for a unit the host does not have is never read, and a private network joined
+# later finds it in place.
+- name: "public-ports: tailscaled.service.d drop-in dir exists"
+  ansible.builtin.file:
+    path: /etc/systemd/system/tailscaled.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "public-ports: tailscaled.service.d drop-in (reconcile after tailscaled starts)"
+  ansible.builtin.template:
+    src: catena-public-ports-tailscaled-dropin.conf.j2
+    dest: /etc/systemd/system/tailscaled.service.d/30-catena-public-ports.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: _pp_tailscaled_dropin
+
+- name: "public-ports: daemon-reload if a drop-in changed"
   ansible.builtin.systemd_service:
     daemon_reload: true
-  when: _pp_docker_dropin.changed
+  when: _pp_docker_dropin.changed or _pp_tailscaled_dropin.changed
 
 - name: "public-ports: enable + start timer"
   ansible.builtin.systemd_service:

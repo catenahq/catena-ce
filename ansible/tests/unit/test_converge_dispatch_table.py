@@ -22,8 +22,8 @@ Answers that do NOT qualify, each having been tried:
   one.
 
 The bodies' own property -- that each interpolates product constants rather
-than host facts -- is asserted where the bodies live, by catena-admin
-payload/actions.d/catena_actions_test.go.
+than host facts -- is asserted where the bodies live, by catena-admin's
+host action tests.
 
 Run: uv run pytest tests/unit/test_converge_dispatch_table.py
 """

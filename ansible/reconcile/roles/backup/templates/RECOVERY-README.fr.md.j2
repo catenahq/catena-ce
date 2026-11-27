@@ -7,17 +7,18 @@ vos mains.
 Vous n'avez besoin ni de notre logiciel, ni de nos outils, ni de notre
 aide pour récupérer vos données. Il vous faut des programmes courants :
 `restic` (lit la sauvegarde), `docker` (exécute les applications) et
-`psql` ou `mariadb` (chargent les bases de données).
+`psql`, `mariadb` ou `mongorestore` (chargent les bases de données).
 
 ## 1. Ce que contient la sauvegarde
 
 | Quoi | Où dans la sauvegarde |
 | --- | --- |
-| Données des applications (fichiers, téléversements, boîtes courriel, et historique de Gatus, Healthchecks et Beszel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
+| Données des applications (fichiers, téléversements, boîtes courriel, et historique de Beszel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
 | Définitions des applications (un dossier par application : son fichier compose, ses paramètres dans `.env` et l'origine du fichier) | `{{ storage_mount_point }}/compose/<nom-de-l-application>/` |
 | Exports de bases de données PostgreSQL (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql` |
 | Exports de bases de données MariaDB (un fichier par serveur de bases de données, SQL en clair) | `{{ storage_mount_point }}/backup-staging/mysql/*.sql` |
-| Copies des bases de surveillance (Gatus, Healthchecks, Beszel), chacune prise entière pendant qu'elle fonctionnait | `{{ storage_mount_point }}/backup-staging/sqlite/<nom-du-volume>/<fichier>` |
+| Exports de bases de données MongoDB (une archive par serveur de bases de données) | `{{ storage_mount_point }}/backup-staging/mongo/*.archive` |
+| Copies des bases de surveillance (Beszel), chacune prise entière pendant qu'elle fonctionnait | `{{ storage_mount_point }}/backup-staging/sqlite/<nom-du-volume>/<fichier>` |
 | Fichiers stockés hors volume | `{{ storage_mount_point }}/apps/` |
 | Vos paramètres et mots de passe | `/etc/catena/config.json` |
 | La version du logiciel utilisée par ce serveur | `/etc/catena/version.txt` |
@@ -81,10 +82,9 @@ cp -a /recovered{{ storage_mount_point }}/docker/volumes/<nom-du-volume>/_data/.
       /var/lib/docker/volumes/<nom-du-volume>/_data/
 ```
 
-Gatus, Healthchecks et Beszel sont des applications comme les autres : leurs
-dossiers sont `catena-gatus`, `catena-healthchecks` et `catena-beszel`, et les
-étapes ci-dessus les restaurent. Le dossier de Beszel contient ensemble son
-serveur, son agent et son relais d'alertes. Elles conservent des bases SQLite,
+Beszel est une application comme les autres : son dossier est `catena-beszel`,
+et les étapes ci-dessus le restaurent. Le dossier contient ensemble son
+serveur, son agent et son relais d'alertes. Elle conserve des bases SQLite,
 et chaque sauvegarde contient une copie de chacune, prise entière pendant
 qu'elle fonctionnait. Pour l'une d'elles, ajoutez aussi
 `--include '{{ storage_mount_point }}/backup-staging/sqlite/<nom-du-volume>'`
@@ -147,6 +147,20 @@ charger un export dans une base vide est donc sans danger. Ne les
 utilisez que si le répertoire de données de l'application n'a pas
 survécu ; charger un export par-dessus des données plus récentes les
 écrasera.
+
+Un export MongoDB est une archive qui contient toutes les bases du serveur.
+Passez-la à `mongorestore` dans le conteneur de la base de données (`--drop`
+remplace ce qui existe). Quand le serveur exige une connexion, ajoutez
+`--username`, `--password` et `--authenticationDatabase admin` avec le compte
+root que le fichier `.env` de l'application contient :
+
+```
+docker exec -i <conteneur> mongorestore --archive --drop --oplogReplay < <nom>-<date>.archive
+```
+
+Retirez `--oplogReplay` quand l'archive ne contient pas de journal des
+opérations, ce qui est le cas d'un serveur qui n'est pas un jeu de réplicas :
+`mongorestore` refuse alors l'option.
 
 ## 6. Reconstruire le serveur au complet
 

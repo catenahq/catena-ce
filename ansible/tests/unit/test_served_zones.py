@@ -118,8 +118,6 @@ def _hostnames(zone: str) -> dict:
     return {
         "keycloak_hostname": f"auth.{zone}",
         "catena_admin_hostname": f"dash.{zone}",
-        "infrastructure_gatus_hostname": f"gatus.{zone}",
-        "healthchecks_hostname": f"healthchecks.{zone}",
         "beszel_hostname": f"beszel.{zone}",
     }
 
