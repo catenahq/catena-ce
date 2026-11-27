@@ -1,6 +1,5 @@
 {
   "reasons": {
-    "generated": "Rendered from the bench scenarios' first sentences and published by each release; a scenario about an app names it.",
     "legal": "Licence text: the source licence of a component, and examples of applications that carry their own licence.",
     "sample": "A test of generic code; the app is its realistic sample, under its real names, images and volumes."
   },
@@ -13,12 +12,6 @@
         "rocket.chat"
       ],
       "reason": "legal"
-    },
-    "TEST_SCENARIOS.md": {
-      "names": [
-        "*"
-      ],
-      "reason": "generated"
     },
     "ansible/tests/unit/test_catena_container_lookup.py": {
       "names": [
