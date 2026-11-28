@@ -133,7 +133,7 @@ def test_the_backup_password_is_generated_in_the_panel_not_shown_here():
     where it comes from instead."""
     banner = _banner()
     assert "backup_restic_password" not in banner
-    assert "Settings > Backup" in banner
+    assert "Backups > Destination" in banner
 
 
 def test_the_public_urls_wait_for_a_domain():

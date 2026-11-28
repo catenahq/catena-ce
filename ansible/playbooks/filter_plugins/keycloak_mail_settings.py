@@ -1,6 +1,6 @@
 """The sign-in realm's mail settings, and when a converge writes them.
 
-Settings > Outgoing mail decides what the realm (reconcile/roles/keycloak/
+Server settings > Mail decides what the realm (reconcile/roles/keycloak/
 templates/realm-vps.yaml.j2) carries as `smtpServer`. The realm records what
 Catena last wrote in a realm attribute: a fingerprint of the mail fields that
 Keycloak returns. Keycloak never returns the stored password, so it is not part

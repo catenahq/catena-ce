@@ -119,7 +119,7 @@
           - (tailnet_control_url | default('') | length) > 0
         fail_msg: >-
           Headscale is selected but no control server address is set. Enter it
-          in catena-admin > Settings > Admin access tunnel (Headscale server
+          in catena-admin > Security > Private network and SSH (Headscale server
           address), or switch that setting back to Tailscale.
       when: tailnet_provider == 'headscale'
 
@@ -169,7 +169,7 @@
     # ── Fork B: self-hosted Headscale ──
     # Headscale has no OAuth API: mint a per-converge tagged pre-auth key via
     # its API (no long-lived key on the VPS), falling back to a static key
-    # entered in Settings. The API names the user of a key by numeric id, so
+    # entered in Security > Private network and SSH. The API names the user of a key by numeric id, so
     # the stored user name is first resolved against the users it lists.
     - name: "Headscale: list the users the API key can see"
       ansible.builtin.uri:
@@ -194,7 +194,7 @@
         fail_msg: >-
           The Headscale server has no user named {{ tailnet_headscale_user }}.
           Create it on the server, or enter the right one in catena-admin >
-          Settings > Admin access tunnel (Headscale user).
+          Security > Private network and SSH (Headscale user).
       when:
         - tailnet_provider == 'headscale'
         - (headscale_api_key | default('') | length) > 0
@@ -238,7 +238,7 @@
         fail_msg: >-
           Headscale is selected but there is no credential in the on-box store:
           set the Headscale API key (to mint one per converge) or a Headscale
-          pre-authentication key (a static one) in catena-admin > Settings.
+          pre-authentication key (a static one) in catena-admin > Security > Private network and SSH.
           Minting also needs the Headscale user.
       when: tailnet_provider == 'headscale'
 

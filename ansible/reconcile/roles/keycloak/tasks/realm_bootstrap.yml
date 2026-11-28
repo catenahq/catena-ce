@@ -421,7 +421,7 @@
   register: _kc_realms
   changed_when: false
 
-# The realm's mail settings follow the panel's Settings > Outgoing mail while
+# The realm's mail settings follow the panel's Server settings > Mail while
 # they are the ones Catena wrote, which the realm records in an attribute; the
 # realm files declare `smtpServer` only then, and a change made in the realm's
 # Email tab stays (playbooks/filter_plugins/keycloak_mail_settings.py). The
@@ -1164,11 +1164,11 @@
     msg: >-
       The mail settings of realm {{ keycloak_realm }} were changed in the Email
       tab of Keycloak's admin console, and this converge leaves them as they
-      are: Settings > Outgoing mail no longer changes them. To hand them back
-      to Settings, set the Email tab to exactly the values Settings > Outgoing
-      mail shows, or empty them on the server with kcadm update
+      are: Server settings > Mail no longer changes them. To hand them back
+      to Server settings, set the Email tab to exactly the values Server settings > Mail
+      shows, or empty them on the server with kcadm update
       realms/{{ keycloak_realm }} -s 'smtpServer={}' (the role README,
-      "Handing the realm's mail settings back to Settings").
+      "Handing the realm's mail settings back to Server settings").
   when: not (keycloak_smtp_write | bool)
 
 # Records the mail settings Catena wrote, once the realm holds them. kcadm

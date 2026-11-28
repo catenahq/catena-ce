@@ -35,7 +35,7 @@ duplicateEmailsAllowed: false
 editUsernameAllowed: false
 bruteForceProtected: true
 
-# Second-factor enrolment, from IDENTITY_ENFORCE_MFA on the Settings page.
+# Second-factor enrolment, from IDENTITY_ENFORCE_MFA in Security > Sign-in.
 #
 # Asserted on EVERY converge rather than seeded once, because it is a setting a
 # client CHANGES: a first-import-only value could be turned on in Settings and
@@ -221,11 +221,11 @@ users:
 {% endif %}
 
 # Realm-level SMTP config, from the outgoing mail chosen in the panel's
-# Settings > Mail (resolved in ../defaults/main.yml). Drives password
+# Server settings > Mail (resolved in ../defaults/main.yml). Drives password
 # reset, invitations, MFA enrolment, and the verify-email send used by
 # validate.yml's Vantage 1b smoke test.
 #
-# Declared while keycloak_smtp_write holds (realm_bootstrap.yml): Settings >
+# Declared while keycloak_smtp_write holds (realm_bootstrap.yml): Server settings >
 # Mail is where this is decided, so a saved change (a rotated key, another
 # provider) reaches the realm on the converge the save starts. A realm whose
 # mail settings were changed in the Keycloak admin UI's Email tab since Catena

@@ -55,7 +55,7 @@ uvx catena-installer install --inventory prod
 ```sh
 ssh -N -L 9010:127.0.0.1:9010 panel@<your-server-address>
 ```
-   The server's address is its public IP, or its tailnet IP once the lockdown has closed public SSH. Then go to the `Settings` tab to finish the installation:
+   The server's address is its public IP, or its tailnet IP once the lockdown has closed public SSH. Then go to the `Backups` and `Server settings` tabs to finish the installation:
    - Enter your S3 endpoint and credentials, then `Generate backup encryption password` and save it to your password manager: you need it to read and restore your backups
    - Enter the Cloudflare domain and API token to publish your apps; the panel is then also at `https://dash.<your-domain>`
    - Enter the tailnet credentials, then apply the `Lockdown` to join the tailnet and close public SSH. The server reopens public SSH by itself while its tailnet is down, and closes it again when the tailnet is back

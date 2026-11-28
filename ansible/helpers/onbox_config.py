@@ -274,7 +274,7 @@ RETIRED_SECRETS: frozenset[str] = frozenset({
 #     path is gone, so a copy that lives only inside the box is no copy at all.
 #   - backup_restic_password -- encrypts the backup repo. Never minted by a
 #     converge (MINTED_ON_REQUEST): the client generates it in catena-admin >
-#     Settings > Backup, beside the repository it encrypts, and saves it then
+#     Backups > Destination, beside the repository it encrypts, and saves it then
 #     (scripts/catena-restic-key.py `generate`). A whole-server restore brings
 #     back the password that opened the repository. A rotation is a deliberate
 #     `restic key passwd` action in catena-admin, not a store write.
@@ -294,7 +294,7 @@ MINTED_ON_REQUEST: frozenset[str] = frozenset({"backup_restic_password"})
 # optional ones may legitimately be empty.
 #
 # This set is also the ALLOWLIST apply_inputs enforces, so a credential a role
-# tells the client to "enter in catena-admin > Settings" and that is NOT
+# tells the client to "enter in catena-admin" and that is NOT
 # declared in the registry has a documented path that raises. The panel's
 # schema is held against the same declaration by its own test, so the two
 # cannot disagree about which credentials exist.
@@ -315,7 +315,7 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset(
 # password to the host, whose `sign-in` op answers only whether it matched. A
 # settings write merges into the whole file (dump), so a key outside this set
 # survives every write the panel makes.
-#   - each client-supplied secret the Settings page offers (a knob with a
+#   - each client-supplied secret the panel offers (a knob with a
 #     `panel`): the page reports which are set, and the tailnet and backup
 #     checks send the stored ones;
 #   - backup_restic_password: the disaster-recovery keyset the page reveals.

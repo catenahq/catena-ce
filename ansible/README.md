@@ -89,7 +89,7 @@ and install on every host, but the license check gates their features at
 runtime, so on a Community host only the backup (at most once a week) and the
 vulnerability watch run. On a
 host whose edition covers a lane, `catena-schedule` turns on the lanes set on
-the panel's Schedules page.
+the panel's schedule tabs.
 
 ## The inventory
 
@@ -108,13 +108,13 @@ plaintext: the installer writes only non-secret files into the inventory.
 
 - The install takes no vendor credential. The tailnet credential, the
   Cloudflare API token, the restic repo URL and the S3 keys are entered
-  **post-install in catena-admin** > Settings, which writes them to the
+  **post-install in catena-admin** (Server settings, Security, Backups), which writes them to the
   store.
 - Every other secret is minted **on the server**
   (`helpers/onbox_config.py`). The installer shows the admin and console
   passwords **once**, right after bootstrap, and repeats them when the
   install ends (`playbooks/show-keyset.yml`); the restic password is generated in
-  catena-admin > Settings > Backup and shown there once
+  catena-admin > Backups > Destination and shown there once
   (`scripts/catena-restic-key.py`). An install's input file may pin the admin
   password; it reaches the server through a **transient 0600 file**
   (`-e @file`) that is deleted afterwards.

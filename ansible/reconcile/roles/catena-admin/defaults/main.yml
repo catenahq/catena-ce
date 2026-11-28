@@ -175,8 +175,8 @@ catena_stack_update_env_path: /etc/catena/stack-update.env
 catena_managed_services_path: /etc/catena/managed-services.json
 
 # Container-bump gates: two minutes of stabilisation before the next service is
-# bumped. The days a new version waits come from the config store (the
-# Schedules page).
+# bumped. The days a new version waits come from the config store (set in
+# Maintenance > Schedule and steps).
 catena_stack_update_stabilize_seconds: 120
 catena_stack_update_cve_severity: "HIGH,CRITICAL"
 

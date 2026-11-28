@@ -1,7 +1,7 @@
 # cloudflare_tunnel_regenerate
 
 Mints this host a new Cloudflare tunnel, replacing the one it has. The panel's
-Settings > Domain > Apply runs it (`playbooks/rotate-tunnel.yml`, then a
+Server settings > Domain > Apply runs it (`playbooks/rotate-tunnel.yml`, then a
 converge) to put a saved domain and token into effect, which also covers
 rotating a tunnel credential suspected compromised and recovering a tunnel
 deleted out of band in the Cloudflare dashboard.
@@ -12,7 +12,7 @@ deleted out of band in the Cloudflare dashboard.
   swarm service spec. This is what the role replaces.
 - **`cloudflare_api_token`** -- the account credential that authenticates the
   API calls doing the replacing. The role reads it, never writes it. Rotating
-  it is a separate act, done in catena-admin > Settings, and it has to land in
+  it is a separate act, done in catena-admin > Server settings > Domain, and it has to land in
   the store before a rotation runs.
 
 ## Why it is its own role

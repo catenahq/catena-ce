@@ -44,7 +44,7 @@
         fail_msg: >-
           storage_bulk_type=cifs but storage_bulk_username /
           storage_bulk_password are not set. They are client-held
-          credentials: enter them in catena-admin > Settings.
+          credentials: enter them in catena-admin > Server settings > Storage share.
 
     - name: Ensure credentials directory exists
       ansible.builtin.file:

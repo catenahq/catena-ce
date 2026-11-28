@@ -332,7 +332,7 @@
 
     # The public via-tunnel probes below (Keycloak Account Console at auth.<zone>
     # and each gated host's /oauth2/start) only work once a Cloudflare token has
-    # been saved (catena-admin > Settings) and the tunnel converged. With no
+    # been saved (catena-admin > Server settings > Domain) and the tunnel converged. With no
     # token the tunnel is DEFERRED, so skip them with a clear reason. The token
     # is a host fact from the Vantage-1 load_onbox_config pre_task.
     #

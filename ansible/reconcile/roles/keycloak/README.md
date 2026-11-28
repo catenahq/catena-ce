@@ -152,9 +152,9 @@ delete, stays with a note, for a later converge.
   minted on the box.
 - `keycloak_db_password` -- written into the catena-postgres user.
 - `cfg_smtp_provider`, `cfg_smtp_host`, `cfg_smtp_port`, `cfg_smtp_user`,
-  `cfg_smtp_sender` and `smtp_password` -- Settings > Mail, resolved by the
+  `cfg_smtp_sender` and `smtp_password` -- Server settings > Mail, resolved by the
   `catena_smtp_resolve` filter (`defaults/main.yml`).
-- `cfg_identity_enforce_mfa` -- Settings > Sign-in requirements.
+- `cfg_identity_enforce_mfa` -- Security > Sign-in.
 
 ## Idempotency
 
@@ -198,7 +198,7 @@ delete, stays with a note, for a later converge.
   stays. On a realm seeded before the record, a name equal to the seed's for
   the current domain, or the seed's empty one from a host with no domain yet,
   counts as Catena's (`playbooks/filter_plugins/keycloak_signin_name.py`).
-- The realm's mail settings follow Settings > Outgoing mail while they are the
+- The realm's mail settings follow Server settings > Mail while they are the
   ones Catena wrote, which the realm records in its `catenaMailSettings`
   attribute as a fingerprint of the settings Keycloak returns (the stored
   password is not among them). Before the imports the converge reads the
@@ -207,7 +207,7 @@ delete, stays with a note, for a later converge.
   or holds the record's. Mail settings changed in the realm's Email tab after
   that stay: the import declares none, keycloak-config-cli sends no
   `smtpServer` and Keycloak keeps the realm's, and the converge says so.
-  Handing them back to Settings is described below. A hand edit that changes
+  Handing them back to Server settings is described below. A hand edit that changes
   only the password cannot be seen, and the next converge writes the panel's
   password over it (`playbooks/filter_plugins/keycloak_mail_settings.py`).
 
@@ -239,18 +239,18 @@ type `otp`); the next converge asks the admin to set up a new one:
 kc delete "users/$id/credentials/<credential id>" -r master
 ```
 
-## Handing the realm's mail settings back to Settings
+## Handing the realm's mail settings back to Server settings
 
 The Email tab of the realm's settings in Keycloak's admin console has no control
 to clear its fields. With kcadm signed in as in the first block above, empty the
-realm's mail settings; the next converge writes the ones Settings > Outgoing
-mail shows and records them:
+realm's mail settings; the next converge writes the ones Server settings > Mail
+shows shows and records them:
 
 ```sh
 kc update realms/vps -s 'smtpServer={}'
 ```
 
-Setting the Email tab to exactly the values Settings > Outgoing mail shows works
+Setting the Email tab to exactly the values Server settings > Mail shows works
 too: the converge after it records them.
 
 ## Related

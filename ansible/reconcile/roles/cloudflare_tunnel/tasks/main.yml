@@ -16,7 +16,7 @@
 #
 # The engine decides whether there is anything to do. With no token in the store
 # it prints its skip line and exits 0, and the tunnel is DEFERRED: the client
-# enters the token in catena-admin > Settings, which validates it
+# enters the token in catena-admin > Server settings > Domain, which validates it
 # (cloudflared-check) and fires cloudflared-sync in the background. A
 # present-but-INVALID token fails the converge here (the engine exits nonzero)
 # rather than half-configuring a broken edge.

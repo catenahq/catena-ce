@@ -35,7 +35,7 @@ host engine already does. `restic` and `rclone` themselves ship in the same
 payload, pinned by digest in the catena-admin `Dockerfile`.
 
 The repository is created when the destination is saved in catena-admin >
-Settings > Backup (`../../../scripts/catena-restic-key.py`, op `init`), never
+Backups > Destination (`../../../scripts/catena-restic-key.py`, op `init`), never
 by a backup: `catena-backup-run` stops when it finds no repository.
 
 `install.yml` fails loudly when a converge that installs the payload
@@ -121,7 +121,7 @@ a backup by itself.
 - `backup_s3_access_key` / `backup_s3_secret_key` -- S3 credentials.
 - `backup_restic_repo` -- S3 URL (e.g. `s3:s3.example.com/bucket`).
 
-All four come from the on-box store, where catena-admin > Settings > Backup
+All four come from the on-box store, where catena-admin > Backups > Destination
 writes them after the install; the password is generated there. The role
 writes the restic configuration only once all four are set.
 Cadence and retention are NOT inputs to this role. Both are set per host

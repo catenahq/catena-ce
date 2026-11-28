@@ -170,7 +170,7 @@ def test_the_daily_env_does_not_carry_a_schedule():
 
 
 def test_the_daily_env_does_not_choose_the_chains_steps():
-    # Which steps the maintenance runs is the Schedules page's, in the config store's
+    # Which steps the maintenance runs is set in Maintenance > Schedule and steps, in the config store's
     # nightly_steps, written by catena-schedule. A switch here would be a second
     # writer, and the converge would put back a step the client left out.
     body = _code(DAILY_ENV)

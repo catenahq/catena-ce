@@ -4,7 +4,7 @@
 # the container engine, Debian's
 # unattended-upgrades and its origins, needrestart's restart policy, the
 # journal's storage, the NTP servers, the host mail agent kept off port 25, the
-# time zone and locale set in catena-admin > Settings, the reboot-required
+# time zone and locale set in catena-admin > Server settings > Time and language, the reboot-required
 # probe (which reports to the alert hub), the alert hub, the licence check, the
 # error reports and the application verify. The probe's script
 # (catena-reboot-check), the alert hub (catena-alert), the licence check's
@@ -278,7 +278,7 @@
     msg: >-
       COMMON_TIMEZONE is {{ host_maintenance_timezone }}, which this host does
       not know, so its clock zone is unchanged. Enter an IANA name such as
-      America/Toronto in catena-admin > Settings.
+      America/Toronto in catena-admin > Server settings > Time and language.
   when: not (_host_tz_file.stat.isreg | default(false))
 
 # Uncomments the locale in Debian's list; a name the list does not carry
@@ -339,7 +339,7 @@
       start: true
     - unit: "{{ alert_hub_systemd_unit_name }}.timer"
       what: "alert hub timer"
-      without: "this host would never send the alerts turned on in Settings"
+      without: "this host would never send the alerts turned on in Monitoring > Alert settings"
       start: true
     - unit: "{{ uptime_systemd_unit_name }}.timer"
       what: "uptime check timer"

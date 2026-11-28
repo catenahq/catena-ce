@@ -158,7 +158,7 @@ def _record_task() -> dict:
 
 
 def test_the_panel_can_read_the_record():
-    """catena-admin's System page reads it through a read-only mount as a
+    """catena-admin's Overview reads it through a read-only mount as a
     non-root uid, so a root-only mode hides every drift from the panel."""
     assert _record_task()["ansible.builtin.copy"]["mode"] == "0644"
 

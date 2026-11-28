@@ -133,7 +133,7 @@ def test_a_filled_env_line_the_server_holds_is_named(seed, tmp_path, capsys):
     seed.warn_server_held_lines(env)
     err = capsys.readouterr().err
     assert "sets CLOUDFLARE_ZONE," in err
-    assert "catena-admin > Settings" in err
+    assert "Server settings, Security, Backups" in err
 
 
 def test_an_env_with_only_installer_lines_says_nothing(seed, tmp_path, capsys):

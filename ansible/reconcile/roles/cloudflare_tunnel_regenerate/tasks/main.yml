@@ -1,5 +1,5 @@
 ---
-# Regenerate the Cloudflare tunnel for this host. The panel's Settings >
+# Regenerate the Cloudflare tunnel for this host. The panel's Server settings >
 # Domain > Apply runs it (playbooks/rotate-tunnel.yml) to put a newly saved
 # domain or token into effect, which also covers rotating a tunnel credential
 # suspected of compromise and recovering a tunnel someone deleted out of band
@@ -19,7 +19,7 @@
 # mint its replacement with the other. One source, one answer.
 #
 # So rotating the API token is a separate act that lands in the store first
-# (catena-admin > Settings). This role refuses before deleting anything when
+# (catena-admin > Server settings > Domain). This role refuses before deleting anything when
 # the store holds none.
 #
 # Sequence:
@@ -35,7 +35,7 @@
 # it so every route follows the new domain.
 
 # There is nothing to rotate until the client has provisioned a tunnel by
-# saving a Cloudflare token in catena-admin > Settings (the token lands in the
+# saving a Cloudflare token in catena-admin > Server settings > Domain (the token lands in the
 # on-box store). Refuse up front rather than deleting-then-failing-to-recreate.
 - name: "CF regen: read the store"
   ansible.builtin.include_tasks: _read_store.yml
@@ -56,7 +56,7 @@
       - (_cf_regen_api_token | length) > 0
     fail_msg: >-
       No Cloudflare token in the on-box store -- enter it in catena-admin >
-      Settings before regenerating the tunnel. The tunnel is provisioned on-box
+      Server settings > Domain before regenerating the tunnel. The tunnel is provisioned on-box
       from the stored token: there is nothing to rotate until one exists, and
       nothing to authenticate the delete with.
 
@@ -66,7 +66,7 @@
       - cloudflare_zone | length > 0
     fail_msg: >-
       No Cloudflare zone in the on-box store. Enter the domain with the
-      Cloudflare token in catena-admin > Settings first.
+      Cloudflare token in catena-admin > Server settings > Domain first.
   run_once: true
   delegate_to: localhost
   become: false
@@ -109,7 +109,7 @@
       the host still serves the old one:
       {% for r in _cf_regen_refused %}DELETE cfd_tunnel/{{ r.item.id }}?cascade=true
       answered HTTP {{ r.status }} on every try{{ '; ' if not loop.last else '.' }}{% endfor %}
-      Apply the domain again in catena-admin > Settings.
+      Apply the domain again in catena-admin > Server settings > Domain.
   vars:
     _cf_regen_refused: "{{ _cf_regen_delete.results | rejectattr('status', 'in', [200, 404]) | list }}"
   when: _cf_regen_refused | length > 0

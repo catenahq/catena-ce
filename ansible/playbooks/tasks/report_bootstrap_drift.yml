@@ -12,7 +12,7 @@
 # What it removes is the silence. Without a reader, a change to the forced
 # command, the sudoers drop-in or the SSH trust path is invisible until an
 # operator goes looking, and the thing that makes an operator go looking is
-# already suspecting something. The converge log and catena-admin's System page
+# already suspecting something. The converge log and catena-admin's Overview
 # both show what this records.
 #
 # The baseline is what the last converge saw. filter_plugins/bootstrap_drift.py
@@ -144,7 +144,7 @@
     - "'digests' in _drift_previous"
     - (_drift.added | length + _drift.removed | length + _drift.changed | length) > 0
 
-# The panel renders `drift` on its System page, so a first look records none:
+# The panel renders `drift` on its Overview, so a first look records none:
 # against no baseline every file would read as added.
 - name: "Bootstrap drift: record what this converge saw"
   ansible.builtin.copy:

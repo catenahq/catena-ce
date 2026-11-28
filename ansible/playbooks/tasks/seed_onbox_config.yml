@@ -122,6 +122,6 @@
       No domain is configured, so nothing public is published on this converge:
       no certificates, no routes, no DNS records. The server is reachable on the
       private network and everything on it runs. Enter a domain in the
-      dashboard's Settings, then converge again.
+      panel's Server settings > Domain, then converge again.
   when: catena_public_surface_deferred | bool
   run_once: true

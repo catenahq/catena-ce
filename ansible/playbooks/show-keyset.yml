@@ -124,7 +124,7 @@
             Console password for `{{ ops_user | default('ops') }}` (break-glass): {{ _secrets.console_recovery_password }}
 
           The backup encryption password is generated in the panel, under
-          Settings > Backup, with the repository it encrypts: save it then.
+          Backups > Destination, with the repository it encrypts: save it then.
           With it plus your S3 keys and repository address a wiped server is
           rebuilt from backup; without it the backups cannot be restored, by
           anyone.
@@ -163,8 +163,9 @@
           The installer opens the same forward when it ends, and again with
           `catena-installer connect`.
 
-          Enter the domain, backups and the private network in the panel's
-          Settings.
+          Enter the domain in Server settings > Domain, backups in Backups >
+          Destination and the private network in Security > Private network
+          and SSH.
           {% if not (catena_public_surface_deferred | bool) %}
 
           The public hostnames are SSO-gated and go through the Cloudflare

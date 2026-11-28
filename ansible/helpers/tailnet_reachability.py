@@ -470,7 +470,7 @@ def check(cfg: dict, run: Run = _run, http: Http = _http,
                     reasons.append(
                         "no Headscale API key is stored, so the control server "
                         "cannot confirm this server is online; enter one in "
-                        "catena-admin > Settings > Admin access tunnel")
+                        "catena-admin > Security > Private network and SSH")
                 else:
                     notes.append("Headscale not asked (no API key stored)")
             else:

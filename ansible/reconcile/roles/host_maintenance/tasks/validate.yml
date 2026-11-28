@@ -127,7 +127,7 @@
       - _hm_alert_timer.results[1].stdout | trim == 'active'
     fail_msg: >-
       {{ alert_hub_systemd_unit_name }}.timer is not enabled and active, so
-      this host sends none of the alerts turned on in Settings.
+      this host sends none of the alerts turned on in Monitoring > Alert settings.
   when: catena_payload_expected | bool
 
 - name: "validate/host_maintenance: is the uptime check timer expected here"

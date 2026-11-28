@@ -156,7 +156,7 @@
     msg: >-
       No domain is configured, so there are no public URLs to probe. The
       shared services are running and reachable on the private network.
-      Enter a domain in the dashboard's Settings; the next converge
+      Enter a domain in the panel's Server settings > Domain; the next converge
       publishes them and this probe starts checking them.
   when:
     - _infra_edge_up

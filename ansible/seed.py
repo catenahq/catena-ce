@@ -124,7 +124,7 @@ def _declared_secret_names() -> frozenset[str]:
 
 # The one secret an install.yaml may carry: an admin password override. Every
 # other secret is minted ON-BOX (helpers/onbox_config.py) or entered in
-# catena-admin > Settings.
+# catena-admin.
 ADMIN_PASSWORD_KEY = "admin_password"
 
 
@@ -162,8 +162,8 @@ def warn_server_held_lines(env_path: Path) -> None:
     held = server_held(filled)
     if held:
         warn(f"{env_path} sets {', '.join(held)}, which the server holds: "
-             "nothing reads these lines. Change them in catena-admin > "
-             "Settings, and delete them from the .env.")
+             "nothing reads these lines. Change them in the panel (Server settings, Security, Backups), "
+             "and delete them from the .env.")
 
 
 # Minimum admin password length when a user PINS one via install.yaml (the SSO
@@ -670,7 +670,7 @@ def _print_summary(*, inventory: str, env_values: dict[str, str]) -> None:
     print(f"  Inventory:      {inventory}", file=sys.stderr)
     print(f"  IPv4 endpoint:  {_ipv4_endpoint(env_values)}", file=sys.stderr)
     print("  Afterwards:     the domain, the private network and backups are "
-          "entered in catena-admin > Settings", file=sys.stderr)
+          "entered in the Server settings, Security and Backups tabs of catena-admin", file=sys.stderr)
     print(file=sys.stderr)
 
 
@@ -738,7 +738,7 @@ def main(argv: list[str] | None = None) -> int:
     if refused:
         die(f"install.yaml names {', '.join(refused)}, which the installer does "
             "not take. The domain, the private network, backups and the rest "
-            "are set on the server once it runs, in catena-admin > Settings.")
+            "are set on the server once it runs, in the Server settings, Security and Backups tabs of catena-admin.")
 
     banner("Target")
     if args.inventory_path:

@@ -108,9 +108,9 @@ domain. The check reads the applications off the app intent itself.
 
 The off-site heartbeat (`catena-heartbeat`, catena-admin payload) probes the
 Beszel hub and the alert intake on their loopback publishes and calls the
-outside monitoring address saved in Settings > Alerts. This role renders its
+outside monitoring address saved in Monitoring > Alert settings. This role renders its
 `/etc/catena/heartbeat.env`; catena-schedule enables its timer while the
-Schedules page's `heartbeat` lane is on.
+`heartbeat` lane of Monitoring > Alert settings is on.
 
 ## Inputs
 

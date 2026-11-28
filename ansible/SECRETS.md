@@ -36,10 +36,10 @@ brings it back with the data. The operator holds nothing.
 Every secret name referenced anywhere under `ansible/` belongs to exactly one
 of them, declared in its registry.
 
-### 1. Client-supplied external (catena-admin Settings)
+### 1. Client-supplied external (catena-admin)
 
 Issued by a third party; catena can never generate these. The client enters
-them in catena-admin > Settings once the server runs, they persist on-box,
+them in catena-admin once the server runs, they persist on-box,
 and they ride the backup thereafter. The
 DR-critical subset (restic repo + S3 + restic password) is ALSO what the
 client keeps in their password manager -- it is the only thing that cannot
@@ -47,22 +47,22 @@ ride the backup, because it is what unlocks the backup.
 
 | Key | Purpose | Phase where entered | DR-critical (client-kept) |
 | --- | --- | --- | --- |
-| `tailscale_oauth_client_id` | Join the client's own tailnet | settings page | no |
-| `tailscale_oauth_client_secret` | ^ | settings page | no |
-| `headscale_api_key` | ^, on the self-hosted backend | settings page | no |
-| `headscale_preauth_key` | ^, static fallback | settings page | no |
-| `cloudflare_api_token` | Tunnel + DNS | settings page | no |
-| `cloudflare_api_tokens` | ^, one token per additional domain (zone -> token map) | Settings > Domain | no |
-| `BACKUP_RESTIC_REPO` (config) | restic repo URL | settings page | **yes** |
-| `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
-| `backup_s3_secret_key` | ^ | settings page | **yes** |
-| `backup_restic_password` | decrypt the restic repo | generated in the settings page, **shown once** | **yes** |
+| `tailscale_oauth_client_id` | Join the client's own tailnet | Security > Private network and SSH | no |
+| `tailscale_oauth_client_secret` | ^ | Security > Private network and SSH | no |
+| `headscale_api_key` | ^, on the self-hosted backend | Security > Private network and SSH | no |
+| `headscale_preauth_key` | ^, static fallback | Security > Private network and SSH | no |
+| `cloudflare_api_token` | Tunnel + DNS | Server settings > Domain | no |
+| `cloudflare_api_tokens` | ^, one token per additional domain (zone -> token map) | Server settings > Domain | no |
+| `BACKUP_RESTIC_REPO` (config) | restic repo URL | Backups > Destination | **yes** |
+| `backup_s3_access_key` | reach the restic bucket | Backups > Destination | **yes** |
+| `backup_s3_secret_key` | ^ | Backups > Destination | **yes** |
+| `backup_restic_password` | decrypt the restic repo | generated in Backups > Destination, **shown once** | **yes** |
 | `admin_password` | first login (Keycloak + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
-| `smtp_password` | outbound mail (opt) | settings page | no |
-| `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
-| `storage_bulk_password` | ^ | settings page | no |
-| `catena_license` | Polar subscription key (opt; empty is Community) | settings page | no |
+| `smtp_password` | outbound mail (opt) | Server settings > Mail | no |
+| `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | Server settings > Storage share | no |
+| `storage_bulk_password` | ^ | Server settings > Storage share | no |
+| `catena_license` | Polar subscription key (opt; empty is Community) | Server settings > Subscription and support | no |
 
 `backup_restic_password`, `admin_password` and
 `console_recovery_password` are special: `USER_HELD_SECRETS` in
@@ -144,7 +144,7 @@ over the store's (`env.reseed` in the registry). A blank value keeps the
 stored one, and a host converging itself has no `.env` to read: the
 installer sends the `.env` with an install, for that run only.
 
-**Store, catena-admin Settings only:** the domain (`CLOUDFLARE_ZONE`), the
+**Store, set in catena-admin only:** the domain (`CLOUDFLARE_ZONE`), the
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
 `HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
 the off-site heartbeat (`OFFSITE_HEARTBEAT_URL`), the alert hub's email list,
