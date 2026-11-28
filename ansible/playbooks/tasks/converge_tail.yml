@@ -36,7 +36,7 @@
   tags: [public_ports]
 
 # Rewrite the version report now that every role has moved its services, so the
-# panel's System and Apps pages name what runs from the end of an update rather
+# panel's version pages name what runs from the end of an update rather
 # than from the timer's next pass. Upstream lookups are best-effort and it takes
 # no host lock. Skipped where reconcile/roles/infrastructure found the payload
 # staged out of band and the script not yet on the host.

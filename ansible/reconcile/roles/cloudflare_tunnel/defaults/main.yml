@@ -26,8 +26,7 @@ cloudflared_sync_bin: "/usr/local/bin/catena-cloudflared-sync"
 # The engine's spec pins live in the engine. The image, the Traefik ingress
 # service, the overlay, the stop grace and the probe counts are product
 # constants that catena-cloudflared-sync carries as its own defaults; a copy
-# here would be a third one, beside the catena-admin reserved action and the
-# engine, agreeing only by hand.
+# here would be a second one, beside the engine, agreeing only by hand.
 #
 # The image pin lives there too: Renovate and Trivy track cloudflare/cloudflared
 # in catena-admin, where the engine reads it. cloudflared is the

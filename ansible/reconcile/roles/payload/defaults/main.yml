@@ -52,7 +52,7 @@ catena_payload_image_digest: >-
 
 # Where root unpacks the image's payload tree and runs its installer from:
 # emptied and created root-owned 0700 before every extract (tasks/main.yml).
-# The panel's self-update and install-payload verb use the same directory
+# The panel's self-update uses the same directory
 # (catena-admin payload/engines/stackupdate/selfupdate.go, payloadStageDir).
 catena_payload_stage_dir: "/var/lib/catena/ee-payload-root"
 

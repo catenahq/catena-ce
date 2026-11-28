@@ -52,7 +52,7 @@ SWARM COMPOSE TRAPS, EVERY ONE VERIFIED AGAINST `docker stack config`
     --group` and NOWHERE in the compose schema, which is why the admin panel
     is the one tier-1 service that keeps its own create argv: it joins the
     group that owns the 0750 recovery export dir, and without that its
-    Recovery tab renders empty against a host that did write a zip.
+    Downloads card of Restore > This server's backups renders empty against a host that did write a zip.
   - `network_mode: host` is SILENTLY IGNORED by stack deploy. Host
     networking is expressed as membership in an EXTERNAL network literally
     named `host`, which this renderer emits when a spec asks for it.

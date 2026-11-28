@@ -10,8 +10,8 @@ TIER-1 SWARM SERVICE, with the argv rendered by
 
 - Renders the bash dispatch table (`/etc/catena/admin-actions`) that the
   dispatcher (`/usr/local/sbin/catena-admin-runner`) sources, from the
-  canonical action catalog at [templates/actions.yml.j2](templates/actions.yml.j2)
-  merged with per-inventory `catena_admin_extra_actions`. The runner
+  canonical action catalog at [templates/actions.yml.j2](templates/actions.yml.j2).
+  The runner
   account and the panel's SSH key are
   [../../../bootstrap/roles/catena_admin_host](../../../bootstrap/roles/catena_admin_host/README.md);
   the forced command, the sudo and sshd rules and the dispatcher itself are
@@ -46,13 +46,7 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   Community host gets the engines
   (the Cloudflare tunnel engine especially, which
   `reconcile/roles/cloudflare_tunnel` dispatches). The license only gates which UI
-  features the shell renders at runtime, never the install. The
-  `ee-install-engines` reserved action re-installs out of band after an
-  image bump, extracting from the running image as root, and it stays in
-  this repo's table precisely because it is the way back when a drop-in
-  is broken. It starts a detached unit that holds `/run/catena.lock`, so
-  it waits for the panel's self-update and the host's own converge, which
-  refill the same stage directory, and the button reports that it started.
+  features the shell renders at runtime, never the install.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).
@@ -96,24 +90,17 @@ panel secret outside the declared bases is left, and that the panel service is
 ## Community vs licensed actions
 
 The canonical catalog ships only Community actions: manual backup +
-snapshot browse/export, the per-app wiring buttons, and Ops
-diagnostics. The **Upgrades** category is
-intentionally empty in Community -- managed updates and the
-maintenance (the catena-daily orchestrator) are Pro lanes whose buttons are
-contributed at runtime by license-gated plugins (the Go shell merges
-plugin `Actions()` into this catalog). An Upgrades or maintenance button
+snapshot browse/export, the per-app wiring buttons, and diagnostics.
+Managed updates and the maintenance (the catena-daily orchestrator) are Pro
+lanes whose buttons are contributed at runtime by license-gated plugins (the
+Go shell merges plugin `Actions()` into this catalog). Such a button
 therefore cannot appear without an active license.
 
 ## Variables
 
-See [defaults/main.yml](defaults/main.yml). The two operator-facing
-knobs are:
-
-- `catena_admin_extra_actions` -- list of additional dispatcher
-  entries to append to the canonical catalog. Same shape as
-  [templates/actions.yml.j2](templates/actions.yml.j2).
-- `catena_admin_extra_tiles` -- list of hand-authored launcher tiles
-  the Go shell's Apps tab consumes.
+See [defaults/main.yml](defaults/main.yml). The operator-facing knob is
+`catena_admin_extra_tiles`, a list of hand-authored launcher tiles the Go
+shell's Apps tab consumes.
 
 `catena_admin_default_theme` (`light` | `dark` | `system`) inherits
 from the inventory's `catena_default_theme` if defined. The panel's
