@@ -49,6 +49,10 @@ class Overrun(RemoteError):
     """A command is still running after the time bound it has."""
 
 
+class Silent(Overrun):
+    """A running command printed nothing for longer than its silence bound."""
+
+
 class AuthRefused(RemoteError):
     """The server answered and refused the login."""
 
@@ -181,12 +185,14 @@ class Session:
         self.transport, self.user, self.host = transport, user, host
 
     def run(self, command: str, on_line: Callable[[str], None],
-            bound: float | None = None) -> int:
+            bound: float | None = None, silence: float | None = None) -> int:
         """Run `command` through the login shell, passing each line it prints
         (stdout and stderr together) to `on_line`; return its exit status.
         A command still running `bound` seconds after it started, however
-        slowly its output drains, is abandoned with Overrun."""
+        slowly its output drains, is abandoned with Overrun; one that prints
+        nothing for `silence` seconds, with Silent."""
         deadline = None if bound is None else time.monotonic() + bound
+        heard = time.monotonic()
         chan = self.transport.open_session()
         chan.set_combine_stderr(True)
         chan.settimeout(POLL)
@@ -194,6 +200,9 @@ class Session:
         pending = b""
         while True:
             self._require_in_time(chan, deadline)
+            if silence is not None and time.monotonic() - heard > silence:
+                chan.close()
+                raise Silent("the command printed nothing within its silence bound")
             try:
                 data = chan.recv(65536)
             except socket.timeout:
@@ -201,6 +210,7 @@ class Session:
                 continue
             if not data:
                 break
+            heard = time.monotonic()
             pending += data
             *lines, pending = pending.split(b"\n")
             for line in lines:

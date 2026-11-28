@@ -42,7 +42,11 @@ its own SSH session:
 
 Each leg's output is kept on the server in `/var/lib/catena/install/logs`, and
 a leg whose connection drops carries on to its end there. The starter holds
-`/run/catena-install.lock` through a leg, so a rerun waits for it.
+`/run/catena-install.lock` through a leg, so a rerun waits for it. The
+installer stops a leg that prints nothing for 15 minutes or runs past its
+whole bound (45 minutes for system, 10 for the others), and names the last
+line it printed (`installer/catena_installer/install.py`, `LEG_BOUND`,
+`LEG_SILENCE`).
 
 The public port 22 stays open after the install.
 

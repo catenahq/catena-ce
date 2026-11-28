@@ -29,13 +29,16 @@ class FakeSession:
         self.server.events.append(("upload", self.user, dict(files)))
         return UPLOAD
 
-    def run(self, command: str, on_line, bound=None) -> int:
+    def run(self, command: str, on_line, bound=None, silence=None) -> int:
         self.server.events.append(("run", self.user, command))
         if command.startswith("rm -rf"):
             return 0
         leg = re.search(r"--leg (\w+)", command).group(1)
+        self.server.bounds[leg] = (bound, silence)
         for line in self.server.prints.get(leg, []):
             on_line(line)
+        if leg in self.server.stops:
+            raise self.server.stops[leg]
         rc = self.server.rc.get(leg, 0)
         if leg == "accounts" and rc == 0:
             self.server.key_opens.add("ops")
@@ -54,6 +57,8 @@ class FakeServer:
         self.events: list[tuple] = []
         self.prints: dict[str, list[str]] = {}
         self.rc: dict[str, int] = {}
+        self.stops: dict[str, Exception] = {}
+        self.bounds: dict[str, tuple] = {}
         self.passwords: list[tuple] = []
 
     def connect_key(self, host, port, user, key, *, reinstalled=False, record=True):
@@ -236,6 +241,38 @@ def test_the_passwords_come_back_apart_from_the_log(monkeypatch, inventory):
     _, lines, blocks = _run(inventory)
     assert blocks == [["SAVE THESE"]]
     assert "bootstrap" in lines and "converge" in lines and "SAVE THESE" not in lines
+
+
+def test_each_leg_runs_under_its_whole_bound_and_the_silence_bound(monkeypatch, inventory):
+    server = FakeServer(key_opens={"ops"})
+    _wire(monkeypatch, server)
+    _run(inventory)
+    assert server.bounds == {"accounts": (600.0, 900.0), "system": (2700.0, 900.0)}
+
+
+@pytest.mark.parametrize("stop, what", [
+    (remote.Silent("quiet"), "leg system printed nothing for 900 s"),
+    (remote.Overrun("long"), "leg system did not end within 2700 s"),
+])
+def test_a_stopped_leg_names_the_bound_and_its_last_line(monkeypatch, inventory, stop, what):
+    server = FakeServer(key_opens={"ops"})
+    server.prints["system"] = ["TASK [swarm : deploy keycloak]", ""]
+    server.stops["system"] = stop
+    _wire(monkeypatch, server)
+    rc, lines, _ = _run(inventory)
+    assert rc == 1
+    assert lines[-1] == (
+        f"catena-installer: {what}; the last line it printed was: TASK [swarm : deploy keycloak]; "
+        "the leg's output so far is in /var/lib/catena/install/logs on the server")
+
+
+def test_a_leg_stopped_inside_the_passwords_block_never_names_a_password(monkeypatch, inventory):
+    server = FakeServer(key_opens={"ops"})
+    server.prints["system"] = ["bootstrap", install.KEYSET_BEGIN, "admin: s3cret"]
+    server.stops["system"] = remote.Silent("quiet")
+    _wire(monkeypatch, server)
+    _, lines, _ = _run(inventory)
+    assert "s3cret" not in lines[-1] and "the last line it printed was: bootstrap;" in lines[-1]
 
 
 def test_the_outside_checks_run_last_and_count(monkeypatch, inventory):

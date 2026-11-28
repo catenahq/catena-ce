@@ -45,8 +45,13 @@ PANEL_USER = "panel"
 VALIDATION_FAILED = 3
 
 # Seconds a leg may run as a whole, its retries included. The accounts leg
-# fetches the release from the registry; the system leg pulls the images.
-LEG_BOUND = {"accounts": 600.0, "system": 900.0, "uninstall": 600.0}
+# fetches the release from the registry; the system leg pulls the images and
+# converges, which takes longer than 15 minutes on a 2-CPU server.
+LEG_BOUND = {"accounts": 600.0, "system": 2700.0, "uninstall": 600.0}
+# Seconds a leg may print nothing: above the longest bound one of its tasks
+# has (a swarm stack deploy, 600 s), so a task that times out and retries
+# prints before it.
+LEG_SILENCE = 900.0
 
 
 class PasswordNeeded(remote.AuthRefused):
@@ -239,14 +244,30 @@ def _leg(session: remote.Session, server: Server, opts: Options,
     if leg == "system":
         # Expanded by the server's shell: the session install-host.sh proves.
         command += ' --session "$SSH_CONNECTION"'
+    # The last line the leg printed outside the passwords block, for the
+    # message of a leg that overruns.
+    last = {"line": "", "in_keyset": False}
+
+    def heard(text: str) -> None:
+        if text == KEYSET_BEGIN:
+            last["in_keyset"] = True
+        elif text == KEYSET_END:
+            last["in_keyset"] = False
+        elif text.strip() and not last["in_keyset"]:
+            last["line"] = text.strip()
+        feed(text)
+
     try:
-        return session.run(command, feed, LEG_BOUND[leg])
+        return session.run(command, heard, LEG_BOUND[leg], LEG_SILENCE)
     except remote.Overrun as exc:
+        if isinstance(exc, remote.Silent):
+            what = f"printed nothing for {LEG_SILENCE:.0f} s"
+        else:
+            what = f"did not end within {LEG_BOUND[leg]:.0f} s"
         raise remote.RemoteError(
-            f"leg {leg} did not end within {LEG_BOUND[leg]:.0f} s: the registry "
-            f"({REPOSITORY.split('/')[0]}) or the network to it did not answer "
-            "in time; the leg's output so far is in /var/lib/catena/install/logs "
-            "on the server") from exc
+            f"leg {leg} {what}; the last line it printed was: "
+            f"{last['line'] or '(none)'}; the leg's output so far is in "
+            "/var/lib/catena/install/logs on the server") from exc
     finally:
         session.run(f"rm -rf {shlex.quote(upload)}", lambda _line: None)
 
