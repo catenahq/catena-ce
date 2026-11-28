@@ -54,7 +54,7 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
    - After the import, with kcadm, it turns the master realm's lockout on (a
      growing pause after repeated wrong passwords, capped at 15 minutes, as in
      this realm) and asks the master admin to set up a one-time code at their
-     next sign-in while they hold none, and, while Settings requires a second
+     next sign-in while they hold none, and, while Security > Sign-in requires a second
      factor, every other master-realm user holding the admin role (the
      automation client's service account excepted; see "Lifting a master-realm
      lockout or a lost second factor").
@@ -176,9 +176,9 @@ delete, stays with a note, for a later converge.
     addresses among them, and each service account's client roles, which
     hold it to least privilege;
   - the MFA required action and the security posture, which the panel's
-    Settings own;
+    Security > Sign-in tab owns;
   - the master realm's lockout switch, and its admin's second factor while
-    they hold none (every master admin's, while Settings requires one).
+    they hold none (every master admin's, while Security > Sign-in requires one).
 - Everything else survives a converge: hand-made roles, groups, departments,
   clients, flows and their settings, roles mapped to `/admin` or `/staff` or
   added to a tier role, scopes added to the realm's default client scopes,
