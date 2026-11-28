@@ -249,7 +249,7 @@
     mode: "0700"
     follow: false
 
-# The panel bind-mounts this read-only for the /recovery tab, and swarm
+# The panel bind-mounts this read-only for the Downloads card of Restore > This server's backups, and swarm
 # REJECTS a task whose bind source is missing rather than creating it. Its
 # contents belong to reconcile/roles/backup, which runs LATER in the converge,
 # so without this task a first converge has no directory when the panel's
