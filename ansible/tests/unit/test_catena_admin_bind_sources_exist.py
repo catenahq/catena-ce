@@ -63,7 +63,7 @@ def test_the_export_dir_is_created_before_the_panel_mounts_it():
 
 def test_the_export_dir_is_still_mounted():
     """If the mount ever goes away this whole test file is dead weight -- but
-    a silently-dropped mount is the /recovery tab rendering empty, so pin it."""
+    a silently-dropped mount is the Downloads card of This server's backups rendering empty, so pin it."""
     argv = _plugin().catena_admin_service_argv({
         "name": "catena-admin",
         "image": "ghcr.io/catenahq/catena-admin:latest",
@@ -87,7 +87,7 @@ def test_one_literal_for_the_path_across_the_two_roles():
 
 def test_both_creators_agree_on_ownership():
     """The panel joins gid 1000 as a supplementary group to read this dir. If
-    the two creators disagree, whichever runs last wins and the /recovery tab
+    the two creators disagree, whichever runs last wins and the Downloads card
     is empty on exactly one of the two orderings."""
     shared = yaml.safe_load(SHARED_VARS.read_text())
     assert shared["catena_export_dir_group"] == "1000"

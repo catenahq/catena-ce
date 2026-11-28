@@ -174,7 +174,7 @@ def test_the_export_directory_is_created_for_the_payload_scripts():
     """catena-snapshot-export and catena-snapshot-list write here, and both
     ship in the image payload -- so the DIRECTORY is this role's job even
     though the writers are not. Group 1000 is what lets the catena-admin
-    container list the artifacts for the /recovery tab.
+    container list the artifacts for the Downloads card of This server's backups.
 
     reconcile/roles/catena-admin creates the same directory two roles earlier, because
     it bind-mounts it and swarm rejects a task whose bind source is missing.

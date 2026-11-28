@@ -11,8 +11,9 @@
 #
 # Categories drive tab placement + sub-nav within the Actions tab:
 #   - Upgrades / Backups / Initial apps setup / Ops -> Actions tab
-#   - Recovery -> Recovery tab (those buttons live alongside the
-#     download list because their output is a downloadable file)
+#   - Recovery -> the Downloads card of Restore > This server's backups (those
+#     buttons live alongside the download list because their output is a
+#     downloadable file)
 #
 # The Upgrades category is intentionally EMPTY in Community: managed
 # updates (apt two-phase, container managed-bump) and the maintenance
@@ -227,8 +228,9 @@ actions:
       [ "$RC_DASH" -eq 0 ]
 
   # ─── Recovery ────────────────────────────────────────────────────────
-  # Recovery actions render on the Recovery tab (not the Actions tab),
-  # alongside the download list of the artifacts they produce.
+  # Recovery actions render in the Downloads card of This server's backups
+  # (not the Actions tab), alongside the download list of the artifacts they
+  # produce.
   - name: snapshot-export
     title: "Export latest snapshot (tar.gz)"
     title_fr: "Exporter le dernier snapshot (tar.gz)"
