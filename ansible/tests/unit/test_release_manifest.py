@@ -106,10 +106,9 @@ def test_the_write_does_not_report_a_change_every_converge(write_task):
 
 def test_the_action_list_comes_from_the_dispatch_fact(write_task):
     """Not a hand-kept list. reconcile/roles/catena-admin builds
-    _catena_admin_actions_dispatch by merging the canonical catalog with the
-    reserved names, and renders the host's allow-list and dispatch table from
-    it -- so reading anything else here is a copy that drifts the first time
-    somebody adds a reserved action."""
+    _catena_admin_actions_dispatch from the canonical catalog, and renders the
+    host's allow-list and dispatch table from it -- so reading anything else
+    here is a copy that drifts the first time somebody adds an action."""
     content = write_task["ansible.builtin.copy"]["content"]
     assert "_catena_admin_actions_dispatch" in content, content
     assert "map(attribute='name')" in content, content

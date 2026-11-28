@@ -213,7 +213,7 @@
         # each one in the manifest its prune reads, so a file an earlier image
         # left here would be installed again and never withdrawn.
         #
-        # The panel's self-update and its install-payload verb extract into the
+        # The panel's self-update extracts into the
         # same directory the same way (catena-admin
         # payload/engines/stackupdate/selfupdate.go, payloadStageDir).
         - name: "Payload: empty the stage directory"

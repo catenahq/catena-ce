@@ -93,7 +93,6 @@
   vars:
     _assert_paths:
       - { path: "{{ catena_admin_actions_yml_path }}", type: file, owner: root, group: root, mode: "0644" }
-      - { path: "{{ catena_admin_actions_extra_yml_path }}", type: file, owner: root, group: root, mode: "0644" }
       - { path: "{{ catena_admin_extra_tiles_path }}", type: file, owner: root, group: root, mode: "0644" }
       - { path: "{{ catena_admin_allowed_actions_path }}", type: file, owner: root, group: root, mode: "0644" }
       - { path: "{{ catena_admin_dispatch_actions_path }}", type: file, owner: root, group: root, mode: "0644" }

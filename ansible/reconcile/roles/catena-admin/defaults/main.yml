@@ -67,8 +67,8 @@ catena_admin_secret_specs:
 
 # Supplementary group. The recovery export dir is 0750 root:1000 (gid 1000
 # is the shared recovery-downloads group) and the image runs USER nonroot,
-# so without this the Recovery tab lists nothing even when the host wrote a
-# recovery zip.
+# so without this the Downloads card of Restore > This server's backups
+# lists nothing even when the host wrote a recovery zip.
 catena_admin_supplementary_gid: "1000"
 
 # Hardening subset, reconciled by swarm_service_drift on every converge.
@@ -138,7 +138,6 @@ catena_admin_dispatch_actions_path: "/etc/catena/admin-actions"
 # sudoers env_keep stay converge-owned, deliberately.
 catena_admin_actions_overlay_dir: "/etc/catena/admin-actions.d"
 catena_admin_actions_yml_path: "/etc/catena/admin-actions.yml"
-catena_admin_actions_extra_yml_path: "/etc/catena/admin-actions.extra.yml"
 catena_admin_extra_tiles_path: "/etc/catena/extra-tiles.yml"
 
 # Source-of-truth action catalog. Rendered by catalog.yml into the
@@ -146,10 +145,8 @@ catena_admin_extra_tiles_path: "/etc/catena/extra-tiles.yml"
 # Role-relative template; the only Jinja marker is `ansible_managed`.
 catena_admin_actions_source: "{{ role_path }}/templates/actions.yml.j2"
 
-# Per-inventory action extras + tiles. Same shape as the canonical
-# `actions:` list in templates/actions.yml.j2 and the `tiles:` list the
-# Go shell's Apps tab consumes (shell/apps).
-catena_admin_extra_actions: []
+# Per-inventory tiles, the `tiles:` list the Go shell's Apps tab consumes
+# (shell/apps).
 catena_admin_extra_tiles: []
 
 # The scheduling owner. Installed with the rest of the ungated payload; it
@@ -179,78 +176,6 @@ catena_managed_services_path: /etc/catena/managed-services.json
 # Maintenance > Schedule and steps).
 catena_stack_update_stabilize_seconds: 120
 catena_stack_update_cve_severity: "HIGH,CRITICAL"
-
-# EE-reserved HOST dispatch entries. The Go shell renders Business action
-# BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only
-# under an active license, and dispatches each by NAME through the host
-# forced-command runner. The runner's dispatch table is CE-rendered, so
-# without a matching entry it rejects the action name; these entries authorize
-# the known Business action names -> the host engines. The engines install on
-# EVERY host at converge (the payload is not license-gated -- see
-# reconcile/roles/payload), so the binaries are present even on a plain
-# Community host; the license only controls which buttons the shell RENDERS.
-# The dispatcher already runs as root (the forced-command pipes through sudo),
-# so no extra sudoers is needed. These are appended to the host dispatch table
-# + allow-list ONLY, never to the shell-read catalog (actions.yml), so no
-# Business button ever appears on a Community host -- the panel contributes the
-# button only while its license is active. The name MUST match the daily panel's ActionSpec (catena-admin
-# shell/panels/daily); a drift means the shell dispatches a name the host
-# cannot resolve.
-catena_admin_ee_reserved_actions:
-  # Payload (re-)install: refreshes the host payload (engines + lane scripts +
-  # units) from the image the panel is running. The converge installs the
-  # payload unconditionally (reconcile/roles/payload); this reserved action
-  # lets the shell re-run the install out of band after an image bump without
-  # a full converge.
-  #
-  # It runs the ENGINE, which copies the tree out of the running image, as
-  # root, into the root-owned stage directory reconcile/roles/payload uses
-  # (catena_payload_stage_dir), and runs the installer from there: the image
-  # is the trust root, and nothing the panel can write is read back as root
-  # input. The panel is built with no root and no docker socket for exactly
-  # this reason.
-  #
-  # Detached under its own unit, holding /run/catena.lock for the engine's
-  # lifetime, like the panel's self-update. The self-update and the host's own
-  # converge (catena-converge) hold that lock while they empty and refill the
-  # same stage directory and rotate the payload manifest, so a reinstall
-  # beside either would install from a half-filled tree and record a partial
-  # manifest, whose next prune removes engines the image still ships. flock
-  # waits for the holder inside the unit, where the panel's action timeout
-  # does not reach, so the button reports that the install started. A second
-  # press while the unit runs is refused by systemd-run, and the report is
-  # printed only once the unit started.
-  - name: ee-install-engines
-    shell: >-
-      systemd-run --unit catena-install-payload --collect
-      /usr/bin/flock -w 3600 /run/catena.lock
-      {{ catena_admin_stack_update_bin }} install-payload
-      && echo 'Engine install started in the background. It waits for any
-      backup, update or converge already running on this server, then installs
-      the engines from the image this panel runs. Follow it with: journalctl -u
-      catena-install-payload -f'
-  # ee-install-engines is the ONLY entry in this table, and the rule that keeps
-  # it alone is the reconcile invariant applied to the dispatch table itself:
-  # the action that REINSTALLS the payload cannot depend on the payload having
-  # installed correctly. Everything else follows the ordinary rule -- whoever
-  # ships a command authorises it.
-  #
-  # So the paid names (catena-admin payload/actions.d/10-paid.sh
-  # _CATENA_PAID_NAMES) are authorised by that dispatch drop-in of the
-  # payload's own, next to the binaries they run. An entry here for any of them would be an
-  # authorization record for a name and a path this converge neither chooses nor
-  # can verify, and it would put a whole converge between a panel that gains an
-  # action and a host willing to accept it.
-  #
-  # The two panel self-update entries are Community and live in the shell-read
-  # catalog (catena_admin_ce_selfupdate_actions below): a panel nobody has
-  # patched is the same shape of problem as a backup nobody has verified, and a
-  # free-edition host gets the mechanism too.
-  #
-  # The dispatcher offers any name this table does not carry to
-  # {{ catena_admin_actions_overlay_dir }} before refusing it, and the payload
-  # installer records the names it added, with their forms, in release.json's
-  # payload_actions, from which the panel renders their buttons.
 
 # --- on-box config store (settings API) --------------------------------
 # Neither the store's path nor its writer is a variable this role renders. The

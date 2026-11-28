@@ -2,43 +2,23 @@
 # Action catalog + allow-list + dispatch table.
 #
 # The canonical catalog lives in this role at templates/actions.yml.j2
-# -- ONE source of truth that drives both the Actions/Recovery tab
-# buttons the Go shell reads at runtime AND the host-side allow-list
-# the dispatcher enforces. Per-inventory extras come from
-# `catena_admin_extra_actions` and are merged into the canonical list
-# at converge time.
+# -- ONE source of truth that drives both the tab buttons the Go shell
+# reads at runtime AND the host-side allow-list the dispatcher enforces.
 
 - name: "Catalog: load canonical actions.yml from catena-admin source"
   # Use `template` rather than `file` so the YAML's `{{ ... }}` markers
   # (currently just the `ansible_managed` header) render. Any future
   # per-host placeholder in an action shell expands here and the
   # subsequent renders (admin-allowed.yaml, admin-actions dispatch table)
-  # inherit the substituted shells via _catena_admin_actions_merged.
+  # inherit the substituted shells via _catena_admin_actions_dispatch.
   ansible.builtin.set_fact:
-    _catena_admin_actions_canonical: >-
-      {{ (lookup('template', catena_admin_actions_source) | from_yaml).actions | default([]) }}
-
-- name: "Catalog: merge with per-inventory extras"
-  ansible.builtin.set_fact:
-    _catena_admin_actions_merged: >-
-      {{ _catena_admin_actions_canonical + (catena_admin_extra_actions | default([])) }}
-
-- name: "Catalog: append reserved entries for the HOST dispatch path only"
-  # The shell-read catalog (actions.yml) stays CE-button-only -- no Business
-  # button shows without a license. But the host dispatch table + allow-list
-  # must also authorize the reserved action NAMES the shell dispatches without
-  # rendering a button for them.
-  #
-  # One entry is left: the Business action that reinstalls the payload itself.
-  # Everything else ships in the panel image's dispatch drop-in. The dispatcher
-  # offers any name THIS table does not carry to
-  # {{ catena_admin_actions_overlay_dir }} before refusing it, so those are
-  # reachable without being authorized from here -- which is the point: they run
-  # binaries this repo does not install.
-  ansible.builtin.set_fact:
+    # Every other action ships in the panel image's dispatch drop-in. The
+    # dispatcher offers any name THIS table does not carry to
+    # {{ catena_admin_actions_overlay_dir }} before refusing it, so those are
+    # reachable without being authorized from here -- which is the point: they
+    # run binaries this repo does not install.
     _catena_admin_actions_dispatch: >-
-      {{ _catena_admin_actions_merged
-         + (catena_admin_ee_reserved_actions | default([])) }}
+      {{ (lookup('template', catena_admin_actions_source) | from_yaml).actions | default([]) }}
 
 # --- Files the admin container bind-mounts ---------------------------
 
@@ -50,17 +30,6 @@
   ansible.builtin.template:
     src: "{{ catena_admin_actions_source }}"
     dest: "{{ catena_admin_actions_yml_path }}"
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: "Catalog: render per-inventory extras ({{ catena_admin_actions_extra_yml_path }})"
-  # Always-present file -- even when empty -- so the bind-mount target
-  # exists. The admin container concatenates this with the canonical
-  # catalog at startup.
-  ansible.builtin.template:
-    src: admin-actions.extra.yml.j2
-    dest: "{{ catena_admin_actions_extra_yml_path }}"
     owner: root
     group: root
     mode: "0644"
@@ -121,8 +90,6 @@
   ansible.builtin.debug:
     msg: |
       catena-admin catalog:
-        canonical:  {{ _catena_admin_actions_canonical | length }} actions
-        extras:     {{ catena_admin_extra_actions | length }} actions
-        merged:     {{ _catena_admin_actions_merged | length }} actions
+        dispatched: {{ _catena_admin_actions_dispatch | length }} actions
         allow-list: {{ catena_admin_allowed_actions_path }}
         dispatch:   {{ catena_admin_dispatch_actions_path }}

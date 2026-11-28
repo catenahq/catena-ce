@@ -44,7 +44,6 @@ def test_the_catalog_files_are_0644_and_the_overlay_dir_root_0755():
     assert overlay == ("directory", "root", "root", "0755")
     assert set(modes) == {
         "{{ catena_admin_actions_yml_path }}",
-        "{{ catena_admin_actions_extra_yml_path }}",
         "{{ catena_admin_extra_tiles_path }}",
         "{{ catena_admin_allowed_actions_path }}",
         "{{ catena_admin_dispatch_actions_path }}",

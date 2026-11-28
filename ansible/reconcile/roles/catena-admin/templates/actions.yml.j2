@@ -2,28 +2,19 @@
 # catena-admin action catalog -- Community edition, single source of truth.
 #
 # Each entry drives:
-#   1. The Actions/Recovery tab button (icon + title + optional argument
-#      form) the Go shell reads at runtime from /etc/catena/admin-actions.yml.
+#   1. The button (title + optional argument form) that the tab
+#      holding the action shows, read by the Go shell at runtime from
+#      /etc/catena/admin-actions.yml.
 #   2. The host-side allow-list at /etc/catena/admin-allowed.yaml
 #      (documentation + audit artifact).
 #   3. The bash dispatch table at /etc/catena/admin-actions the host
 #      runner sources to execute each action's `shell:` command.
 #
-# Categories drive tab placement + sub-nav within the Actions tab:
-#   - Upgrades / Backups / Initial apps setup / Ops -> Actions tab
-#   - Recovery -> the Downloads card of Restore > This server's backups (those
-#     buttons live alongside the download list because their output is a
-#     downloadable file)
-#
-# The Upgrades category is intentionally EMPTY in Community: managed
-# updates (apt two-phase, container managed-bump) and the maintenance
-# (the catena-daily orchestrator) are Business-edition lanes. Their buttons are
-# contributed at runtime by license-gated plugins (the Go shell merges plugin
-# Actions() into this catalog), so an Upgrades or maintenance button
-# cannot appear without an active license. Community = manual tag swap.
-#
-# `icon` is the name of a Tabler Icons outline icon (the file name without
-# `.svg`, no `ti-` prefix); the Go shell draws it beside the title.
+# Managed updates (apt two-phase, container managed-bump) and the
+# maintenance (the catena-daily orchestrator) are Business-edition lanes.
+# Their buttons are contributed at runtime by license-gated plugins (the Go
+# shell merges plugin Actions() into this catalog), so such a button cannot
+# appear without an active license. Community = manual tag swap.
 #
 # Action names are stable identifiers; admin-allowed.yaml keys off them.
 # Bilingual `title_fr` falls back to `title` when missing.
@@ -33,8 +24,6 @@ actions:
   - name: backup-now
     title: "Trigger backup now"
     title_fr: "Lancer une sauvegarde"
-    category: Backups
-    icon: "device-floppy"
     timeout: 10
     # `--no-block` is REQUIRED for a Type=oneshot unit -- otherwise systemctl
     # blocks until ExecStart finishes (minutes/hours for restic), which
@@ -42,24 +31,9 @@ actions:
     # as soon as the job is enqueued. Logs-panel output comes from the echo.
     shell: "systemctl start --no-block catena-backup.service && echo 'Backup triggered (running in background). Follow progress with the Tail-last-backup-log button, or: journalctl -u catena-backup.service -f'"
 
-  - name: snapshots-list
-    title: "List restic snapshots"
-    title_fr: "Lister les snapshots restic"
-    category: Backups
-    icon: "camera"
-    timeout: 30
-    # catena-restic-env loads backup.env with set -a then execs
-    # the command. Single source of truth for sourcing the env from
-    # outside the systemd-launched backup scripts; see catena-admin
-    # payload/lanes/catena-restic-env.sh and its restic_env_pattern_test.go.
-    # --no-lock: a listing writes nothing into the repository it reads.
-    shell: "catena-restic-env restic snapshots --no-lock --latest 10"
-
   - name: backup-coverage-check
     title: "Check backup coverage"
     title_fr: "Vérifier la couverture des sauvegardes"
-    category: Backups
-    icon: "search"
     timeout: 30
     # Scans every running container's bind-mount sources and warns on
     # any path outside backup_paths -- catches client composes that
@@ -71,8 +45,6 @@ actions:
   - name: backup-log-tail
     title: "Tail last backup log"
     title_fr: "Dernier journal de sauvegarde"
-    category: Backups
-    icon: "file-text"
     timeout: 5
     shell: "journalctl -u catena-backup.service -n 100 --no-pager"
 
@@ -86,35 +58,25 @@ actions:
   - name: restic-mount-browse
     title: "Browse past snapshots (read-only)"
     title_fr: "Parcourir les snapshots passés (lecture seule)"
-    category: Backups
-    icon: "search"
     timeout: 30
     shell: "/usr/local/bin/catena-restic-mount"
 
   - name: restic-unmount-browse
     title: "Unmount snapshot browser"
     title_fr: "Démonter le navigateur de snapshots"
-    category: Backups
-    icon: "circle-check"
     timeout: 30
     shell: "/usr/local/bin/catena-restic-unmount"
 
   - name: restic-browse-status
     title: "Snapshot browser -- status"
     title_fr: "Navigateur de snapshots -- état"
-    category: Backups
-    icon: "info-circle"
     timeout: 10
     shell: "echo '=== mountpoint ==='; mountpoint /mnt/restic-browse 2>&1 || true; echo; echo '=== top-level entries ==='; ls /mnt/restic-browse 2>&1 | head -10 || true; echo; echo '=== service unit ==='; systemctl status catena-restic-browse.service --no-pager -n 5 2>&1 | head -10 || true; echo; echo '=== auto-unmount timer ==='; systemctl status catena-restic-browse-stop.timer --no-pager -n 5 2>&1 | head -10 || true"
 
   # ─── Ops ─────────────────────────────────────────────────────────────
-  # Universal catch-all; always visible. Diagnostics + restart-button
-  # primitives + status views that do not fit Backups / Initial apps setup.
   - name: cloudflared-restart
     title: "Restart cloudflared"
     title_fr: "Redémarrer cloudflared"
-    category: Ops
-    icon: "refresh"
     timeout: 30
     # Runs under the host lock so it never restarts the tunnel in the middle
     # of a backup or an update. While another job holds the lock, host-lock
@@ -132,10 +94,8 @@ actions:
   - name: disk-usage
     title: "Disk breakdown"
     title_fr: "Utilisation du disque"
-    category: Ops
-    icon: "device-floppy"
     timeout: 15
-    # The System tab shows the free/used gauge. This button answers the
+    # The Overview shows the free/used gauge. This button answers the
     # "WHERE is the space going?" question -- filesystems totals, Docker
     # breakdown (images/containers/volumes/build cache), top dirs under
     # /srv/catena. One-line form to keep dispatcher rendering predictable.
@@ -144,8 +104,6 @@ actions:
   - name: apt-upgradable
     title: "Pending apt updates"
     title_fr: "Mises à jour apt en attente"
-    category: Ops
-    icon: "package"
     timeout: 30
     # `apt list --upgradable` prints a "Listing..." header even when
     # nothing is upgradable, leaving operators wondering if the button
@@ -156,24 +114,12 @@ actions:
   - name: apt-upgrade-log
     title: "Recent auto-upgrade log"
     title_fr: "Journal des mises à jour auto"
-    category: Ops
-    icon: "clipboard-list"
     timeout: 10
     shell: 'tail -n 200 /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null || echo "(no log yet -- unattended-upgrades has not run on this host)"'
-
-  - name: tailscale-status
-    title: "Tailscale status"
-    title_fr: "État de Tailscale"
-    category: Ops
-    icon: "world"
-    timeout: 5
-    shell: "tailscale status"
 
   - name: sync-all
     title: "Sync all apps"
     title_fr: "Synchroniser toutes les apps"
-    category: Ops
-    icon: "repeat"
     timeout: 90
     # Single button, non-destructive by design -- safe to spam.
     #
@@ -228,14 +174,11 @@ actions:
       [ "$RC_DASH" -eq 0 ]
 
   # ─── Recovery ────────────────────────────────────────────────────────
-  # Recovery actions render in the Downloads card of This server's backups
-  # (not the Actions tab), alongside the download list of the artifacts they
-  # produce.
+  # Renders in the Downloads card of This server's backups, alongside the
+  # download list of the artifacts it produces.
   - name: snapshot-export
     title: "Export latest snapshot (tar.gz)"
     title_fr: "Exporter le dernier snapshot (tar.gz)"
-    category: Recovery
-    icon: "download"
     # Export can take 1-15 minutes on a multi-GB repo (restic dump walks
     # every object, gzip streams through). Run non-blocking + point at
     # the log tail so the operator can follow progress.

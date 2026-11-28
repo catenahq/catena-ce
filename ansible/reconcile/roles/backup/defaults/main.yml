@@ -247,7 +247,7 @@ backup_exclude_patterns:
   - "**/postmaster.pid"
   - "**/postmaster.opts"
   # Snapshot-export staging dir. Served read-only to client admins by
-  # the panel's Recovery tab. Backing it
+  # the Downloads card of Restore > This server's backups. Backing it
   # up would be self-referential -- the files are ALREADY a packaged
   # form of the backup (tar.gz snapshot export) and are regenerated on
   # demand by the "Export latest snapshot" button.
@@ -303,8 +303,8 @@ backup_restic_env_script: /usr/local/bin/catena-restic-env
 # Per-app PITR recovery via FUSE. Mounts the restic repo read-only at
 # /mnt/restic-browse so the operator can copy a single file out of a
 # past snapshot when in-app trash + soft-delete are not enough. Wired to the
-# catena-admin Actions tab entries "Browse past snapshots" + "Unmount
-# snapshot browser".
+# catena-admin buttons "Browse past snapshots" + "Unmount snapshot browser"
+# on Restore.
 backup_restic_mount_script: /usr/local/bin/catena-restic-mount
 backup_restic_unmount_script: /usr/local/bin/catena-restic-unmount
 # Repo integrity probe, shipped in the engine payload. catena-backup-run calls it
@@ -351,7 +351,7 @@ backup_stats_file: "{{ backup_stats_dir }}/backup-stats.json"
 # the destination; its presence alone holds them.
 backup_held_record: /var/lib/catena/backup-held.json
 
-# Snapshot-export mode (catena-admin Recovery-tab button: "Export latest snapshot")
+# Snapshot-export mode (the "Export latest snapshot" button of Restore > This server's backups)
 # Streams `restic dump latest /` through gzip into a single tarball under
 # backup_export_dir for the operator/client to scp off-host. No S3 or
 # restic tooling needed on the receiving machine -- raw tar.gz.
@@ -362,7 +362,7 @@ backup_export_keep_last: 1 # rotation: keep only the newest N exports
 # Snapshot-list helper. Renders ${backup_export_dir}/index.html with
 # a curated table of current restic snapshots + pre-exported tarballs.
 # Called by catena-backup-run after forget+prune so the listing tracks the
-# live repo state. It travels WITH the directory: the panel's Recovery tab
-# renders its own list from the same files, so this one is for whoever ends
+# live repo state. It travels WITH the directory: the panel's Restore > This server's
+# backups tab renders its own list from the same files, so this one is for whoever ends
 # up holding a copy of the folder and no panel.
 backup_snapshot_list_script: /usr/local/bin/catena-snapshot-list

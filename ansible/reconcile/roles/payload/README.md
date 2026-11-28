@@ -79,8 +79,8 @@ The directory is emptied before every extract. The installer records each
 file it installs in the manifest its prune reads, so a file an earlier image
 left in the tree would be installed again and never withdrawn.
 
-The panel's self-update and its `install-payload` verb (catena-admin
-`payload/engines/stackupdate/selfupdate.go`) extract into the same directory
+The panel's self-update (catena-admin
+`payload/engines/stackupdate/selfupdate.go`) extracts into the same directory
 the same way.
 
 `tasks/validate.yml` checks that the marker holds the ID of the image this tree

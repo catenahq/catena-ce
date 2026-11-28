@@ -47,7 +47,7 @@ FIXED_TABLE = "ACTIONS_FILE=/etc/catena/admin-actions"
 # One CE arm, enough to prove base-first precedence and that the table still
 # dispatches at all.
 CE_ACTIONS = [
-    {"name": "tailscale-status", "shell": "echo CE-WON"},
+    {"name": "disk-usage", "shell": "echo CE-WON"},
     {"name": "backup-now", "shell": "echo CE-BACKUP"},
 ]
 
@@ -101,7 +101,7 @@ def _drop_in(overlay: Path, name: str, body: str, mode: int = 0o644) -> Path:
 # --- the table still works ---------------------------------------------------
 
 def test_a_known_action_dispatches(dispatch):
-    r = dispatch("tailscale-status")
+    r = dispatch("disk-usage")
     assert r.returncode == 0, r.stderr
     assert "CE-WON" in r.stdout
 
@@ -112,7 +112,7 @@ def test_the_environment_cannot_move_the_dispatch_table(dispatch, tmp_path):
     hostile = tmp_path / "hostile"
     hostile.write_text("catena_admin_dispatch() { echo HOSTILE; }\n")
     env = dict(os.environ, CATENA_ADMIN_ACTIONS_FILE=str(hostile))
-    r = subprocess.run(["bash", str(dispatch.runner), "tailscale-status"],
+    r = subprocess.run(["bash", str(dispatch.runner), "disk-usage"],
                        capture_output=True, text=True, env=env, timeout=30)
     assert "HOSTILE" not in r.stdout
     assert "CE-WON" in r.stdout, r.stderr
@@ -154,7 +154,7 @@ catena_admin_dispatch_payload() {
     echo PAYLOAD-SHADOWED
 }
 """)
-    r = dispatch("tailscale-status")
+    r = dispatch("disk-usage")
     assert r.returncode == 0, r.stderr
     assert "CE-WON" in r.stdout
     assert "PAYLOAD-SHADOWED" not in r.stdout
@@ -252,7 +252,7 @@ catena_admin_dispatch_payload() {
 
 def test_a_non_sh_file_is_not_sourced(dispatch):
     _drop_in(dispatch.overlay, "notes.txt", "echo SHOULD-NOT-RUN\n")
-    r = dispatch("tailscale-status")
+    r = dispatch("disk-usage")
     assert r.returncode == 0, r.stderr
     assert "SHOULD-NOT-RUN" not in r.stdout
 
@@ -261,7 +261,7 @@ def test_an_absent_overlay_directory_changes_nothing(dispatch, tmp_path):
     """The directory is created by the converge. A host converged before it
     existed has to keep dispatching, and keep refusing."""
     dispatch.overlay.rmdir()
-    known = dispatch("tailscale-status")
+    known = dispatch("disk-usage")
     unknown = dispatch("nope")
     assert known.returncode == 0 and "CE-WON" in known.stdout, known.stderr
     assert unknown.returncode != 0 and "unknown action" in unknown.stderr

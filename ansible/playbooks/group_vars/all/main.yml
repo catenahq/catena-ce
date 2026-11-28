@@ -51,7 +51,7 @@ catena_migrate_connect: /usr/local/bin/catena-migrate-lane connect
 # --- The access plane ---
 # How this host is reached for administration, and therefore whether public
 # port 22 may be closed at all. Derived from the store's TAILNET_PROVIDER, the
-# one answer the panel's Settings gives (helpers/onbox_config.py settles it on
+# one answer the panel's Security > Private network and SSH gives (helpers/onbox_config.py settles it on
 # every load), so it rides /etc into the snapshot and a rebuilt host comes back
 # with the firewall posture it had.
 #
@@ -96,7 +96,7 @@ tailscale_accept_dns: false
 
 # --- Cloudflare Tunnel ---
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
-# Store-owned, entered in the panel's Settings with the Cloudflare token. Empty
+# Store-owned, entered in the panel's Server settings > Domain with the Cloudflare token. Empty
 # until then: every server is installed without a domain.
 cloudflare_zone: "{{ cfg_cloudflare_zone | default('', true) }}"
 # An empty zone builds every hostname as `dash.`, `auth.`, `beszel.` -- names
@@ -390,23 +390,6 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # that) drops an inventory/<name>/group_vars/all/*.yml file of its own.
 # Ansible loads group_vars from the inventory directory too, so it merges
 # on top of this shared file with no edit here.
-#
-# Extra catena-admin action buttons are the one hook. reconcile/roles/catena-admin/
-# defaults/main.yml defaults catena_admin_extra_actions to [], so most
-# inventories need nothing. A deployment that wants one adds
-# inventory/<name>/group_vars/all/actions.yml:
-#
-#   catena_admin_extra_actions:
-#     - name: acme-refresh-prices
-#       title: "Refresh ACME prices"
-#       icon: "coin"
-#       timeout: 60
-#       shell: "sudo -u acme /opt/acme/bin/refresh-prices"
-#
-# Required keys: `name`, `shell`. Optional: `title` (defaults to name),
-# `icon`, `timeout` (defaults to 10s). Same shape as the canonical catalog
-# (reconcile/roles/catena-admin/templates/actions.yml.j2) -- each entry becomes a
-# dispatcher case + allow-list entry automatically.
 
 # --- The admin panel's shared identity ---
 # Read by the halves of the panel's converge -- bootstrap/roles/catena_admin_host,

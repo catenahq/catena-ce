@@ -35,6 +35,7 @@ import yaml
 _ANSIBLE = Path(__file__).resolve().parents[2]
 _ROLE = _ANSIBLE / "reconcile" / "roles" / "catena-admin"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
+CATALOG = _ROLE / "templates" / "actions.yml.j2"
 LANES_TASKS = _ROLE / "tasks" / "lanes.yml"
 # The bootstrap-side half of the same panel: the runner account, the panel's
 # SSH key, and the migration account. A role of its own, so the
@@ -78,8 +79,9 @@ def _defaults() -> dict:
     return merged
 
 
-def _ee_actions() -> dict[str, str]:
-    return {a["name"]: a["shell"] for a in _defaults()["catena_admin_ee_reserved_actions"]}
+def _catalog_actions() -> set[str]:
+    catalog = yaml.safe_load(CATALOG.read_text().split("\n", 1)[1])
+    return {a["name"] for a in catalog["actions"]}
 
 
 def _host_tasks() -> list[dict]:
@@ -138,7 +140,7 @@ def test_the_migration_actions_left_this_repo():
     too: they are product constants, and a constant is owned by whoever ships
     the thing it points at. That the two state files stay distinct from the restore machine's is
     asserted in catena-admin, where both pairs are declared."""
-    assert not MIGRATE_ACTIONS & set(_ee_actions())
+    assert not MIGRATE_ACTIONS & _catalog_actions()
     for gone in ("catena_migrate_lane_bin", "catena_migration_state_file",
                  "catena_migration_history_file"):
         assert gone not in _defaults(), (

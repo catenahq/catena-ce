@@ -245,8 +245,8 @@ def catena_admin_service_argv(spec):
     if group:
         # The recovery export dir is mode 0750 owned root:<group>. The image
         # runs USER nonroot, which is neither the owner nor in that group, so
-        # without this the Recovery tab renders an empty list even when the
-        # host wrote a recovery zip.
+        # without this the Downloads card of Restore > This server's backups
+        # lists nothing even when the host wrote a recovery zip.
         argv.append(f"--group={group}")
 
     for source, destination, readonly in _MOUNTS:
