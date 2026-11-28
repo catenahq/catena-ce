@@ -270,6 +270,36 @@ def test_a_command_past_its_bound_is_abandoned(monkeypatch):
         session.run("anything", lambda line: None, bound=0.05)
 
 
+def test_a_command_silent_past_its_silence_bound_is_abandoned(monkeypatch):
+    monkeypatch.setattr(remote, "POLL", 0.01)
+    session = remote.Session(_DyingTransport(10**6), "ops", "203.0.113.10")
+    with pytest.raises(remote.Silent):
+        session.run("anything", lambda line: None, bound=60, silence=0.05)
+
+
+def test_a_command_that_keeps_printing_outlives_its_silence_bound(monkeypatch):
+    monkeypatch.setattr(remote, "POLL", 0.01)
+
+    class Chatty(_SilentChannel):
+        def __init__(self):
+            self.left = 20
+
+        def recv(self, n):
+            time.sleep(0.01)
+            self.left -= 1
+            return b"line\n" if self.left > 0 else b""
+
+        def exit_status_ready(self): return True
+        def recv_exit_status(self): return 0
+
+    transport = _DyingTransport(10**6)
+    transport.open_session = Chatty
+    seen: list[str] = []
+    assert remote.Session(transport, "ops", "203.0.113.10").run(
+        "anything", seen.append, bound=60, silence=0.05) == 0
+    assert len(seen) == 19
+
+
 def test_a_missing_exit_status_on_a_dead_connection_is_a_remote_error(monkeypatch):
     monkeypatch.setattr(remote, "POLL", 0.01)
 
