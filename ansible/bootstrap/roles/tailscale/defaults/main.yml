@@ -28,7 +28,7 @@ tailscale_saas_control_urls:
 # Headscale API (headscale_api_key, preferred: no long-lived key on the VPS) or
 # a static key the operator supplies (headscale_preauth_key, fallback).
 #
-# All three values are store-owned (catena-admin > Settings). The provider is
+# All three values are store-owned (catena-admin > Security > Private network and SSH). The provider is
 # always stored -- helpers/onbox_config.py settles it on every load -- and this
 # role only runs when it names one (catena_access_method == 'tailnet').
 #

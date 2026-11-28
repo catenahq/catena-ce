@@ -112,7 +112,7 @@ catena_public_surface_deferred: >-
   {{ (cloudflare_zone | default('') | trim | length) == 0 }}
 # cloudflare_zone above is the primary domain every <sub>.<zone> hostname
 # interpolates, and the only one a Community host serves. Additional domains
-# are added in catena-admin Settings > Domain and live in the on-box store;
+# are added in catena-admin Server settings > Domain and live in the on-box store;
 # the host engine assembles the full list from there, caps it on the
 # subscription, and after a successful converge publishes the domains it
 # brought up to the projection below. playbooks/tasks/served_zones.yml reads it
@@ -379,9 +379,9 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 
 # --- Backup ---
 # Backup creds, repo and schedule are configured post-install in catena-admin
-# (Settings > Backup), written to the on-box store, and read by run-backup.sh
+# (Backups > Destination), written to the on-box store, and read by run-backup.sh
 # at runtime. Retention is the `backup_retention` object in /etc/catena/config.json, set on
-# the panel's Schedules page and rendered to /etc/catena/backup-retention.env by
+# Backups > Schedule and retention and rendered to /etc/catena/backup-retention.env by
 # catena-schedule, the only file run-backup.sh sources it from.
 
 # --- Per-inventory / per-host customization -------------------------------
@@ -487,7 +487,7 @@ catena_admin_image: "{{ lookup('env', 'CATENA_ADMIN_IMAGE') }}"
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone>. A store key
-# (CATENA_ADMIN_SUBDOMAIN), set in catena-admin > Settings like the subdomains
+# (CATENA_ADMIN_SUBDOMAIN), set in catena-admin > Server settings > Domain like the subdomains
 # above; the literal is the name a host with nothing stored uses.
 catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"

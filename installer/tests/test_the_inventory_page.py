@@ -405,7 +405,7 @@ def test_the_access_section_connects_then_links_the_panel(client, started, monke
     access = _section(request("GET", "/")[2], "access")
     assert "panel@203.0.113.10" in access
     assert 'action=/connect' in access
-    assert "Settings tab" in access
+    assert "Server settings, Security and Backups tabs" in access
     for name in server.KEYSET_FIELDS:
         assert escape(i18n.text("en", f"keyset.{name}")) in access
 

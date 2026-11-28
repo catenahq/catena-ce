@@ -3,7 +3,7 @@
 # (optionally) take an initial snapshot so the repo isn't empty the first time
 # validate or catena-recovery verify runs against it. restic, rclone, the
 # wrapper and the units ship in the catena-admin payload. The repository is
-# created when the destination is saved in catena-admin > Settings; a backup
+# created when the destination is saved in catena-admin > Backups > Destination; a backup
 # never creates one.
 #
 # Backup creds are DEFERRED: a fresh install may not have them yet (the user
@@ -25,7 +25,7 @@
     msg: >-
       Backup credentials are not set yet -- writing the backup configuration
       but leaving the restic repo unconfigured. Set the repo + S3 keys in
-      catena-admin > Settings > Backup; catena-backup-run self-gates until then.
+      catena-admin > Backups > Destination; catena-backup-run self-gates until then.
   when: not (_backup_configured | bool)
 
 # Every dump and replay runs inside the database's own container (docker

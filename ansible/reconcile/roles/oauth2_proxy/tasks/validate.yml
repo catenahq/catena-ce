@@ -15,7 +15,7 @@
 # Cloudflare token late-binding: the oauth2-proxy issuer + per-app probes
 # below reach Keycloak through its PUBLIC hostname (auth.<zone>), which only
 # resolves once the Cloudflare tunnel is up. A tokenless install defers the
-# tunnel (the token is entered later in catena-admin > Settings), so auth.<zone>
+# tunnel (the token is entered later in catena-admin > Server settings > Domain), so auth.<zone>
 # is not resolvable and oauth2-proxy is EXPECTED to sit in OIDC-discovery
 # restart-backoff until then. Skip this whole validation block while the store
 # holds no token -- gating it on tunnel readiness rather than hard-failing the

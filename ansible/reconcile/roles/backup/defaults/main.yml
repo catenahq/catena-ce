@@ -1,6 +1,6 @@
 ---
 # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic. Store-owned: the inventory
-# .env seeds it on the first converge and catena-admin > Settings owns it
+# .env seeds it on the first converge and catena-admin > Backups > Destination owns it
 # after that. catena-backup-run already read the store at runtime; this makes the
 # converge read the same value instead of a second copy from .env.
 backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
@@ -125,7 +125,7 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 #      ✗ NOT covered by default. catena-backup-coverage (a lane script in the
 #      catena-admin image payload) runs at the end of every maintenance run and
 #      fails the run listing any uncovered bind-mount sources. The client's answer is
-#      BACKUP_EXTRA_PATHS in catena-admin > Settings, which appends to the set
+#      BACKUP_EXTRA_PATHS in catena-admin > Backups > Destination, which appends to the set
 #      below and which the coverage check reads as well -- so declaring a path
 #      both backs it up and stops it reading as uncovered. Moving the data
 #      under {{ storage_mount_point }}/apps works too.

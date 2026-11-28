@@ -6,7 +6,7 @@
 - name: "validate/cloudflare_tunnel: resolve CF token presence"
   ansible.builtin.set_fact:
     # The cloudflared swarm service only exists once a Cloudflare token has been
-    # saved (catena-admin > Settings) and the tunnel converged. With no token
+    # saved (catena-admin > Server settings > Domain) and the tunnel converged. With no token
     # the tunnel is DEFERRED, so skip the cloudflared-service asserts rather than
     # failing on an absent service. The token is published as a fact by
     # playbooks/validate.yml's load_onbox_config pre_task.

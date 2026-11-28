@@ -48,4 +48,4 @@ def test_a_zone_the_host_does_not_know_is_not_applied():
     assert "_host_tz_file.stat.isreg" in " ".join(setter["when"])
     report = next(t for t in tasks
                   if t.get("name") == "Host: the time zone is not one this host knows")
-    assert "catena-admin > Settings" in report["ansible.builtin.debug"]["msg"]
+    assert "Server settings > Time and language" in report["ansible.builtin.debug"]["msg"]

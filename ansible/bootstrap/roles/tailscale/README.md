@@ -14,7 +14,7 @@ edits) and join the host to the tailnet its stored credentials belong to.
 | `tailscale` | Tailscale SaaS | `POST /api/v2/tailnet/-/keys` with a bearer token exchanged from the OAuth client |
 | `headscale` | self-hosted, at `tailnet_control_url` | `POST {control_url}/api/v1/preauthkey` with `headscale_api_key`, for the numeric id `GET {control_url}/api/v1/user` lists for `tailnet_headscale_user`, falling back to the static `headscale_preauth_key` |
 
-The value is store-owned (catena-admin > Settings): `none`, `tailscale` or
+The value is store-owned (catena-admin > Security > Private network and SSH): `none`, `tailscale` or
 `headscale`. `playbooks/lockdown.yml` runs the role only on a host whose value
 is not `none`, and every task reads the stored value.
 
@@ -68,7 +68,7 @@ log.
 ## Inputs
 
 All credentials come from the on-box store, entered in catena-admin >
-Settings.
+Security > Private network and SSH.
 
 - Tailscale SaaS: `tailscale_oauth_client_id`,
   `tailscale_oauth_client_secret`.

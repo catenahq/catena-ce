@@ -1102,7 +1102,7 @@ def test_a_first_time_domain_has_no_outgoing_token_to_keep(oc):
 
 
 def test_resaving_the_same_domain_keeps_nothing(oc):
-    """The settings page resubmits every field. Only a CHANGE is a change."""
+    """The panel resubmits every field. Only a CHANGE is a change."""
     store = {
         "config": {"CLOUDFLARE_ZONE": "same.example"},
         "secrets": {"cloudflare_api_token": "tok"},

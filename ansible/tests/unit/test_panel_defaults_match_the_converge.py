@@ -1,6 +1,6 @@
 """A panel field's `default` is the value the converge falls back to.
 
-The settings page shows `panel.default` in a field while the store holds
+The panel shows `panel.default` in a field while the store holds
 nothing, and the converge resolves the same unset value from a literal in its
 own defaults (`cfg_x | default('literal', true)`). The two have to agree, or
 the page shows one name while the server answers on another. A knob whose

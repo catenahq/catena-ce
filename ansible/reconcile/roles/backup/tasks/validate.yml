@@ -112,7 +112,7 @@
 
 - name: "validate/backup: is this host backup-configured (all creds present)?"
   # Same four-part condition install.yml gates on. Backup is configured in
-  # catena-admin > Settings > Backup after the install, so a host that has
+  # catena-admin > Backups > Destination after the install, so a host that has
   # not been there yet has the units installed and the repo unset -- a
   # legitimate state the wrapper self-gates on at runtime, not a fault.
   ansible.builtin.set_fact:
@@ -126,8 +126,7 @@
   ansible.builtin.debug:
     msg: >-
       Backup is not configured on this host, so the restic repo checks below
-      are skipped. The repo and S3 keys are entered in catena-admin > Settings
-      > Backup, and catena-backup-run self-gates until they are.
+      are skipped. The repo and S3 keys are entered in catena-admin > Backups > Destination, and catena-backup-run self-gates until they are.
   when: not (_bk_configured | bool)
 
 - name: "validate/backup: do the backups wait after a restore"
@@ -169,18 +168,18 @@
     - _bk_configured | bool
 
 # The repository exists from the moment the destination is saved in
-# catena-admin > Settings, and a backup never creates one, so restic's 10 (no
+# catena-admin > Backups > Destination, and a backup never creates one, so restic's 10 (no
 # repository there) is a failure like any other, with its own remedy.
 - name: "validate/backup: say why restic cat config did not open the repo"
   ansible.builtin.set_fact:
     _bk_repo_reason: >-
       {% if _bk_restic_cat.rc == 10 %}No restic repository exists at the
       backup destination, and a backup never creates one. Saving a backup
-      destination in catena-admin > Settings > Backup creates one
+      destination in catena-admin > Backups > Destination creates one
       there.{% elif _bk_restic_cat.rc in [124, 137, -9] %}restic cat config did not
       answer within 120 seconds, so the backup destination is unreachable (no
       such bucket, a revoked key or no network route). Check the destination
-      in catena-admin > Settings > Backup.{% else %}restic cat config failed
+      in catena-admin > Backups > Destination.{% else %}restic cat config failed
       (rc={{ _bk_restic_cat.rc }}, stderr={{ _bk_restic_cat.stderr }}){% endif %}
   when:
     - _bk_payload_expected | bool
@@ -202,7 +201,7 @@
   ansible.builtin.debug:
     msg: >-
       The backups wait after a restore until the destination is confirmed or
-      replaced in catena-admin > Settings > Backup; until then a destination
+      replaced in catena-admin > Backups > Destination; until then a destination
       that does not open is reported here, not failed: {{ _bk_repo_reason }}
   when:
     - _bk_payload_expected | bool

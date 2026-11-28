@@ -71,9 +71,9 @@ access.panel: >-
   You can reach the Catena administration panel in your browser at {url}. Log
   in using the admin email and password.
 access.settings: >-
-  Visit the Settings tab in the admin panel to configure Domain and DNS access
-  (Cloudflare), Administrator tunnel (Tailnet), outgoing emails, backups, and
-  more.
+  Visit the Server settings, Security and Backups tabs in the admin panel to
+  configure Domain and DNS access (Cloudflare), Administrator tunnel (Tailnet),
+  outgoing emails, backups, and more.
 
 keyset.admin_password: "Admin password"
 keyset.console_recovery_password: "'ops' user password"

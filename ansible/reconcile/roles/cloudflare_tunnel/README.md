@@ -29,7 +29,7 @@ passes none and does not check for one:
 
 - **No token**: the engine prints `cloudflared-sync: skipped (no token)`
   and exits 0, so the tunnel is DEFERRED. The client enters the token in
-  catena-admin > Settings; the panel validates it (`cloudflared-check`)
+  catena-admin > Server settings > Domain; the panel validates it (`cloudflared-check`)
   and fires `cloudflared-sync` in the background. This is the shape of an
   install given no domain.
 - **Token present**: the engine converges the tunnel. A
@@ -60,7 +60,7 @@ rendered first, so the tunnel dispatch is a role of its own. The order is
   `reconcile/roles/payload`.
 - On-box store token `cloudflare_api_token` (Zone:DNS:Edit +
   Cloudflare Tunnel:Edit on the target zone), entered with the zone in
-  catena-admin > Settings.
+  catena-admin > Server settings > Domain.
 - `catena-network` (provided by `reconcile/roles/traefik`) and an
   initialized Docker swarm (provided by `bootstrap/roles/docker`).
 
@@ -74,7 +74,7 @@ re-converge does not trip the changed=0 gate.
 ## Companion role
 
 `reconcile/roles/cloudflare_tunnel_regenerate` is the rotation path, run by
-the panel's Settings > Domain > Apply through `playbooks/rotate-tunnel.yml`
+the panel's Server settings > Domain > Apply through `playbooks/rotate-tunnel.yml`
 before its converge: it deletes the host's tunnel and its connectors through
 the Cloudflare API, then includes this role, whose engine mints a new tunnel
 from the stored token. It refuses when the store holds no Cloudflare token.

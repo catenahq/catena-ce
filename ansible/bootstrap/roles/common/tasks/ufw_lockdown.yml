@@ -102,7 +102,7 @@
         msg: >-
           Public port 22 is OPEN on this host, as the panel asked. The host
           stays on its tailnet, so SSH reaches it on both paths. Ticking the
-          option to close public SSH in catena-admin > Settings closes it again
+          option to close public SSH in catena-admin > Security > Private network and SSH closes it again
           once the tailnet path is proven.
       when: catena_access_method == 'tailnet'
 
@@ -118,7 +118,7 @@
           a path this playbook can reach.
 
           To close it, choose a private network and enter its credentials in
-          catena-admin > Settings, then apply the chosen access again. It joins
+          catena-admin > Security > Private network and SSH, then apply the chosen access again. It joins
           the tailnet first, and closes the port only once the tailnet confirms
           this server is reachable on it.
 
@@ -192,7 +192,7 @@
   ansible.builtin.debug:
     msg: >-
       This host is on the tailnet at {{ tailnet_ipv4 }} and public port 22
-      stays open. Choose Lockdown in catena-admin > Settings to close it; the
+      stays open. Choose Lockdown in catena-admin > Security > Private network and SSH to close it; the
       host then keeps 22 closed while its tailnet is up and reopens it while
       the tailnet is down.
   when:

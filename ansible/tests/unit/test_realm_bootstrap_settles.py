@@ -8,7 +8,7 @@ finds the same state renders the same bytes and reports nothing to change. The s
 realm switched on, the realm admin's account and the realm's tunable settings)
 is rendered into its own dir, imported, deleted, and only then are the
 bootstrap markers written. Every import runs with keycloak-config-cli's cache
-off. Settings > Mail owns the realm's mail settings while the realm holds
+off. Server settings > Mail owns the realm's mail settings while the realm holds
 the ones Catena wrote: they render into the persistent file, and an empty map
 when mail is off, unless keycloak_smtp_write is false, which leaves them out.
 

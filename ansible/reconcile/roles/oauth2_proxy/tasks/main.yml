@@ -32,7 +32,7 @@
       No domain is configured, so the single sign-on gates in front of the
       shared services are NOT deployed. Those services stay reachable on the
       private network; nothing is published publicly for them to guard. Enter
-      a domain in the dashboard's Settings; the next converge deploys them.
+      a domain in the panel's Server settings > Domain; the next converge deploys them.
   when: catena_public_surface_deferred | default(false) | bool
 
 - name: "oauth2-proxy: preflight secrets + env"

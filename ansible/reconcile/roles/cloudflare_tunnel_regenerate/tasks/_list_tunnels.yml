@@ -29,7 +29,7 @@
     fail_msg: >-
       Zone '{{ _cf_regen_zone }}' not found (or token lacks access). The
       stored Cloudflare token needs Zone:DNS:Edit scope on this zone. Update it
-      in catena-admin > Settings, then run this again.
+      in catena-admin > Server settings > Domain, then run this again.
   run_once: true
   delegate_to: localhost
   become: false

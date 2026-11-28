@@ -1,4 +1,4 @@
-"""The realm's mail settings follow Settings > Outgoing mail while they are the
+"""The realm's mail settings follow Server settings > Mail while they are the
 ones Catena wrote, and settings changed in the realm's Email tab stay.
 
 The realm records a fingerprint of the mail fields Catena last gave it in a realm

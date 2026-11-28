@@ -65,7 +65,7 @@
 #               knob makes every converge run from the inventory write a
 #               non-blank `.env` value over the stored one: for a key with no
 #               panel field, whose one editor the `.env` stays.
-#   panel       how catena-admin renders it. Absent means the settings page
+#   panel       how catena-admin renders it. Absent means the panel
 #               does not show it; the page's own labels and help are its
 #               translations, keyed by the knob. `default` is the value a field
 #               shows while nothing is stored: the literal the converge falls
@@ -114,7 +114,7 @@ env_header: |-
 
   No secret belongs in here, or anywhere else in an inventory. Every secret
   lives on the server at /etc/catena/config.json, minted there or entered in
-  catena-admin > Settings. See catena-ce/ansible/SECRETS.md.
+  catena-admin. See catena-ce/ansible/SECRETS.md.
 
 # The installer page's sections, in order, all on one page. Each knob that
 # names one appears in it; a knob that names none is never asked for. `doc` is
@@ -163,7 +163,7 @@ env_sections:
 
       That is all this file configures about the server's reach. The domain,
       the private network and the backups are entered in catena-admin >
-      Settings once it runs, reached through an SSH forward as the `panel`
+      Server settings, Security and Backups once it runs, reached through an SSH forward as the `panel`
       account.
 
   - name: ssh
@@ -208,7 +208,7 @@ secrets:
     panel: {group: hostnames, section: secrets, kind: secret, optional: false}
 
   # Multi-domain (Catena Pro): one token per extra domain, entered in
-  # Settings > Domain. A JSON map of zone to API token, each token scoped to its
+  # Server settings > Domain. A JSON map of zone to API token, each token scoped to its
   # one zone.
   - key: cloudflare_api_tokens
 
@@ -254,7 +254,7 @@ secrets:
 
   # CIFS credentials for the optional bulk mount. Client-held: the share is
   # the client's NAS. NFS authenticates by source IP and supplies neither. The
-  # storage role's bulk.yml names both on the settings page when it asks for
+  # storage role's bulk.yml names both in Server settings > Storage share when it asks for
   # them, so the page has to offer them under exactly these names.
   - key: storage_bulk_username
     panel: {group: share, section: secrets, kind: secret, optional: true}
@@ -262,7 +262,7 @@ secrets:
   - key: storage_bulk_password
     panel: {group: share, section: secrets, kind: secret, optional: true}
 
-  # The Polar subscription key the client saves in Settings: this repo only
+  # The Polar subscription key the client saves in Server settings > Subscription and support: this repo only
   # stores it, and the host checks it with Polar (catena-admin catena-license).
   # Optional -- Community is the default and an empty field must stay empty
   # rather than reading as "not set yet".
@@ -534,7 +534,7 @@ config:
 
   # ---- the access plane ----
   #
-  # A blank submission on the settings page means "leave this alone", so a
+  # A blank submission in the panel means "leave this alone", so a
   # choice with the empty string as its off position could be turned on and
   # never off. TAILNET_PROVIDER and SMTP_PROVIDER therefore store `none`.
   #
@@ -830,7 +830,7 @@ config:
   # Whether this server sends Catena support a report when one of Catena's own
   # checks fails or recovers: "on", and anything else, absent included, is off.
   # No `var`: catena-admin's catena-error-report reads it off the store on
-  # every run. No `panel`: the settings page's error reports section writes it
+  # every run. No `panel`: Server settings > Subscription and support writes it
   # through its own form, which asks for consent first.
   - key: ERROR_REPORTS_TO_SUPPORT
     residence: store

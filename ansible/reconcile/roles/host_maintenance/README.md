@@ -5,7 +5,7 @@ change here reaches a host that converges itself: apt's settings, the host
 resolving its own name, the baseline packages, the hold on the container
 engine, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the NTP
 servers, the host mail agent kept off port 25, the settings the client changes
-in catena-admin > Settings, whether this host needs a reboot, the alert hub's
+in catena-admin > Server settings, whether this host needs a reboot, the alert hub's
 timer, the hourly licence check, the error reports to Catena support and the hourly verify hook
 of each application. It runs right after `payload`.
 
@@ -75,7 +75,7 @@ role removes any `/var/lib/catena/reboot-required.json` and any
 `/etc/catena/reboot-check.env` left on the host.
 
 The alert hub sends the message on the transition when the administrator has
-turned that alert on in catena-admin > Settings, so a person is told once when
+turned that alert on in catena-admin > Monitoring > Alert settings, so a person is told once when
 the host starts needing a reboot. No second alert path exists to configure, or
 to forget to configure.
 
@@ -113,7 +113,7 @@ converge after the payload lands.
 
 `catena-error-report.timer` runs `catena-error-report run` every five minutes:
 while the store holds `ERROR_REPORTS_TO_SUPPORT=on`, which the administrator
-sets in catena-admin > Settings, it sends Catena support the problems of
+sets in catena-admin > Server settings > Subscription and support, it sends Catena support the problems of
 Catena's own checks whenever they change, and switched off it withdraws the
 server. Its unit runs only while the licence is active. The binary and both
 units ship in the catena-admin payload; this role enables the timer on every

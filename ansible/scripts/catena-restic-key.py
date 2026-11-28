@@ -169,7 +169,7 @@ def cmd_generate(store: dict, store_path: str, replace: bool = False,
         here = _location(repo)
         if here is None:
             return {"ok": False, "error": "the backup destination is not a "
-                    "repository address; save one in Settings"}
+                    "repository address; save one in Backups > Destination"}
         if here == _location(str(hold.get("settings") or "")):
             if hold.get("choice") != "fresh":
                 return {"ok": False, "error": "the backup destination is the "
@@ -186,7 +186,7 @@ def cmd_generate(store: dict, store_path: str, replace: bool = False,
         if rc == _WRONG_PASSWORD:
             return {"ok": False, "error": "the repository already holds backups "
                     "encrypted under another password. Restore this server "
-                    "from it on the Restore page, or point Settings at an "
+                    "from it on the Restore page, or point Backups > Destination at an "
                     "empty repository"}
         if rc != _NO_REPOSITORY:
             return {"ok": False, "error": f"could not read the repository "
@@ -276,14 +276,14 @@ def cmd_init(store: dict) -> dict:
         return {"ok": False, "error": "no backup destination is saved"}
     if not password:
         return {"ok": False, "error": "no backup encryption password is "
-                "stored yet; generate it on the Settings page"}
+                "stored yet; generate it in Backups > Destination"}
     rc = _cat_config(env, password)
     if rc == 0:
         return {"ok": True, "repository": "exists"}
     if rc == _WRONG_PASSWORD:
         return {"ok": False, "error": "the destination holds a repository "
                 "encrypted under another password. Restore this server from "
-                "it on the Restore page, or point Settings at an empty bucket"}
+                "it on the Restore page, or point Backups > Destination at an empty bucket"}
     if rc != _NO_REPOSITORY:
         return {"ok": False, "error": f"could not read the destination "
                 f"(restic exit {rc}); check its address and keys"}
@@ -293,7 +293,7 @@ def cmd_init(store: dict) -> dict:
                 "nothing was created there; check its address and keys"}
     if holds:
         return {"ok": False, "error": "the destination holds files that are "
-                "not a restic repository. Point Settings at an empty bucket, "
+                "not a restic repository. Point Backups > Destination at an empty bucket, "
                 "or at a prefix nothing else uses"}
     pf = _write_secret_file(password)
     try:
@@ -323,7 +323,7 @@ def cmd_rotate(store: dict, req: dict, store_path: str, pass_file: str,
     if _held(held_file) is not None:
         return {"ok": False, "error": "the backups wait after a restore of this "
                 "server, and nothing is written to the repository until the "
-                "destination is confirmed, or a new one saved, in Settings"}
+                "destination is confirmed, or a new one saved, in Backups > Destination"}
     new_password = str(req.get("new_password") or "")
     if not new_password:
         return {"ok": False, "error": "no new password supplied"}

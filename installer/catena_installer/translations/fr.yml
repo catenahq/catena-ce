@@ -74,7 +74,8 @@ access.panel: >-
   Le panneau d'administration Catena est accessible dans votre navigateur à
   {url}. Se connecter avec le courriel et le mot de passe administrateur.
 access.settings: >-
-  L'onglet Settings du panneau d'administration configure le domaine et
+  Les onglets Paramètres du serveur, Sécurité et Sauvegardes du panneau
+  d'administration configurent le domaine et
   l'accès DNS (Cloudflare), le tunnel d'administration (Tailnet), les courriels
   sortants, les sauvegardes, et plus encore.
 
